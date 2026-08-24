@@ -18,7 +18,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 
-const SHELL_N = 38000
+const SHELL_N = 58000
 const CORE_N = 2600
 const EJECTA_N = 3600
 
@@ -96,22 +96,29 @@ const SHELL_VERT = /* glsl */ `
       n2 * (uMid * 0.24 + uPulse * 0.10) +
       n3 * (uHigh * 0.13);
 
+    // Volumetric body, not a hollow shell: each particle owns a depth
+    // inside the ball (surface-biased), so the face-on view is a boiling
+    // solid mass like the reference, and tilting reveals real volume.
+    float h2 = fract(aHash * 57.719);
+    float depth = mix(0.42, 1.0, pow(h2, 0.38));
     // The photosphere: base radius breathes with the bass; anticipation
     // (the peaks feed) raises the surface tension before a drop lands.
-    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp);
+    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth;
     vec3 p = aDir * r;
 
     // Hot where deformed — flares glow. A slow per-particle twinkle keeps
     // the surface grainy even in still passages.
     float k = clamp(abs(disp) * 3.2, 0.0, 1.0);
     float tw = 0.72 + 0.28 * sin(uTime * (2.0 + aHash * 6.0) + aHash * 40.0);
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw;
+    // Interior burns slightly dimmer than the surface — the fabric reads
+    // as one mass with depth, not two nested skins.
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw * (0.55 + 0.45 * depth);
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.1 + k * 1.6 + uPulse * 0.4) * on * (2.75 / max(0.4, -mv.z));
+    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35) * on * (2.75 / max(0.4, -mv.z));
   }
 `
 
@@ -151,7 +158,7 @@ const EJECTA_VERT = /* glsl */ `
     // dead-or-alive particle costs the same and nothing runs on the CPU.
     float k = 2.1;
     float dist = aSpd * (1.0 - exp(-k * age)) / k;
-    vec3 p = aDir * (uR * 0.62 + dist);
+    vec3 p = aDir * (uR * 0.60 + dist);
 
     vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -423,7 +430,8 @@ export class Scene {
     this.camera.position.x = off
     this.camera.lookAt(off, 0, 0)
     this.camera.updateProjectionMatrix()
-    this.uniforms.uR.value = 0.72
+    // The subject dominates the stage, like the reference.
+    this.uniforms.uR.value = 0.88
   }
 
   render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0) {

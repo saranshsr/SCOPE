@@ -482,7 +482,8 @@ body {
   position: absolute;
   left: calc(272px + 40px);
   bottom: calc(var(--edge) + 96px);
-  right: var(--edge);
+  /* Stops clear of the spectrum compartment instead of running under it. */
+  right: calc(var(--edge) + 248px);
   pointer-events: none;
   z-index: 4;
   overflow: hidden;
