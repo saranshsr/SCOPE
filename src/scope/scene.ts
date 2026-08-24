@@ -78,6 +78,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uAhead;
   uniform float uR;
   uniform float uReveal;
+  uniform float uDensity;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -115,7 +116,7 @@ const SHELL_VERT = /* glsl */ `
     vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw * (0.55 + 0.45 * depth);
     vHash = aHash;
 
-    float on = step(fract(aHash * 977.0), uReveal);
+    float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35) * on * (2.75 / max(0.4, -mv.z));
@@ -142,6 +143,7 @@ const EJECTA_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uPulse;
   uniform float uR;
+  uniform float uDensity;
   attribute vec3 aDir;
   attribute float aBirth;  // scene-time of launch; large negative = dead slot
   attribute float aSpd;
@@ -152,7 +154,7 @@ const EJECTA_VERT = /* glsl */ `
     float age = uTime - aBirth;
     float life = 1.3 + aHash * 0.9;
     float a01 = clamp(age / life, 0.0, 1.0);
-    float alive = step(0.0, age) * (1.0 - step(1.0, a01));
+    float alive = step(0.0, age) * (1.0 - step(1.0, a01)) * step(fract(aHash * 331.7), uDensity);
 
     // Exponential drag: fast leave, coasting arrival. Closed-form, so a
     // dead-or-alive particle costs the same and nothing runs on the CPU.
@@ -185,6 +187,7 @@ const CORE_VERT = /* glsl */ `
   uniform float uPulse;
   uniform float uR;
   uniform float uReveal;
+  uniform float uDensity;
   attribute float aHash;
   attribute vec3 aSeed;
   varying float vHeat;
@@ -201,7 +204,7 @@ const CORE_VERT = /* glsl */ `
     float dist = length(p) / max(coreR * 2.2, 1e-4);
     float clump = 0.45 + 0.55 * sin(aHash * 43.7 + uTime * 0.9);
     vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18) * (0.5 + clump));
-    float on = step(fract(aHash * 613.0), uReveal);
+    float on = step(fract(aHash * 613.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (1.4 + vHeat * 2.4) * on * (2.75 / max(0.4, -mv.z));
@@ -251,6 +254,10 @@ export class Scene {
   private born = performance.now()
   private t = 0
   private focusFrac = 0.5
+  private quality = 1
+  /** Reduced-motion visitors get a still star that still hears the music —
+   *  the boil is content, the spin is decoration. */
+  private calm = matchMedia('(prefers-reduced-motion: reduce)').matches
   private lastW = 2
   private lastH = 1
 
@@ -274,6 +281,9 @@ export class Scene {
       uAhead: { value: 0 },
       uR: { value: 1 },
       uReveal: { value: 0 },
+      // Adaptive quality: fraction of particles allowed to render. The
+      // app's frame loop lowers this on hardware that can't hold 60.
+      uDensity: { value: 1 },
     }
 
     // --- the shell: fibonacci sphere ----------------------------------------
@@ -377,6 +387,14 @@ export class Scene {
     return this.bloom
   }
 
+  /** Adaptive quality: q<1 halves the workload twice over — fewer
+   *  particles AND a non-retina buffer. Called by the app's self-profiler. */
+  setQuality(q: number) {
+    this.quality = q
+    this.uniforms.uDensity.value = q
+    this.resize(this.lastW, this.lastH)
+  }
+
   /** The POWER ON moment reaches the star itself: a fast partial re-reveal
    *  (reads as the instrument re-acquiring) plus a full-strength eruption. */
   powerOn() {
@@ -426,7 +444,7 @@ export class Scene {
   resize(w: number, h: number) {
     this.lastW = w
     this.lastH = h
-    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    const dpr = this.quality < 1 ? 1 : Math.min(2, window.devicePixelRatio || 1)
     this.renderer.setPixelRatio(dpr)
     this.renderer.setSize(w, h, false)
     this.composer.setSize(w, h)
@@ -458,7 +476,7 @@ export class Scene {
     this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
     this.drag.x += (this.drag.tx - this.drag.x) * ease
     this.drag.y += (this.drag.ty - this.drag.y) * ease
-    this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05)
+    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     this.cluster.rotation.x =
       Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y

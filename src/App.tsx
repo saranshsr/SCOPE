@@ -148,6 +148,7 @@ export default function App() {
 
     // The grid sweeps ride the music: Web Animations playbackRate is the
     // one dial that changes a running CSS animation's speed without a jump.
+    const perf = { ema: 0.016, cool: 3, q: 1 }
     let lineAnims: Animation[] = []
     const collectAnims = () => {
       lineAnims = []
@@ -202,6 +203,26 @@ export default function App() {
         const sc = 1 + cur.down * 0.5
         reticleRef.current.style.transform = `translate(${cur.x}px, ${cur.y}px) translate(-50%, -50%) scale(${sc})`
         reticleRef.current.style.opacity = cur.overUi ? '0' : '1'
+      }
+
+      // Self-profiler: a slow EMA of real frame time. Two seconds of
+      // sustained >24ms and the scene sheds half its particles and the
+      // retina buffer; it climbs back only if the device proves fast.
+      // Only measured while visible — hidden tabs report garbage timing.
+      if (document.visibilityState === 'visible' && startedRef.current) {
+        perf.ema += (dt - perf.ema) * 0.02
+        perf.cool -= dt
+        if (perf.cool <= 0) {
+          if (perf.ema > 0.024 && perf.q > 0.55) {
+            perf.q = 0.55
+            scene.setQuality(perf.q)
+            perf.cool = 5
+          } else if (perf.ema < 0.014 && perf.q < 1) {
+            perf.q = 1
+            scene.setQuality(perf.q)
+            perf.cool = 5
+          }
+        }
       }
 
       // Sweep rate follows the energy; beats flash the whole layer briefly.
