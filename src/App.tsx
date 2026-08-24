@@ -48,6 +48,7 @@ export default function App() {
   const startedRef = useRef(false)
   const appRef = useRef<HTMLDivElement>(null)
   const reticleRef = useRef<HTMLDivElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
   // Full-track peaks for whatever is playing; generation counter guards
   // against a slow fetch landing after the track has already changed.
   const peaksRef = useRef<TrackPeaks | null>(null)
@@ -145,6 +146,17 @@ export default function App() {
       window.addEventListener('pointercancel', onCurUp)
     }
 
+    // The grid sweeps ride the music: Web Animations playbackRate is the
+    // one dial that changes a running CSS animation's speed without a jump.
+    let lineAnims: Animation[] = []
+    const collectAnims = () => {
+      lineAnims = []
+      gridRef.current?.querySelectorAll('.gl-v, .gl-h').forEach((el) => {
+        lineAnims.push(...el.getAnimations())
+      })
+    }
+    setTimeout(collectAnims, 200)
+
     // rms history for the scrolling waveform strip.
     const wave = new Float32Array(220)
     let waveHead = 0
@@ -190,6 +202,13 @@ export default function App() {
         const sc = 1 + cur.down * 0.5
         reticleRef.current.style.transform = `translate(${cur.x}px, ${cur.y}px) translate(-50%, -50%) scale(${sc})`
         reticleRef.current.style.opacity = cur.overUi ? '0' : '1'
+      }
+
+      // Sweep rate follows the energy; beats flash the whole layer briefly.
+      if (gridRef.current) {
+        const rate = 0.8 + f.low * 2.6 + beatPulse * 2.2
+        for (const a of lineAnims) a.playbackRate = rate
+        gridRef.current.style.opacity = String(Math.min(1, 0.8 + beatPulse * 0.5))
       }
 
       chromeAcc += dt
@@ -281,7 +300,7 @@ export default function App() {
       {/* The survey grid, alive: a pulse of light travels along each line
           (the GridLines component's technique — background-position on a
           long gradient, staggered per line, compositor-only). */}
-      <div className="gridlayer" aria-hidden="true">
+      <div ref={gridRef} className="gridlayer" aria-hidden="true">
         {Array.from({ length: 15 }, (_, i) => (
           <i key={`v${i}`} className="gl-v" style={{ left: `${((i + 1) / 16) * 100}%`, '--i': i } as React.CSSProperties} />
         ))}
@@ -289,6 +308,14 @@ export default function App() {
           <i key={`h${i}`} className="gl-h" style={{ top: `${((i + 1) / 9) * 100}%`, '--i': i + 4 } as React.CSSProperties} />
         ))}
       </div>
+      {/* measuring chrome: tick rulers on the stage edges, hazard strip at
+          the frame's foot — the skill's technical assets, kept quiet. */}
+      <div className="ruler-x" aria-hidden="true">
+        <span>020</span><span>040</span><span>060</span><span>080</span>
+      </div>
+      <div className="ruler-y" aria-hidden="true" />
+      <div className="hazard" aria-hidden="true" />
+
       <div ref={reticleRef} className="reticle" aria-hidden="true">
         <i className="ret-h" /><i className="ret-v" /><i className="ret-dot" />
       </div>
@@ -313,10 +340,14 @@ export default function App() {
         <span className="frame-dash" />
       </div>
 
-      {/* top-right: source id + on-air dot */}
-      <div className="src">
-        {SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} />
-      </div>
+      {/* top-right: the title block — an engineering drawing's data plate,
+          1px grid-gap dividers, real values only. */}
+      <dl className="titleblock">
+        <div><dt>src</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
+        <div><dt>unit</dt><dd>D-01</dd></div>
+        <div><dt>cal</dt><dd>44.1K</dd></div>
+        <div><dt>fft</dt><dd>2048</dd></div>
+      </dl>
 
       {/* §3.1 macro-typography: the standby poster. A viewport-bleeding
           structural wordmark against calculated negative space — the skill's
