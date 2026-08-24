@@ -760,4 +760,25 @@ body {
   .ruler-x { left: 0; }
   .ruler-y { display: none; }
   .titleblock { grid-template-columns: repeat(2, auto); }
+  /* The spectrum was absolutely positioned onto the bottom console,
+     covering the readout. On phones it docks top-right under the title
+     block, smaller — every gauge visible, nothing stacked. */
+  .spec {
+    bottom: auto;
+    top: calc(var(--edge) + 84px);
+    right: var(--edge);
+    transform: scale(0.82);
+    transform-origin: top right;
+  }
+}
+
+/* Touch: fingers need 44px targets; the source switch grows without
+   changing the composition. */
+@media (pointer: coarse) {
+  .rail-src button {
+    padding: 14px 0 15px;
+  }
+  .power {
+    padding: 14px 18px;
+  }
 }
