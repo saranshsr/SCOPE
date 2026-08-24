@@ -81,7 +81,7 @@ export default function App() {
         })
       }
     }
-    ;(window as unknown as { __eng: AudioEngine }).__eng = engine
+    if (import.meta.env.DEV) (window as unknown as { __eng: AudioEngine }).__eng = engine
 
     const scene = new Scene(canvas)
     sceneRef.current = scene
@@ -115,20 +115,27 @@ export default function App() {
     // no layout properties). Touch devices never see it.
     const finePointer = matchMedia('(pointer: fine)').matches
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
-    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false, dragging: false }
+    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false, dragging: false, lx: 0, ly: 0 }
     const onCurMove = (e: PointerEvent) => {
       cur.tx = e.clientX
       cur.ty = e.clientY
       cur.overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
       if (!reducedMotion) {
-        // Hover aims the instrument; a held pointer grabs and spins it —
-        // the reference cluster's interaction model, verbatim.
-        scene.setPointer(e.clientX / Math.max(1, w) - 0.5, e.clientY / Math.max(1, h) - 0.5)
-        if (cur.dragging) scene.dragBy(e.movementX * 0.006, e.movementY * 0.004)
+        // Hover aims the instrument (fine pointers only — touch has no
+        // hover); a held pointer grabs and spins it on EVERY device.
+        // Deltas are computed manually: iOS reports movementX as 0.
+        if (finePointer) scene.setPointer(e.clientX / Math.max(1, w) - 0.5, e.clientY / Math.max(1, h) - 0.5)
+        if (cur.dragging) {
+          scene.dragBy((e.clientX - cur.lx) * 0.006, (e.clientY - cur.ly) * 0.004)
+        }
       }
+      cur.lx = e.clientX
+      cur.ly = e.clientY
     }
     const onCurDown = (e: PointerEvent) => {
       cur.down = 1
+      cur.lx = e.clientX
+      cur.ly = e.clientY
       const overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
       if (!overUi && startedRef.current) {
         cur.dragging = true
@@ -139,12 +146,10 @@ export default function App() {
       cur.dragging = false
       appRef.current?.classList.remove('grabbing')
     }
-    if (finePointer) {
-      window.addEventListener('pointermove', onCurMove)
-      window.addEventListener('pointerdown', onCurDown)
-      window.addEventListener('pointerup', onCurUp)
-      window.addEventListener('pointercancel', onCurUp)
-    }
+    window.addEventListener('pointermove', onCurMove)
+    window.addEventListener('pointerdown', onCurDown)
+    window.addEventListener('pointerup', onCurUp)
+    window.addEventListener('pointercancel', onCurUp)
 
     // The grid sweeps ride the music: Web Animations playbackRate is the
     // one dial that changes a running CSS animation's speed without a jump.
@@ -273,6 +278,7 @@ export default function App() {
       startedRef.current = true
       setStarted(true)
       focus()
+      scene.powerOn()
       engine.unlock()
       void engine.playFile(file)
       const gen = ++peaksGen.current
@@ -292,12 +298,10 @@ export default function App() {
       window.removeEventListener('resize', measure)
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
-      if (finePointer) {
-        window.removeEventListener('pointermove', onCurMove)
-        window.removeEventListener('pointerdown', onCurDown)
-        window.removeEventListener('pointerup', onCurUp)
-        window.removeEventListener('pointercancel', onCurUp)
-      }
+      window.removeEventListener('pointermove', onCurMove)
+      window.removeEventListener('pointerdown', onCurDown)
+      window.removeEventListener('pointerup', onCurUp)
+      window.removeEventListener('pointercancel', onCurUp)
     }
   }, [])
 
@@ -479,6 +483,7 @@ export default function App() {
             startedRef.current = true
             setStarted(true)
             ;(window as unknown as { __focus: () => void }).__focus()
+            sceneRef.current?.powerOn()
             const eng = engineRef.current
             if (eng) {
               void eng.playFile(file)

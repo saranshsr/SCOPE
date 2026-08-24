@@ -380,7 +380,7 @@ export class Scene {
     // Tight bloom: crisp particles first, halo second.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.25, 0.55)
     this.composer.addPass(this.bloom)
-    ;(window as unknown as { __scene: Scene }).__scene = this
+    if (import.meta.env.DEV) (window as unknown as { __scene: Scene }).__scene = this
   }
 
   get bloomPass() {
