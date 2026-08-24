@@ -82,7 +82,9 @@ export class AudioEngine {
     // sign — 'ended' never fires on an errored element, so skip ourselves.
     this.errStreak++
     if (this.errStreak > 3) {
-      this.onTrackChange?.({ title: 'signal lost', artist: 'check your connection', src: '' })
+      // Also the deployed reality: the radio library ships only on machines
+      // that hold licensed audio — everywhere else this is the honest state.
+      this.onTrackChange?.({ title: 'radio unavailable', artist: 'drop a track anywhere', src: '' })
       return
     }
     void this.next()
