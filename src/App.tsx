@@ -425,8 +425,8 @@ export default function App() {
             <canvas
               ref={waveRef}
               className="deck-wave"
-              width={232}
-              height={52}
+              width={464}
+              height={104}
               onPointerDown={(e) => {
                 // The full-track strip is a scrubber, when there IS a track.
                 const el = engineRef.current?.el
@@ -457,7 +457,7 @@ export default function App() {
       {started && (
       <div className="spec">
         <div className="spec-label"><Decode text="spectrum" duration={600} /></div>
-        <canvas ref={specRef} width={200} height={72} />
+        <canvas ref={specRef} width={400} height={144} />
         <div className="spec-hz">
           <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
         </div>
@@ -540,13 +540,14 @@ function drawWave(
       g.fillRect(x, mid - hh, 1, hh * 2)
     }
     // The playhead — the same red as the crosshair tags; one instrument.
+    // 2 buffer px = 1 CSS px on the retina buffer.
     g.fillStyle = '#ff2a2a'
-    g.fillRect(px, 0, 1, H)
+    g.fillRect(px, 0, 2, H)
     return
   }
 
   g.strokeStyle = 'rgba(234,234,234,0.85)'
-  g.lineWidth = 1
+  g.lineWidth = 2
   g.beginPath()
   const n = wave.length
   for (let i = 0; i < n; i++) {
