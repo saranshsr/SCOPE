@@ -49,6 +49,7 @@ export class AudioEngine {
     // cross-fired between sources). 'playing' confirms sound actually flows;
     // 'error' is the designed-failure path for whatever was playing.
     this.el.addEventListener('playing', () => {
+      this.watchdog++ // real audio arrived — cancel any pending verdict
       this.errStreak = 0
       if (this.pendingAnnounce) {
         this.onTrackChange?.(this.pendingAnnounce)
@@ -59,6 +60,20 @@ export class AudioEngine {
 
     this.analyser.node.connect(this.gain)
     this.gain.connect(this.ctx.destination)
+  }
+
+  /** Some hosts rewrite missing files to 200-HTML instead of 404 — the
+   *  audio element then never fires 'error', it just stalls silently under
+   *  an announced title. The watchdog gives every radio track a deadline:
+   *  no real audio within 4s counts as a dead station. */
+  private watchdog = 0
+  private armWatchdog() {
+    const token = ++this.watchdog
+    setTimeout(() => {
+      if (token !== this.watchdog || this.kind !== 'radio') return
+      const alive = this.el.readyState >= 2 && isFinite(this.el.duration) && !this.el.paused
+      if (!alive) this.onElementError()
+    }, 4000)
   }
 
   /** Announce queued until the element reports 'playing'. */
@@ -118,6 +133,7 @@ export class AudioEngine {
     const t = this.playlist[this.index]
     if (!t) return
     if (!this.el.src.endsWith(t.src)) this.el.src = t.src
+    this.armWatchdog()
     await this.el.play().catch(() => {})
     this.onTrackChange?.(t)
   }
@@ -127,6 +143,7 @@ export class AudioEngine {
     this.pendingAnnounce = null
     this.index = (this.index + 1) % this.playlist.length
     this.el.src = this.playlist[this.index].src
+    this.armWatchdog()
     await this.el.play().catch(() => {})
     this.onTrackChange?.(this.playlist[this.index])
   }
