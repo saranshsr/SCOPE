@@ -41,11 +41,13 @@ export default function App() {
   // entrance before the title settles into the rail. Keyed so React restarts
   // the CSS animation per track.
   const [announce, setAnnounce] = useState<{ text: string; key: number } | null>(null)
+  const [decoding, setDecoding] = useState(false)
   const sceneRef = useRef<Scene | null>(null)
 
   const engineRef = useRef<AudioEngine | null>(null)
   const startedRef = useRef(false)
   const appRef = useRef<HTMLDivElement>(null)
+  const reticleRef = useRef<HTMLDivElement>(null)
   // Full-track peaks for whatever is playing; generation counter guards
   // against a slow fetch landing after the track has already changed.
   const peaksRef = useRef<TrackPeaks | null>(null)
@@ -107,6 +109,22 @@ export default function App() {
     measure()
     window.addEventListener('resize', measure)
 
+    // The reticle cursor — an instrument aims, it doesn't point. Eased
+    // follow via transforms inside the existing frame loop (no extra rAF,
+    // no layout properties). Touch devices never see it.
+    const finePointer = matchMedia('(pointer: fine)').matches
+    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false }
+    const onCurMove = (e: PointerEvent) => {
+      cur.tx = e.clientX
+      cur.ty = e.clientY
+      cur.overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
+    }
+    const onCurDown = () => { cur.down = 1 }
+    if (finePointer) {
+      window.addEventListener('pointermove', onCurMove)
+      window.addEventListener('pointerdown', onCurDown)
+    }
+
     // rms history for the scrolling waveform strip.
     const wave = new Float32Array(220)
     let waveHead = 0
@@ -139,6 +157,16 @@ export default function App() {
 
       wave[waveHead] = f.rms
       waveHead = (waveHead + 1) % wave.length
+
+      // Reticle follow: eased transform, press pulse decays like the tube.
+      if (finePointer && reticleRef.current) {
+        cur.x += (cur.tx - cur.x) * Math.min(1, dt * 14)
+        cur.y += (cur.ty - cur.y) * Math.min(1, dt * 14)
+        cur.down *= Math.exp(-dt * 7)
+        const sc = 1 + cur.down * 0.5
+        reticleRef.current.style.transform = `translate(${cur.x}px, ${cur.y}px) translate(-50%, -50%) scale(${sc})`
+        reticleRef.current.style.opacity = cur.overUi ? '0' : '1'
+      }
 
       chromeAcc += dt
       if (chromeAcc > 0.16) {
@@ -184,8 +212,12 @@ export default function App() {
       engine.unlock()
       void engine.playFile(file)
       const gen = ++peaksGen.current
+      setDecoding(true)
       void peaksFromFile(file, engine.ctx).then((p) => {
-        if (peaksGen.current === gen) peaksRef.current = p
+        if (peaksGen.current === gen) {
+          peaksRef.current = p
+          setDecoding(false)
+        }
       })
     }
     window.addEventListener('dragover', onDragOver)
@@ -196,6 +228,10 @@ export default function App() {
       window.removeEventListener('resize', measure)
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
+      if (finePointer) {
+        window.removeEventListener('pointermove', onCurMove)
+        window.removeEventListener('pointerdown', onCurDown)
+      }
     }
   }, [])
 
@@ -207,12 +243,19 @@ export default function App() {
     void engineRef.current?.playRadio()
   }
 
-  const name = track ? `${track.title.toUpperCase().slice(0, 26)}${source === 'file' ? '.MP3' : ''}` : 'NO CARRIER'
+  const name = decoding
+    ? 'DECODING ///'
+    : track
+      ? `${track.title.toUpperCase().slice(0, 26)}${source === 'file' ? '.MP3' : ''}`
+      : 'NO CARRIER'
 
   return (
     <div ref={appRef} className={`app${started ? ' live' : ''}`} onClick={started ? undefined : power}>
       <canvas ref={canvasRef} className="stage" />
       <div className="gridlayer" />
+      <div ref={reticleRef} className="reticle" aria-hidden="true">
+        <i className="ret-h" /><i className="ret-v" /><i className="ret-dot" />
+      </div>
 
       {/* crosshair — full frame, playhead % in red at each axis head */}
       <div className="x-v" />
@@ -351,8 +394,12 @@ export default function App() {
             if (eng) {
               void eng.playFile(file)
               const gen = ++peaksGen.current
+              setDecoding(true)
               void peaksFromFile(file, eng.ctx).then((p) => {
-                if (peaksGen.current === gen) peaksRef.current = p
+                if (peaksGen.current === gen) {
+                  peaksRef.current = p
+                  setDecoding(false)
+                }
               })
             }
           }

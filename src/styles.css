@@ -537,3 +537,64 @@ body {
     transition: none;
   }
 }
+
+/* ===========================================================================
+   Cursor UX — the reticle. An instrument aims; the pointer is part of the
+   fiction. Transform-only movement, eased in the frame loop, hidden over
+   real controls (they keep the native pointer), absent on touch.
+   ------------------------------------------------------------------------ */
+
+.reticle {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 26px;
+  height: 26px;
+  pointer-events: none;
+  z-index: 30;
+  opacity: 0;
+  will-change: transform;
+}
+
+.ret-h, .ret-v {
+  position: absolute;
+  background: rgba(234, 234, 234, 0.8);
+}
+.ret-h { left: 0; right: 0; top: 50%; height: 1px; }
+.ret-v { top: 0; bottom: 0; left: 50%; width: 1px; }
+
+/* the gap: hairlines stop short of the center dot */
+.ret-h { clip-path: polygon(0 0, 34% 0, 34% 100%, 0 100%, 0 0, 100% 0, 100% 100%, 66% 100%, 66% 0); }
+.ret-v { clip-path: polygon(0 0, 100% 0, 100% 34%, 0 34%, 0 0, 0 100%, 100% 100%, 100% 66%, 0 66%); }
+
+.ret-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  transform: translate(-50%, -50%);
+  background: var(--red);
+}
+
+/* Interactive elements keep honest system cursors. */
+@media (pointer: fine) {
+  .app { cursor: none; }
+  .rail, .spec, .ctl-row, button, a, input { cursor: auto; }
+  button, a { cursor: pointer; }
+  .deck-wave { cursor: crosshair; }
+}
+
+@media (pointer: coarse) {
+  .reticle { display: none; }
+}
+
+/* Tap feedback on the remaining pressables (skill: press = scale 0.95-0.98). */
+.power:active { transform: scale(0.97); }
+.deck-wave:active { transform: scaleY(0.94); }
+.power, .deck-wave { transition: transform 90ms ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reticle { display: none; }
+  .app { cursor: auto; }
+}
