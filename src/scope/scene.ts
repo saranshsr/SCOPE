@@ -60,7 +60,11 @@ const RING_VERT = /* glsl */ `
     d = clamp(d, -uR * 0.045, uR * 0.045);
 
     float r = base + d;
-    vec3 p = vec3(cos(th) * r, sin(th) * r, 0.0);
+    // The third dimension: rings sink toward the centre — a shallow vortex
+    // whose throat deepens with the bass. Flat when face-on; tilt or drag
+    // and the funnel reveals itself.
+    float depth = (0.30 + uLow * 0.28) * uR;
+    vec3 p = vec3(cos(th) * r, sin(th) * r, -(1.0 - aRing) * depth);
 
     // Local intensity: displacement relative to calm = brightness. Additive
     // blending stacks ~3 overlapping sprites per ring pixel, so per-particle
@@ -73,8 +77,11 @@ const RING_VERT = /* glsl */ `
 
     // Reveal: particles bloom outward from nothing on power-up.
     float on = step(fract(aHash * 977.0), uReveal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-    gl_PointSize = (1.3 + k * 1.8 + uPulse * 0.5) * on;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    // Perspective attenuation: nearer particles render larger — the depth
+    // cue that makes the tilt read as a physical object.
+    gl_PointSize = (1.3 + k * 1.8 + uPulse * 0.5) * on * (2.75 / max(0.4, -mv.z));
   }
 `
 
@@ -112,6 +119,8 @@ const CORE_VERT = /* glsl */ `
       0.0
     ) * coreR * (0.10 + uHigh * 0.5);
     vec3 p = aSeed * coreR + wob;
+    // The core sits at the funnel's throat.
+    p.z -= (0.30 + uLow * 0.28) * uR * 0.9;
     // Heat: center hottest, boils brighter with the music.
     float dist = length(p) / max(coreR * 2.2, 1.0);
     // Capped: the loud state must BOIL, not flatten into a white disc —
@@ -121,8 +130,9 @@ const CORE_VERT = /* glsl */ `
     float clump = 0.45 + 0.55 * sin(aHash * 43.7 + uTime * 0.9);
     vHeat = min(0.42, (1.0 - clamp(dist, 0.0, 1.0)) * (0.14 + uLow * 0.5 + uMid * 0.16) * (0.5 + clump));
     float on = step(fract(aHash * 613.0), uReveal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-    gl_PointSize = (1.5 + vHeat * 2.6) * on;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.5 + vHeat * 2.6) * on * (2.75 / max(0.4, -mv.z));
   }
 `
 
@@ -153,7 +163,14 @@ class Env {
 export class Scene {
   private renderer: THREE.WebGLRenderer
   private scene = new THREE.Scene()
-  private camera: THREE.OrthographicCamera
+  private camera: THREE.PerspectiveCamera
+  /** Everything that IS the instrument rotates as one physical object. */
+  private cluster = new THREE.Group()
+  // Interaction state, damped exactly like the reference cluster:
+  // rotation.y = drift + hover + drag, every term eased.
+  private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
+  private drag = { x: 0, y: 0, tx: 0, ty: 0 }
+  private driftT = 0
   private composer: EffectComposer
   private bloom: UnrealBloomPass
   private uniforms: Record<string, THREE.IUniform>
@@ -174,8 +191,11 @@ export class Scene {
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace
     THREE.ColorManagement.enabled = false
     this.renderer.setClearColor(0x0a0a0a, 1)
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
-    this.camera.position.z = 5
+    // Perspective, calibrated so the vertical half-height at z=0 is exactly
+    // 1 world unit — the ortho calibration every radius was tuned against.
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 20)
+    this.camera.position.z = 1 / Math.tan((40 / 2) * (Math.PI / 180))
+    this.scene.add(this.cluster)
 
     this.uniforms = {
       uTime: { value: 0 },
@@ -219,7 +239,7 @@ export class Scene {
         depthTest: false,
         transparent: false,
       })
-      this.scene.add(new THREE.Points(geo, mat))
+      this.cluster.add(new THREE.Points(geo, mat))
     }
 
     // --- core ---------------------------------------------------------------
@@ -252,7 +272,7 @@ export class Scene {
         depthWrite: false,
         depthTest: false,
       })
-      this.scene.add(new THREE.Points(geo, mat))
+      this.cluster.add(new THREE.Points(geo, mat))
     }
 
     this.composer = new EffectComposer(this.renderer)
@@ -289,16 +309,30 @@ export class Scene {
     // device pixels here would quadruple the bloom targets.
     this.composer.setSize(w, h)
     const aspect = w / Math.max(1, h)
-    // To make world x=0 APPEAR at focusFrac of the width, the camera window
-    // shifts the opposite way: frac = (0 - left) / (right - left).
+    this.camera.aspect = aspect
+    // Parallel pan: camera and its aim shift together, so the disc APPEARS
+    // at focusFrac of the width without any perspective skew.
+    // Camera at x looking at (x,0,0) shows world-x at screen centre, so to
+    // place world 0 RIGHT of centre the camera itself moves LEFT.
     const off = -(this.focusFrac - 0.5) * 2 * aspect
-    this.camera.left = -aspect + off
-    this.camera.right = aspect + off
-    this.camera.top = 1
-    this.camera.bottom = -1
+    this.camera.position.x = off
+    this.camera.lookAt(off, 0, 0)
     this.camera.updateProjectionMatrix()
     // Disc radius in world units: 0.72 of the half-height.
     this.uniforms.uR.value = 0.72
+  }
+
+  /** Hover aim, normalized -0.5..0.5 of the viewport. */
+  setPointer(nx: number, ny: number) {
+    this.ptr.tx = nx
+    this.ptr.ty = ny
+  }
+
+  /** Drag deltas in radians — grab the instrument and tilt it. Both axes
+   *  clamp: a dish never turns edge-on, it tips in your hands. */
+  dragBy(rx: number, ry: number) {
+    this.drag.tx = Math.max(-0.55, Math.min(0.55, this.drag.tx + rx))
+    this.drag.ty = Math.max(-0.55, Math.min(0.55, this.drag.ty + ry))
   }
 
   render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0) {
@@ -312,6 +346,22 @@ export class Scene {
     // Very slow spring: anticipation should creep in over seconds.
     this.uniforms.uAhead.value = this.aheadE.update(ahead, dt, 1.6)
     this.uniforms.uReveal.value = Math.min(1, (performance.now() - this.born) / 1700)
+    // The reference cluster's motion law: drift + damped hover + damped
+    // drag, and a slow breathing wobble underneath.
+    const ease = Math.min(1, dt * 4)
+    this.ptr.x += (this.ptr.tx - this.ptr.x) * ease
+    this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
+    this.drag.x += (this.drag.tx - this.drag.x) * ease
+    this.drag.y += (this.drag.ty - this.drag.y) * ease
+    this.driftT += dt * (0.05 + this.uniforms.uPulse.value * 0.04)
+    // A dish, not a logo cluster: continuous spin happens around its OWN
+    // axis (z, like a record); hover and drag only TILT it, clamped so it
+    // never degenerates edge-on.
+    this.cluster.rotation.z = this.driftT
+    this.cluster.rotation.y = this.ptr.x * 0.5 + this.drag.x
+    this.cluster.rotation.x =
+      Math.sin(this.driftT * 0.4) * 0.08 - this.ptr.y * 0.42 + this.drag.y
+
     // Bloom breathes with the bass — the whole picture inhales.
     this.bloom.strength = 0.35 + this.uniforms.uLow.value * 0.35 + this.uniforms.uPulse.value * 0.18
     this.composer.render()

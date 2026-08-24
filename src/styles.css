@@ -598,3 +598,10 @@ body {
   .reticle { display: none; }
   .app { cursor: auto; }
 }
+
+/* Grabbing the instrument: the reticle's dot swells while spinning. */
+.app.grabbing .ret-dot {
+  width: 6px;
+  height: 6px;
+}
+.ret-dot { transition: width 120ms ease, height 120ms ease; }

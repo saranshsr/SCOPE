@@ -113,16 +113,36 @@ export default function App() {
     // follow via transforms inside the existing frame loop (no extra rAF,
     // no layout properties). Touch devices never see it.
     const finePointer = matchMedia('(pointer: fine)').matches
-    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false }
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false, dragging: false }
     const onCurMove = (e: PointerEvent) => {
       cur.tx = e.clientX
       cur.ty = e.clientY
       cur.overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
+      if (!reducedMotion) {
+        // Hover aims the instrument; a held pointer grabs and spins it —
+        // the reference cluster's interaction model, verbatim.
+        scene.setPointer(e.clientX / Math.max(1, w) - 0.5, e.clientY / Math.max(1, h) - 0.5)
+        if (cur.dragging) scene.dragBy(e.movementX * 0.006, e.movementY * 0.004)
+      }
     }
-    const onCurDown = () => { cur.down = 1 }
+    const onCurDown = (e: PointerEvent) => {
+      cur.down = 1
+      const overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
+      if (!overUi && startedRef.current) {
+        cur.dragging = true
+        appRef.current?.classList.add('grabbing')
+      }
+    }
+    const onCurUp = () => {
+      cur.dragging = false
+      appRef.current?.classList.remove('grabbing')
+    }
     if (finePointer) {
       window.addEventListener('pointermove', onCurMove)
       window.addEventListener('pointerdown', onCurDown)
+      window.addEventListener('pointerup', onCurUp)
+      window.addEventListener('pointercancel', onCurUp)
     }
 
     // rms history for the scrolling waveform strip.
@@ -231,6 +251,8 @@ export default function App() {
       if (finePointer) {
         window.removeEventListener('pointermove', onCurMove)
         window.removeEventListener('pointerdown', onCurDown)
+        window.removeEventListener('pointerup', onCurUp)
+        window.removeEventListener('pointercancel', onCurUp)
       }
     }
   }, [])
