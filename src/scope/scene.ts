@@ -20,6 +20,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 
 const SHELL_N = 38000
 const CORE_N = 2600
+const EJECTA_N = 3600
 
 /** Ashima 3D simplex noise — the standard GLSL implementation. */
 const SNOISE = /* glsl */ `
@@ -126,6 +127,49 @@ const SHELL_FRAG = /* glsl */ `
   }
 `
 
+/** Coronal ejecta — the lifecycle layer. Spawned on beats from a ring
+ *  pool (no allocation, no GC), simulated entirely in the shader with an
+ *  analytic exponential-drag flight, faded and shrunk over a short life.
+ *  Dead slots cost one vertex transform and zero fill. */
+const EJECTA_VERT = /* glsl */ `
+  uniform float uTime;
+  uniform float uPulse;
+  uniform float uR;
+  attribute vec3 aDir;
+  attribute float aBirth;  // scene-time of launch; large negative = dead slot
+  attribute float aSpd;
+  attribute float aHash;
+  varying float vFade;
+
+  void main() {
+    float age = uTime - aBirth;
+    float life = 1.3 + aHash * 0.9;
+    float a01 = clamp(age / life, 0.0, 1.0);
+    float alive = step(0.0, age) * (1.0 - step(1.0, a01));
+
+    // Exponential drag: fast leave, coasting arrival. Closed-form, so a
+    // dead-or-alive particle costs the same and nothing runs on the CPU.
+    float k = 2.1;
+    float dist = aSpd * (1.0 - exp(-k * age)) / k;
+    vec3 p = aDir * (uR * 0.62 + dist);
+
+    vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (2.1 - a01 * 1.5) * alive * (2.75 / max(0.4, -mv.z));
+  }
+`
+
+const EJECTA_FRAG = /* glsl */ `
+  precision mediump float;
+  varying float vFade;
+  void main() {
+    vec2 uv = gl_PointCoord - 0.5;
+    float m = smoothstep(0.5, 0.12, length(uv));
+    gl_FragColor = vec4(vec3(0.95) * vFade * m, 1.0);
+  }
+`
+
 const CORE_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uLow;
@@ -193,6 +237,7 @@ export class Scene {
   private highE = new Env()
   private pulseE = new Env()
   private aheadE = new Env()
+  private ejecta!: { dir: THREE.BufferAttribute; birth: THREE.BufferAttribute; spd: THREE.BufferAttribute; cursor: number }
   private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
   private drag = { x: 0, y: 0, tx: 0, ty: 0 }
   private driftT = 0
@@ -284,6 +329,35 @@ export class Scene {
       this.cluster.add(new THREE.Points(geo, mat))
     }
 
+    // --- the ejecta pool -------------------------------------------------
+    {
+      const dir = new Float32Array(EJECTA_N * 3)
+      const birth = new Float32Array(EJECTA_N).fill(-1e4) // all dead
+      const spd = new Float32Array(EJECTA_N)
+      const hash = new Float32Array(EJECTA_N)
+      const pos = new Float32Array(EJECTA_N * 3)
+      for (let i = 0; i < EJECTA_N; i++) hash[i] = Math.random()
+      const geo = new THREE.BufferGeometry()
+      const aDir = new THREE.BufferAttribute(dir, 3)
+      const aBirth = new THREE.BufferAttribute(birth, 1)
+      const aSpd = new THREE.BufferAttribute(spd, 1)
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      geo.setAttribute('aDir', aDir)
+      geo.setAttribute('aBirth', aBirth)
+      geo.setAttribute('aSpd', aSpd)
+      geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
+      const mat = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader: EJECTA_VERT,
+        fragmentShader: EJECTA_FRAG,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      })
+      this.cluster.add(new THREE.Points(geo, mat))
+      this.ejecta = { dir: aDir, birth: aBirth, spd: aSpd, cursor: 0 }
+    }
+
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     // Tight bloom: crisp particles first, halo second.
@@ -305,6 +379,27 @@ export class Scene {
   setPointer(nx: number, ny: number) {
     this.ptr.tx = nx
     this.ptr.ty = ny
+  }
+
+  /** A beat erupts matter from the surface: take the next slots in the
+   *  ring pool, stamp launch time, direction and speed. Recycling means a
+   *  long build-up can never exhaust memory — old flares are overwritten. */
+  burst(strength: number) {
+    const n = Math.round(90 + strength * 240)
+    const e = this.ejecta
+    for (let i = 0; i < n; i++) {
+      const s = e.cursor
+      e.cursor = (e.cursor + 1) % EJECTA_N
+      // Uniform random direction — flares leave the whole photosphere.
+      const u = Math.random() * Math.PI * 2
+      const v = Math.acos(2 * Math.random() - 1)
+      e.dir.setXYZ(s, Math.sin(v) * Math.cos(u), Math.sin(v) * Math.sin(u), Math.cos(v))
+      e.birth.setX(s, this.t)
+      e.spd.setX(s, (0.5 + Math.random() * 0.9) * (0.5 + strength))
+    }
+    e.dir.needsUpdate = true
+    e.birth.needsUpdate = true
+    e.spd.needsUpdate = true
   }
 
   /** Drag deltas in radians. A star has no wrong side — spin is free. */

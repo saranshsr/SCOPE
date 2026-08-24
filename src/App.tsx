@@ -163,7 +163,11 @@ export default function App() {
       const t = engine.analyser.now
       const fp = tracker.update(f, engine.analyser.onsets, t, dt)
       const beat = beatClock.update(f, fp, t, dt)
-      if (beat.trigger) beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
+      if (beat.trigger) {
+        beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
+        // The star erupts on real hits — the lifecycle layer.
+        if (startedRef.current && beat.strength > 0.25) scene.burst(beat.strength)
+      }
       beatPulse *= Math.exp(-dt * 5)
 
       // Anticipation: mean energy of the next 8 seconds, from the peaks.
