@@ -377,6 +377,14 @@ export class Scene {
     return this.bloom
   }
 
+  /** The POWER ON moment reaches the star itself: a fast partial re-reveal
+   *  (reads as the instrument re-acquiring) plus a full-strength eruption. */
+  powerOn() {
+    this.born = performance.now() - 0.3 * 1700
+    this.pulseE.v = 1.1
+    this.burst(1)
+  }
+
   setFocus(frac: number) {
     this.focusFrac = frac
     this.resize(this.lastW, this.lastH)

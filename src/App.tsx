@@ -285,6 +285,7 @@ export default function App() {
     startedRef.current = true
     setStarted(true)
     ;(window as unknown as { __focus: () => void }).__focus()
+    sceneRef.current?.powerOn()
     void engineRef.current?.playRadio()
   }
 

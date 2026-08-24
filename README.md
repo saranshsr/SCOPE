@@ -1,11 +1,22 @@
 # SCOPE®
 
-A polar audio instrument. One disc of ~26,000 GPU particles that listens:
-rings ripple with the mids, the core boils with the bass, the outer rings
-arm themselves seconds before a drop lands (the machine reads the whole
-track's peaks up front, so it knows the future). Tactical-telemetry chrome:
-console rail, crosshair playhead, live spectrum, full-track scrubber, and a
-display-scale title announcement on every track change.
+![SCOPE](public/og.png)
+
+A star made of 58,000 particles that listens.
+
+The shell is a fibonacci sphere displaced by three octaves of drifting 3D
+simplex noise: bass swells the photosphere, mids drive the boil, highs add
+grain, and every real beat erupts matter off the surface (a pooled ejecta
+system, simulated entirely in the vertex shader as closed-form drag arcs).
+It reads the whole track's peaks up front, so the surface tension rises a
+few seconds *before* a drop lands. Grab it and spin it; it drifts on its
+own the rest of the time.
+
+Around it: a tactical-telemetry console. Full-track waveform scrubber with
+a red playhead, live 24-band spectrum, a survey grid whose sweep speed
+rides the bass (Web Animations `playbackRate`), a title block with real
+values, tick rulers, a reticle cursor, and display-type track
+announcements that decode character by character.
 
 Built with Vite + React + TypeScript + Three.js. No backend.
 
@@ -18,26 +29,33 @@ npm run dev
 
 ## Audio
 
-The house-radio audio files are **not included** in this repo (licensing).
-`public/tracks` is a local symlink on the original machine. Everything works
+No audio ships in this repo (licensing). The instrument is fully usable
 without it:
 
-- **Drop any audio file anywhere on the page** and the instrument plays it,
-  decoding full-track waveform peaks in the browser.
-- **Mic** input visualizes the room live.
+- **Drop any audio file anywhere** — peaks decode in-browser, the strip
+  becomes a scrubber, the star gets its future-sight.
+- **Mic** visualizes the room live.
 
-To wire your own radio: put mp3s in `public/tracks/`, list them in
-`src/data/tracks.ts`, and pre-compute overview peaks:
+To wire a house radio: put mp3s in `public/tracks/`, list them in
+`src/data/tracks.ts`, and pre-compute overview peaks (audiowaveform-
+compatible JSON, needs ffmpeg):
 
 ```bash
-python3 scripts/generate-peaks.py   # needs ffmpeg; writes public/peaks/*.json
+python3 scripts/generate-peaks.py
 ```
 
-Peaks are audiowaveform-compatible JSON (version 2, min/max int8 pairs), so
-they interop with wavesurfer.js / peaks.js tooling.
+## Deploy
+
+Any static host. For rich social cards, set the deploy origin at build
+time (see `.env.example`):
+
+```bash
+VITE_SITE_URL=https://your-domain npm run build
+```
 
 ## Design
 
-Industrial-brutalist telemetry: `#0a0a0a` substrate, white phosphor ink, one
-hazard red, Archivo Black + JetBrains Mono (self-hosted), zero rounded
-corners. All motion honors `prefers-reduced-motion`.
+Industrial-brutalist telemetry: `#0a0a0a` substrate, white phosphor ink,
+one hazard red, Archivo Black + JetBrains Mono (self-hosted), zero rounded
+corners, real values only. Every animation honors
+`prefers-reduced-motion`.
