@@ -278,7 +278,17 @@ export default function App() {
   return (
     <div ref={appRef} className={`app${started ? ' live' : ''}`} onClick={started ? undefined : power}>
       <canvas ref={canvasRef} className="stage" />
-      <div className="gridlayer" />
+      {/* The survey grid, alive: a pulse of light travels along each line
+          (the GridLines component's technique — background-position on a
+          long gradient, staggered per line, compositor-only). */}
+      <div className="gridlayer" aria-hidden="true">
+        {Array.from({ length: 15 }, (_, i) => (
+          <i key={`v${i}`} className="gl-v" style={{ left: `${((i + 1) / 16) * 100}%`, '--i': i } as React.CSSProperties} />
+        ))}
+        {Array.from({ length: 8 }, (_, i) => (
+          <i key={`h${i}`} className="gl-h" style={{ top: `${((i + 1) / 9) * 100}%`, '--i': i + 4 } as React.CSSProperties} />
+        ))}
+      </div>
       <div ref={reticleRef} className="reticle" aria-hidden="true">
         <i className="ret-h" /><i className="ret-v" /><i className="ret-dot" />
       </div>

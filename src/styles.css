@@ -40,16 +40,77 @@ body {
 
 /* The blueprint grid — etched on the glass, over the picture, under the
    chrome. Crosshair '+' marks at the intersections, per the telemetry law. */
+/* The survey grid: hairlines that carry a slow traveling pulse — ported
+   from the GridLines component. background-position animation only, so the
+   whole layer lives on the compositor. */
 .gridlayer {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background-image:
-    linear-gradient(var(--faint) 1px, transparent 1px),
-    linear-gradient(90deg, var(--faint) 1px, transparent 1px),
-    radial-gradient(circle 1.5px at center, rgba(234, 234, 234, 0.28) 1.5px, transparent 1.5px);
-  background-size: 56px 56px, 56px 56px, 112px 112px;
-  background-position: center center;
+  overflow: hidden;
+}
+
+.gl-v,
+.gl-h {
+  position: absolute;
+  display: block;
+}
+
+.gl-v {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(234, 234, 234, 0.055) 20%,
+    rgba(234, 234, 234, 0.055) 42%,
+    rgba(234, 234, 234, 0.22) 50%,
+    rgba(234, 234, 234, 0.055) 58%,
+    rgba(234, 234, 234, 0.055) 80%,
+    transparent 100%
+  );
+  background-size: 100% 320%;
+  animation: gl-flow-v 11s linear infinite;
+  animation-delay: calc(var(--i) * -1.45s);
+}
+
+.gl-h {
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(234, 234, 234, 0.055) 20%,
+    rgba(234, 234, 234, 0.055) 42%,
+    rgba(234, 234, 234, 0.22) 50%,
+    rgba(234, 234, 234, 0.055) 58%,
+    rgba(234, 234, 234, 0.055) 80%,
+    transparent 100%
+  );
+  background-size: 320% 100%;
+  animation: gl-flow-h 13s linear infinite;
+  animation-delay: calc(var(--i) * -1.45s);
+}
+
+@keyframes gl-flow-v {
+  from { background-position: 0% 0%; }
+  to { background-position: 0% 200%; }
+}
+
+@keyframes gl-flow-h {
+  from { background-position: 0% 0%; }
+  to { background-position: 200% 0%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-v,
+  .gl-h {
+    animation: none;
+    background: rgba(234, 234, 234, 0.07);
+    background-size: auto;
+  }
 }
 
 .stage {
