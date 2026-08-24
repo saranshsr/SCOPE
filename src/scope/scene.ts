@@ -1,16 +1,16 @@
 /**
- * The instrument, on the GPU.
+ * The instrument: a star made of particles.
  *
- * ~30k particles arranged as concentric rings around a gaussian core, every
- * displacement computed in the vertex shader from a handful of SMOOTHED
- * uniforms — the CPU's only job per frame is easing envelopes. That's where
- * the reference's liquid feel comes from: nothing on screen ever receives a
- * raw analyser value; every parameter is critically damped, so a kick reads
- * as a swell with a fast front edge, never a strobe.
+ * ~38k points on a fibonacci sphere, displaced by three octaves of true 3D
+ * simplex noise — organic, non-repeating turbulence, nothing like a sum of
+ * sines. Bass swells the whole photosphere, mids drive the surface boil,
+ * highs add fine grain, and beats kick the turbulence outward. A dense
+ * gaussian core burns in the middle. Every audio parameter arrives through
+ * a critically-damped spring, so the surface flows instead of strobing.
  *
- * Additive blending + UnrealBloom give the phosphor body the glyph pass
- * could not: particles pile up into glow where they crowd, and the core
- * whites out on real bass exactly like the reference footage.
+ * Interactive like the reference cluster: damped hover aim, grab-to-spin
+ * (free — a star has no wrong side), slow drift. Crisp by construction:
+ * small points, restrained bloom, per-particle twinkle.
  */
 
 import * as THREE from 'three'
@@ -18,82 +18,111 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 
-const RINGS = 34
-const PER_RING = 700
-const CORE_N = 2400
+const SHELL_N = 38000
+const CORE_N = 2600
 
-const RING_VERT = /* glsl */ `
+/** Ashima 3D simplex noise — the standard GLSL implementation. */
+const SNOISE = /* glsl */ `
+  vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+  vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+  vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+  vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+  float snoise(vec3 v){
+    const vec2 C=vec2(1.0/6.0,1.0/3.0);
+    const vec4 D=vec4(0.0,0.5,1.0,2.0);
+    vec3 i=floor(v+dot(v,C.yyy));
+    vec3 x0=v-i+dot(i,C.xxx);
+    vec3 g=step(x0.yzx,x0.xyz);
+    vec3 l=1.0-g;
+    vec3 i1=min(g.xyz,l.zxy);
+    vec3 i2=max(g.xyz,l.zxy);
+    vec3 x1=x0-i1+C.xxx;
+    vec3 x2=x0-i2+C.yyy;
+    vec3 x3=x0-D.yyy;
+    i=mod289(i);
+    vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+    float n_=0.142857142857;
+    vec3 ns=n_*D.wyz-D.xzx;
+    vec4 j=p-49.0*floor(p*ns.z*ns.z);
+    vec4 x_=floor(j*ns.z);
+    vec4 y_=floor(j-7.0*x_);
+    vec4 x=x_*ns.x+ns.yyyy;
+    vec4 y=y_*ns.x+ns.yyyy;
+    vec4 h=1.0-abs(x)-abs(y);
+    vec4 b0=vec4(x.xy,y.xy);
+    vec4 b1=vec4(x.zw,y.zw);
+    vec4 s0=floor(b0)*2.0+1.0;
+    vec4 s1=floor(b1)*2.0+1.0;
+    vec4 sh=-step(h,vec4(0.0));
+    vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+    vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+    vec3 p0=vec3(a0.xy,h.x);
+    vec3 p1=vec3(a0.zw,h.y);
+    vec3 p2=vec3(a1.xy,h.z);
+    vec3 p3=vec3(a1.zw,h.w);
+    vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+    p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+    vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+    m=m*m;
+    return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+  }
+`
+
+const SHELL_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uLow;
   uniform float uMid;
   uniform float uHigh;
   uniform float uPulse;
-  uniform float uAhead;  // upcoming-energy pre-arm, 0..1
-  uniform float uR;      // outer radius, world units
+  uniform float uAhead;
+  uniform float uR;
   uniform float uReveal;
-  attribute float aRing;  // 0 inner .. 1 outer
-  attribute float aTheta;
+  attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
   varying float vHash;
+  __SNOISE__
 
   void main() {
-    // Turbulence grows inward; outer rings stay calm — the reference's law.
-    float inward = 1.0 - aRing;
-    float turb = (uMid * 1.5 + uHigh * 0.8 + uLow * 0.35) * (0.18 + inward * 1.45);
+    // Three octaves of drifting 3D noise: swell, boil, grain. Non-repeating
+    // by construction — the field itself advects through time.
+    float n1 = snoise(aDir * 2.1 + vec3(0.0, uTime * 0.11, uTime * 0.07));
+    float n2 = snoise(aDir * 5.3 + vec3(uTime * 0.26, 0.0, -uTime * 0.19));
+    float n3 = snoise(aDir * 11.0 + vec3(-uTime * 0.53, uTime * 0.41, 0.0));
 
-    float base = uR * (0.17 + 0.83 * pow(aRing, 0.92)) * (1.0 + uPulse * 0.035);
-    float th = aTheta;
+    float disp =
+      n1 * (0.05 + uLow * 0.30) +
+      n2 * (uMid * 0.24 + uPulse * 0.10) +
+      n3 * (uHigh * 0.13);
 
-    // Three incommensurate angular waves; per-ring phase from the hash so
-    // rings never align into moiré.
-    float ph = aHash * 6.2831;
-    float sp = 0.5 + aHash * 0.9;
-    // Higher angular orders: low-order sines make symmetric petals; the
-    // reference ripples nervously at fine scale. Displacement is capped so
-    // rings tangle without collapsing into the core.
-    float d =
-      sin(th * 5.0 + ph + uTime * sp * 1.15) * turb * uR * 0.009 +
-      sin(th * 11.0 - ph * 2.0 + uTime * sp * 1.9) * turb * turb * uR * 0.014 +
-      sin(th * 23.0 + ph * 3.0 + uTime * sp * 3.6 + aRing * 40.0) * turb * uR * 0.008 +
-      sin(th * 41.0 + uTime * sp * 5.5) * uHigh * turb * uR * 0.006;
-    d = clamp(d, -uR * 0.045, uR * 0.045);
+    // The photosphere: base radius breathes with the bass; anticipation
+    // (the peaks feed) raises the surface tension before a drop lands.
+    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp);
+    vec3 p = aDir * r;
 
-    float r = base + d;
-    // The third dimension: rings sink toward the centre — a shallow vortex
-    // whose throat deepens with the bass. Flat when face-on; tilt or drag
-    // and the funnel reveals itself.
-    float depth = (0.30 + uLow * 0.28) * uR;
-    vec3 p = vec3(cos(th) * r, sin(th) * r, -(1.0 - aRing) * depth);
-
-    // Local intensity: displacement relative to calm = brightness. Additive
-    // blending stacks ~3 overlapping sprites per ring pixel, so per-particle
-    // energy stays LOW — a calm ring should read as a dim etched line.
-    float k = clamp(abs(d) / (uR * 0.02), 0.0, 1.0);
-    // The machine sees the future: outer rings arm faintly as a loud
-    // section approaches — anticipation, read from the precomputed peaks.
-    vGlow = (0.11 + 0.3 * k + 0.14 * turb + uPulse * 0.12) * (1.0 + uAhead * 0.5 * aRing);
+    // Hot where deformed — flares glow. A slow per-particle twinkle keeps
+    // the surface grainy even in still passages.
+    float k = clamp(abs(disp) * 3.2, 0.0, 1.0);
+    float tw = 0.72 + 0.28 * sin(uTime * (2.0 + aHash * 6.0) + aHash * 40.0);
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw;
     vHash = aHash;
 
-    // Reveal: particles bloom outward from nothing on power-up.
     float on = step(fract(aHash * 977.0), uReveal);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    // Perspective attenuation: nearer particles render larger — the depth
-    // cue that makes the tilt read as a physical object.
-    gl_PointSize = (1.3 + k * 1.8 + uPulse * 0.5) * on * (2.75 / max(0.4, -mv.z));
+    gl_PointSize = (1.1 + k * 1.6 + uPulse * 0.4) * on * (2.75 / max(0.4, -mv.z));
   }
 `
 
-const RING_FRAG = /* glsl */ `
+const SHELL_FRAG = /* glsl */ `
   precision mediump float;
   varying float vGlow;
   varying float vHash;
   void main() {
-    // Soft round sprite, slightly irregular per particle.
     vec2 uv = gl_PointCoord - 0.5;
-    float m = smoothstep(0.5, 0.08 + vHash * 0.12, length(uv));
-    gl_FragColor = vec4(vec3(0.92, 0.92, 0.92) * vGlow * m, 1.0);
+    // Hard-edged sprites read crisp; the soft halo is bloom's job only.
+    float m = smoothstep(0.5, 0.18 + vHash * 0.1, length(uv));
+    gl_FragColor = vec4(vec3(0.93) * vGlow * m, 1.0);
   }
 `
 
@@ -106,33 +135,25 @@ const CORE_VERT = /* glsl */ `
   uniform float uR;
   uniform float uReveal;
   attribute float aHash;
-  attribute vec3 aSeed; // gaussian ball seed, |aSeed| ~ N(0,1)
+  attribute vec3 aSeed;
   varying float vHeat;
 
   void main() {
-    float coreR = uR * (0.07 + uLow * 0.21 + uPulse * 0.04);
-    // Each particle orbits its seed slowly; the ball boils, not scatters.
+    float coreR = uR * (0.16 + uLow * 0.14 + uPulse * 0.03);
     float t = uTime * (0.4 + aHash * 1.2);
     vec3 wob = vec3(
       sin(t * 3.1 + aHash * 40.0),
       cos(t * 2.7 + aHash * 71.0),
-      0.0
-    ) * coreR * (0.10 + uHigh * 0.5);
+      sin(t * 2.2 + aHash * 23.0)
+    ) * coreR * (0.10 + uHigh * 0.4);
     vec3 p = aSeed * coreR + wob;
-    // The core sits at the funnel's throat.
-    p.z -= (0.30 + uLow * 0.28) * uR * 0.9;
-    // Heat: center hottest, boils brighter with the music.
-    float dist = length(p) / max(coreR * 2.2, 1.0);
-    // Capped: the loud state must BOIL, not flatten into a white disc —
-    // texture inside the hot mass is what the reference's peaks look like.
-    // Clumped heat: neighbouring particles share hash bands, so the mass
-    // reads as bright florets with dark cracks instead of an even glow.
+    float dist = length(p) / max(coreR * 2.2, 1e-4);
     float clump = 0.45 + 0.55 * sin(aHash * 43.7 + uTime * 0.9);
-    vHeat = min(0.42, (1.0 - clamp(dist, 0.0, 1.0)) * (0.14 + uLow * 0.5 + uMid * 0.16) * (0.5 + clump));
+    vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18) * (0.5 + clump));
     float on = step(fract(aHash * 613.0), uReveal);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.5 + vHeat * 2.6) * on * (2.75 / max(0.4, -mv.z));
+    gl_PointSize = (1.4 + vHeat * 2.4) * on * (2.75 / max(0.4, -mv.z));
   }
 `
 
@@ -141,17 +162,16 @@ const CORE_FRAG = /* glsl */ `
   varying float vHeat;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
-    float m = smoothstep(0.5, 0.05, length(uv));
+    float m = smoothstep(0.5, 0.06, length(uv));
     gl_FragColor = vec4(vec3(1.0) * vHeat * m, 1.0);
   }
 `
 
-/** Critically-damped smoother — fast attack, slow settle, no overshoot. */
+/** Critically-damped smoother — fast attack, settle without overshoot. */
 class Env {
   v = 0
   private vel = 0
   update(target: number, dt: number, omega: number) {
-    // Standard critically damped spring toward target.
     const x = this.v - target
     const t = (this.vel + omega * x) * dt
     this.v = target + (x + t) * Math.exp(-omega * dt)
@@ -164,13 +184,7 @@ export class Scene {
   private renderer: THREE.WebGLRenderer
   private scene = new THREE.Scene()
   private camera: THREE.PerspectiveCamera
-  /** Everything that IS the instrument rotates as one physical object. */
   private cluster = new THREE.Group()
-  // Interaction state, damped exactly like the reference cluster:
-  // rotation.y = drift + hover + drag, every term eased.
-  private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
-  private drag = { x: 0, y: 0, tx: 0, ty: 0 }
-  private driftT = 0
   private composer: EffectComposer
   private bloom: UnrealBloomPass
   private uniforms: Record<string, THREE.IUniform>
@@ -179,20 +193,22 @@ export class Scene {
   private highE = new Env()
   private pulseE = new Env()
   private aheadE = new Env()
+  private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
+  private drag = { x: 0, y: 0, tx: 0, ty: 0 }
+  private driftT = 0
   private born = performance.now()
   private t = 0
+  private focusFrac = 0.5
+  private lastW = 2
+  private lastH = 1
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false })
-    // Display-space pipeline: automatic colorspace encoding is OFF. Measured
-    // at the glass, the composer route was encoding twice (clear #0a0a0a
-    // arrived as #383838), so all hidden transforms are disabled and every
-    // value in the shaders is tuned as what the screen actually shows.
+    // Display-space pipeline (the composer double-encoded sRGB and washed
+    // the frame grey — measured at the glass): what we set is what shows.
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace
     THREE.ColorManagement.enabled = false
     this.renderer.setClearColor(0x0a0a0a, 1)
-    // Perspective, calibrated so the vertical half-height at z=0 is exactly
-    // 1 world unit — the ortho calibration every radius was tuned against.
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 20)
     this.camera.position.z = 1 / Math.tan((40 / 2) * (Math.PI / 180))
     this.scene.add(this.cluster)
@@ -208,56 +224,49 @@ export class Scene {
       uReveal: { value: 0 },
     }
 
-    // --- ring cloud --------------------------------------------------------
+    // --- the shell: fibonacci sphere ----------------------------------------
     {
-      const n = RINGS * PER_RING
-      const ring = new Float32Array(n)
-      const theta = new Float32Array(n)
-      const hash = new Float32Array(n)
-      const pos = new Float32Array(n * 3) // unused by shader; three requires it
-      let p = 0
-      for (let i = 0; i < RINGS; i++) {
-        const ringHash = Math.random()
-        for (let s = 0; s < PER_RING; s++) {
-          ring[p] = i / (RINGS - 1)
-          theta[p] = (s / PER_RING) * Math.PI * 2 + (i % 2) * 0.5
-          hash[p] = ringHash
-          p++
-        }
+      const dir = new Float32Array(SHELL_N * 3)
+      const hash = new Float32Array(SHELL_N)
+      const pos = new Float32Array(SHELL_N * 3)
+      const GA = Math.PI * (3 - Math.sqrt(5)) // golden angle
+      for (let i = 0; i < SHELL_N; i++) {
+        const y = 1 - (i / (SHELL_N - 1)) * 2
+        const rad = Math.sqrt(1 - y * y)
+        const th = GA * i
+        dir[i * 3] = Math.cos(th) * rad
+        dir[i * 3 + 1] = y
+        dir[i * 3 + 2] = Math.sin(th) * rad
+        hash[i] = Math.random()
       }
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-      geo.setAttribute('aRing', new THREE.BufferAttribute(ring, 1))
-      geo.setAttribute('aTheta', new THREE.BufferAttribute(theta, 1))
+      geo.setAttribute('aDir', new THREE.BufferAttribute(dir, 3))
       geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
       const mat = new THREE.ShaderMaterial({
         uniforms: this.uniforms,
-        vertexShader: RING_VERT,
-        fragmentShader: RING_FRAG,
+        vertexShader: SHELL_VERT.replace('__SNOISE__', SNOISE),
+        fragmentShader: SHELL_FRAG,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         depthTest: false,
-        transparent: false,
       })
       this.cluster.add(new THREE.Points(geo, mat))
     }
 
-    // --- core ---------------------------------------------------------------
+    // --- the core ------------------------------------------------------------
     {
       const seed = new Float32Array(CORE_N * 3)
       const hash = new Float32Array(CORE_N)
       const pos = new Float32Array(CORE_N * 3)
       for (let i = 0; i < CORE_N; i++) {
-        // Gaussian-ish ball via Box–Muller pairs, flattened to the disc plane.
-        // Shell-biased, not a filled ball: a gaussian ball stacks additive
-        // sprites into a featureless white disc at the middle. The reference's
-        // hot mass is cauliflower — structure and dark cracks — which falls
-        // out of a shell with clumped density.
-        const th = Math.random() * Math.PI * 2
+        // Shell-biased 3D ball: structure and cracks, not a white blob.
+        const u = Math.random() * Math.PI * 2
+        const v = Math.acos(2 * Math.random() - 1)
         const rr = 0.45 + Math.pow(Math.random(), 0.45) * 0.85
-        seed[i * 3] = Math.cos(th) * rr
-        seed[i * 3 + 1] = Math.sin(th) * rr
-        seed[i * 3 + 2] = 0
+        seed[i * 3] = Math.sin(v) * Math.cos(u) * rr
+        seed[i * 3 + 1] = Math.sin(v) * Math.sin(u) * rr
+        seed[i * 3 + 2] = Math.cos(v) * rr
         hash[i] = Math.random()
       }
       const geo = new THREE.BufferGeometry()
@@ -277,11 +286,9 @@ export class Scene {
 
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
-    // Threshold matters most: only genuinely hot pixels may bloom, or the
-    // whole frame washes grey.
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.5, 0.35, 0.55)
+    // Tight bloom: crisp particles first, halo second.
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.25, 0.55)
     this.composer.addPass(this.bloom)
-    // Debug probe — lets the pipeline be bisected from the console.
     ;(window as unknown as { __scene: Scene }).__scene = this
   }
 
@@ -289,37 +296,9 @@ export class Scene {
     return this.bloom
   }
 
-  /** Horizontal focus as a viewport fraction — the disc sits at 0.5 on the
-   *  standby poster and shifts right when the console rail opens. */
-  private focusFrac = 0.5
-  private lastW = 2
-  private lastH = 1
   setFocus(frac: number) {
     this.focusFrac = frac
     this.resize(this.lastW, this.lastH)
-  }
-
-  resize(w: number, h: number) {
-    this.lastW = w
-    this.lastH = h
-    const dpr = Math.min(2, window.devicePixelRatio || 1)
-    this.renderer.setPixelRatio(dpr)
-    this.renderer.setSize(w, h, false)
-    // Composer multiplies by the renderer's pixelRatio itself — passing
-    // device pixels here would quadruple the bloom targets.
-    this.composer.setSize(w, h)
-    const aspect = w / Math.max(1, h)
-    this.camera.aspect = aspect
-    // Parallel pan: camera and its aim shift together, so the disc APPEARS
-    // at focusFrac of the width without any perspective skew.
-    // Camera at x looking at (x,0,0) shows world-x at screen centre, so to
-    // place world 0 RIGHT of centre the camera itself moves LEFT.
-    const off = -(this.focusFrac - 0.5) * 2 * aspect
-    this.camera.position.x = off
-    this.camera.lookAt(off, 0, 0)
-    this.camera.updateProjectionMatrix()
-    // Disc radius in world units: 0.72 of the half-height.
-    this.uniforms.uR.value = 0.72
   }
 
   /** Hover aim, normalized -0.5..0.5 of the viewport. */
@@ -328,42 +307,52 @@ export class Scene {
     this.ptr.ty = ny
   }
 
-  /** Drag deltas in radians — grab the instrument and tilt it. Both axes
-   *  clamp: a dish never turns edge-on, it tips in your hands. */
+  /** Drag deltas in radians. A star has no wrong side — spin is free. */
   dragBy(rx: number, ry: number) {
-    this.drag.tx = Math.max(-0.55, Math.min(0.55, this.drag.tx + rx))
-    this.drag.ty = Math.max(-0.55, Math.min(0.55, this.drag.ty + ry))
+    this.drag.tx += rx
+    this.drag.ty += ry
+  }
+
+  resize(w: number, h: number) {
+    this.lastW = w
+    this.lastH = h
+    const dpr = Math.min(2, window.devicePixelRatio || 1)
+    this.renderer.setPixelRatio(dpr)
+    this.renderer.setSize(w, h, false)
+    this.composer.setSize(w, h)
+    const aspect = w / Math.max(1, h)
+    this.camera.aspect = aspect
+    // Camera at x looking at (x,0,0) shows world-x at screen centre, so to
+    // place world 0 RIGHT of centre the camera itself moves LEFT.
+    const off = -(this.focusFrac - 0.5) * 2 * aspect
+    this.camera.position.x = off
+    this.camera.lookAt(off, 0, 0)
+    this.camera.updateProjectionMatrix()
+    this.uniforms.uR.value = 0.72
   }
 
   render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0) {
     this.t += dt
-    // The liquid: attack ~fast (omega 14), release rides the spring settle.
     this.uniforms.uTime.value = this.t
     this.uniforms.uLow.value = this.lowE.update(low, dt, 11)
     this.uniforms.uMid.value = this.midE.update(mid, dt, 9)
     this.uniforms.uHigh.value = this.highE.update(high, dt, 13)
     this.uniforms.uPulse.value = this.pulseE.update(pulse, dt, 16)
-    // Very slow spring: anticipation should creep in over seconds.
     this.uniforms.uAhead.value = this.aheadE.update(ahead, dt, 1.6)
     this.uniforms.uReveal.value = Math.min(1, (performance.now() - this.born) / 1700)
-    // The reference cluster's motion law: drift + damped hover + damped
-    // drag, and a slow breathing wobble underneath.
+
+    // Reference cluster's motion law, unclamped for a sphere: free spin.
     const ease = Math.min(1, dt * 4)
     this.ptr.x += (this.ptr.tx - this.ptr.x) * ease
     this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
     this.drag.x += (this.drag.tx - this.drag.x) * ease
     this.drag.y += (this.drag.ty - this.drag.y) * ease
-    this.driftT += dt * (0.05 + this.uniforms.uPulse.value * 0.04)
-    // A dish, not a logo cluster: continuous spin happens around its OWN
-    // axis (z, like a record); hover and drag only TILT it, clamped so it
-    // never degenerates edge-on.
-    this.cluster.rotation.z = this.driftT
-    this.cluster.rotation.y = this.ptr.x * 0.5 + this.drag.x
+    this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05)
+    this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     this.cluster.rotation.x =
-      Math.sin(this.driftT * 0.4) * 0.08 - this.ptr.y * 0.42 + this.drag.y
+      Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y
 
-    // Bloom breathes with the bass — the whole picture inhales.
-    this.bloom.strength = 0.35 + this.uniforms.uLow.value * 0.35 + this.uniforms.uPulse.value * 0.18
+    this.bloom.strength = 0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15
     this.composer.render()
   }
 }
