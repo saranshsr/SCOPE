@@ -1,0 +1,539 @@
+/*
+ * scope — tactical telemetry, one substrate.
+ *
+ * Deactivated-CRT black (never pure #000), white phosphor ink, hazard red
+ * reserved for exactly one job: the playhead tags on the crosshair. Mono
+ * everywhere, uppercase micro-labels, 90-degree corners only. The instrument
+ * glows; the chrome never does.
+ */
+
+:root {
+  --bg: #0a0a0a;
+  --ink: #eaeaea;
+  --dim: rgba(234, 234, 234, 0.45);
+  --faint: rgba(234, 234, 234, 0.14);
+  --red: #ff2a2a;
+  --edge: 24px;
+  --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.app {
+  position: relative;
+  height: 100%;
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* The blueprint grid — etched on the glass, over the picture, under the
+   chrome. Crosshair '+' marks at the intersections, per the telemetry law. */
+.gridlayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--faint) 1px, transparent 1px),
+    radial-gradient(circle 1.5px at center, rgba(234, 234, 234, 0.28) 1.5px, transparent 1.5px);
+  background-size: 56px 56px, 56px 56px, 112px 112px;
+  background-position: center center;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- crosshair: the machine's registration marks ---------------------------- */
+
+.x-v, .x-h {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(234, 234, 234, 0.14);
+}
+.x-v { left: var(--cx, 50%); top: 0; bottom: 0; width: 1px; transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1); }
+.x-h { top: 50%; left: 0; right: 0; height: 1px; }
+
+.x-tag {
+  position: absolute;
+  color: var(--red);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.x-tag-top { left: calc(var(--cx, 50%) + 6px); top: 4px; transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1); }
+.x-tag-left { left: 4px; top: calc(50% - 14px); }
+
+/* --- the instrument's bracket frame ------------------------------------------ */
+
+.frame {
+  position: absolute;
+  left: var(--cx, 50%);
+  transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(78vmin, calc(100% - 2 * var(--edge)));
+  height: min(78vmin, calc(100% - 2 * var(--edge)));
+  border: 1px solid rgba(234, 234, 234, 0.1);
+  pointer-events: none;
+}
+
+.tick {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 0 solid rgba(234, 234, 234, 0.55);
+}
+.tick.tl { left: -1px; top: -1px; border-left-width: 1px; border-top-width: 1px; }
+.tick.tr { right: -1px; top: -1px; border-right-width: 1px; border-top-width: 1px; }
+.tick.bl { left: -1px; bottom: -1px; border-left-width: 1px; border-bottom-width: 1px; }
+.tick.br { right: -1px; bottom: -1px; border-right-width: 1px; border-bottom-width: 1px; }
+
+/* the small dash on the frame's lower edge — the reference's one off-white touch */
+.frame-dash {
+  position: absolute;
+  left: 8px;
+  bottom: -1px;
+  width: 56px;
+  height: 1px;
+  background: rgba(120, 220, 120, 0.5);
+}
+
+/* flickering readout block, top-left inside the frame */
+.readout {
+  position: absolute;
+  left: 10px;
+  top: -14px;
+  display: grid;
+  gap: 3px;
+}
+.ro-label { margin-bottom: 10px; color: var(--ink); }
+.ro-band { color: var(--dim); transition: opacity 320ms steps(2); min-height: 12px; }
+
+/* --- top-right source id ----------------------------------------------------- */
+
+.src {
+  position: absolute;
+  top: var(--edge);
+  right: var(--edge);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--dim);
+}
+.src-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--dim);
+  background: transparent;
+}
+.src-dot.live { background: var(--ink); border-color: var(--ink); }
+
+/* --- bottom-left deck --------------------------------------------------------- */
+
+.deck {
+  position: absolute;
+  left: var(--edge);
+  bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+.deck-name {
+  color: var(--ink);
+  border-bottom: 1px solid rgba(234, 234, 234, 0.35);
+  padding-bottom: 3px;
+  margin-bottom: 5px;
+  max-width: 230px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.deck-wave {
+  display: block;
+  width: 220px;
+  height: 44px;
+  /* The strip is a scrubber — the one interactive element in the deck. */
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.deck-counts {
+  display: grid;
+  gap: 2px;
+  color: var(--dim);
+  text-align: right;
+  width: 220px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- bottom-right spectrum ----------------------------------------------------- */
+
+.spec {
+  position: absolute;
+  right: var(--edge);
+  bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+.spec-label {
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.spec canvas { display: block; width: 200px; height: 72px; border: 1px solid rgba(234,234,234,0.18); padding: 2px; }
+.spec-hz {
+  display: flex;
+  justify-content: space-between;
+  color: var(--dim);
+  margin-top: 3px;
+  font-size: 9px;
+}
+
+/* --- source controls ------------------------------------------------------------ */
+
+.ctl-row {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 18px;
+}
+.ctl-row button {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 6px 2px;
+  color: var(--dim);
+  cursor: pointer;
+}
+.ctl-row button:hover { color: var(--ink); }
+.ctl-row button.power { color: var(--red); }
+
+:focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
+
+/* --- film ------------------------------------------------------------------------ */
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 0.45s steps(3) infinite;
+}
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  33% { transform: translate(-14px, 9px); }
+  66% { transform: translate(11px, -7px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grain { animation: none; }
+  .ro-band { transition: none; }
+}
+
+/* phones: the side clusters stack above each other instead of colliding */
+@media (max-width: 560px) {
+  :root { --edge: 14px; }
+  .spec { right: auto; left: var(--edge); bottom: calc(var(--edge) + 118px + env(safe-area-inset-bottom, 0px)); }
+  .ctl-row { bottom: auto; top: calc(var(--edge) + 28px); }
+}
+
+/* ===========================================================================
+   SKILL EXECUTION — industrial-brutalist-ui, tactical telemetry mode.
+   The pieces the audit found missing: macro-typography, visible
+   compartmentalization, scanlines, industrial markers.
+   ------------------------------------------------------------------------ */
+
+/* §3.1 Macro-typography: the one structural header, standby only.
+   Heavy neo-grotesque, viewport-bleeding, compressed leading, negative
+   tracking — glyphs as architecture against the disc's negative space. */
+.macro {
+  position: absolute;
+  left: var(--edge);
+  bottom: calc(var(--edge) + 44px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.macro-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(4rem, 13vw, 15rem);
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* §6 industrial marker: ® as a structural element, not legal text. */
+.macro-reg {
+  font-size: 0.16em;
+  font-weight: 700;
+  vertical-align: 2.2em;
+  letter-spacing: 0;
+  color: var(--dim);
+}
+
+.macro-unit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--dim);
+  margin-bottom: 10px;
+}
+
+.macro-sub {
+  margin: 12px 0 0;
+  color: var(--dim);
+}
+
+/* §6 technical asset: barcode — repeating vertical lines. */
+.barcode {
+  display: inline-block;
+  width: 72px;
+  height: 12px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--ink) 0 1px,
+    transparent 1px 3px,
+    var(--ink) 3px 6px,
+    transparent 6px 7px,
+    var(--ink) 7px 8px,
+    transparent 8px 12px
+  );
+  opacity: 0.7;
+}
+
+/* §5 visible compartmentalization: the live console blocks are bordered
+   zones, not floating clusters. */
+.deck,
+.spec {
+  border: 1px solid rgba(234, 234, 234, 0.16);
+  padding: 8px 10px 9px;
+  background: rgba(10, 10, 10, 0.72);
+}
+
+.spec canvas {
+  border: none;
+  padding: 0;
+}
+
+/* §7 CRT scanlines — the skill's exact recipe, held faint so the grid and
+   the instrument stay primary. */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.09) 2px,
+    rgba(0, 0, 0, 0.09) 4px
+  );
+}
+
+/* phones: the wordmark yields to the width, the unit line wraps under it */
+@media (max-width: 560px) {
+  .macro-name { font-size: clamp(3.4rem, 19vw, 7rem); }
+}
+
+/* ===========================================================================
+   THE CONSOLE — live-state architecture.
+   One engineered rail instead of four floating corners; the disc yields
+   right; each track change earns a display-scale announcement.
+   ------------------------------------------------------------------------ */
+
+/* --cx is written by the app: the disc centers in the space the rail leaves. */
+
+.rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--edge) + 4px) 18px calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  background: rgba(10, 10, 10, 0.82);
+  border-right: 1px solid rgba(234, 234, 234, 0.14);
+  z-index: 3;
+}
+
+/* Boot cascade: each section rises in on its own indexed delay. */
+.rail-brand,
+.rail-sec {
+  animation: rail-in 600ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(var(--i) * 110ms + 120ms);
+}
+
+@keyframes rail-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.rail-brand {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(234, 234, 234, 0.14);
+}
+
+.rail-word {
+  font-family: var(--font-display);
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.rail-reg {
+  font-size: 9px;
+  vertical-align: 1em;
+  color: var(--dim);
+}
+
+.barcode-s { width: 44px; height: 9px; }
+
+.rail .readout {
+  position: static;
+  padding: 18px 0 0;
+}
+
+.rail-src {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 22px;
+  background: rgba(234, 234, 234, 0.14); /* 1px grid-gap dividers */
+  border: 1px solid rgba(234, 234, 234, 0.14);
+}
+
+.rail-src button {
+  padding: 9px 0 10px;
+  background: var(--bg);
+  border: none;
+  color: var(--dim);
+  font: inherit;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.rail-src button:hover {
+  color: var(--ink);
+  background: #141414;
+}
+
+.rail-src button:active {
+  transform: translateY(1px);
+}
+
+.rail-src button.on {
+  color: var(--bg);
+  background: var(--ink);
+}
+
+.rail-foot {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(234, 234, 234, 0.14);
+}
+
+.rail-foot .deck-name {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  margin-bottom: 10px;
+  color: var(--ink);
+}
+
+.rail-foot .deck-wave {
+  width: 100%;
+  height: 52px;
+}
+
+/* THE ANNOUNCEMENT — display type enters hard, holds, exits clean.
+   Broadcast graphics cut in and cut out; they do not float. */
+.announce {
+  position: absolute;
+  left: calc(272px + 40px);
+  bottom: calc(var(--edge) + 96px);
+  right: var(--edge);
+  pointer-events: none;
+  z-index: 4;
+  overflow: hidden;
+}
+
+.announce-title {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5.5vw, 5.2rem);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+  animation: announce-cycle 4.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes announce-cycle {
+  0%   { transform: translateY(110%); opacity: 1; }
+  6%   { transform: translateY(0); }
+  84%  { transform: translateY(0); opacity: 1; }
+  96%  { opacity: 0; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+
+/* phones: the rail becomes a bottom console, the disc re-centers */
+@media (max-width: 720px) {
+
+  .rail {
+    top: auto;
+    right: 0;
+    width: auto;
+    max-height: 46vh;
+    border-right: none;
+    border-top: 1px solid rgba(234, 234, 234, 0.14);
+  }
+  .announce {
+    left: var(--edge);
+    bottom: calc(46vh + 24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-brand,
+  .rail-sec {
+    animation: none;
+  }
+  .announce-title {
+    animation: none;
+    opacity: 0; /* the rail already carries the title */
+  }
+  .x-v, .x-tag-top, .frame {
+    transition: none;
+  }
+}
