@@ -59,6 +59,7 @@ export default function App() {
   const ptsRef = useRef<HTMLElement>(null)
   const qRef = useRef<HTMLElement>(null)
   const bufRef = useRef<HTMLElement>(null)
+  const zoomRef = useRef<HTMLElement>(null)
   const sceneRef = useRef<Scene | null>(null)
 
   const engineRef = useRef<AudioEngine | null>(null)
@@ -328,9 +329,11 @@ export default function App() {
         }
         // machine block
         if (fpsRef.current) fpsRef.current.textContent = `${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))}`
-        if (ptsRef.current) ptsRef.current.textContent = `${Math.round((58000 + 2600 + 3600) * perf.q / 1000)}k`
+        if (ptsRef.current)
+          ptsRef.current.textContent = `${Math.round((108000 * (scene.densityNow) + 2600 + 3600) / 1000)}k`
         if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
         setPaused(engineRef.current?.el.paused ?? false)
+        if (zoomRef.current) zoomRef.current.textContent = `${scene.zoomLevel.toFixed(1)}×`
         if (bufRef.current) {
           const c = canvas as HTMLCanvasElement
           bufRef.current.textContent = `${c.width}×${c.height}`
@@ -421,9 +424,51 @@ export default function App() {
         case 'KeyF': fileRef.current?.click(); break
         case 'KeyM': void eng.useMic(); break
         case 'KeyH': setAmbient((a) => !a); break
+        case 'Equal':
+        case 'NumpadAdd': sceneRef.current?.zoomBy(1.25); break
+        case 'Minus':
+        case 'NumpadSubtract': sceneRef.current?.zoomBy(1 / 1.25); break
+        case 'Digit0': sceneRef.current?.setZoom(1); break
       }
     }
     window.addEventListener('keydown', onKey)
+
+    // --- zoom: wheel on desktop, pinch on touch -------------------------
+    const onWheel = (e: WheelEvent) => {
+      if ((e.target as Element)?.closest?.('.rail, .spec')) return
+      e.preventDefault()
+      scene.zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12)
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+
+    // Two-finger pinch: track the live pointers and ride the distance ratio.
+    const pts = new Map<number, { x: number; y: number }>()
+    let pinchDist = 0
+    const pinchDown = (e: PointerEvent) => {
+      if ((e.target as Element)?.closest?.('.rail, .spec')) return
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()]
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
+      }
+    }
+    const pinchMove = (e: PointerEvent) => {
+      if (!pts.has(e.pointerId)) return
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (pts.size !== 2) return
+      const [a, b] = [...pts.values()]
+      const d = Math.hypot(a.x - b.x, a.y - b.y)
+      if (pinchDist > 0 && d > 0) scene.zoomBy(d / pinchDist)
+      pinchDist = d
+    }
+    const pinchUp = (e: PointerEvent) => {
+      pts.delete(e.pointerId)
+      if (pts.size < 2) pinchDist = 0
+    }
+    window.addEventListener('pointerdown', pinchDown)
+    window.addEventListener('pointermove', pinchMove)
+    window.addEventListener('pointerup', pinchUp)
+    window.addEventListener('pointercancel', pinchUp)
 
     return () => {
       cancelAnimationFrame(raf)
@@ -431,6 +476,11 @@ export default function App() {
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
       window.removeEventListener('keydown', onKey)
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('pointerdown', pinchDown)
+      window.removeEventListener('pointermove', pinchMove)
+      window.removeEventListener('pointerup', pinchUp)
+      window.removeEventListener('pointercancel', pinchUp)
       window.removeEventListener('pointermove', onCurMove)
       window.removeEventListener('pointerdown', onCurDown)
       window.removeEventListener('pointerup', onCurUp)
@@ -555,6 +605,7 @@ export default function App() {
             <div><dt>fps</dt><dd ref={fpsRef}>60</dd></div>
             <div><dt>pts</dt><dd ref={ptsRef}>64k</dd></div>
             <div><dt>quality</dt><dd ref={qRef}>full</dd></div>
+            <div><dt>zoom</dt><dd ref={zoomRef}>1.0×</dd></div>
           </dl>
           <div className="level rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
             <span className="level-tag">level</span>
@@ -660,7 +711,7 @@ export default function App() {
               <data ref={cElapsedRef}>· 0</data>
               <data ref={cTotalRef}>· 0</data>
             </div>
-            <kbd className="keyline">spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide</kbd>
+            <kbd className="keyline">spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
           </div>
         </aside>
       )}
@@ -670,7 +721,9 @@ export default function App() {
       {started && announce && (
         <div key={announce.key} className="announce" aria-hidden="true">
           <span className="announce-title">
-            <Decode text={announce.text.toUpperCase()} duration={900} />
+            {/* Filename-derived titles run long; the announcement is a
+                headline, not a paragraph. */}
+            <Decode text={announce.text.toUpperCase().slice(0, 28)} duration={900} />
           </span>
         </div>
       )}

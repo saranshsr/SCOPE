@@ -585,7 +585,10 @@ body {
 }
 
 .announce-title {
-  display: inline-block;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-family: var(--font-display);
   font-size: clamp(2rem, 5.5vw, 5.2rem);
   line-height: 0.95;
@@ -818,6 +821,7 @@ body {
   margin: 18px 0 0;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
   gap: 1px;
   background: rgba(234, 234, 234, 0.14);
   border: 1px solid rgba(234, 234, 234, 0.14);

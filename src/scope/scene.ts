@@ -19,7 +19,11 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js'
 
-const SHELL_N = 58000
+// The shell carries a RESERVE: at zoom 1 only ~55% of it renders (same
+// cost as before), and zooming in spends the rest, so magnification adds
+// real detail instead of magnifying gaps.
+const SHELL_N = 108000
+const BASE_DENSITY = 0.55
 const CORE_N = 2600
 const EJECTA_N = 3600
 const LINK_N = 2200 // constellation segments
@@ -84,6 +88,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uTurb;
   uniform float uExpo;
   uniform float uSnap;
+  uniform float uZoom;
   uniform float uBands[24];
   attribute vec3 aDir;
   attribute float aHash;
@@ -133,7 +138,11 @@ const SHELL_VERT = /* glsl */ `
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9) * on * (2.75 / max(0.4, -mv.z));
+    // Perspective would balloon every point as the camera closes in; the
+    // zoom divisor keeps them near-crisp so detail comes from COUNT, not
+    // from fatter dots.
+    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9) * on
+      * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
 
@@ -142,10 +151,14 @@ const SHELL_FRAG = /* glsl */ `
   varying float vGlow;
   varying float vHash;
   void main() {
+    // A real luminous profile: tight gaussian core plus a faint halo. Flat
+    // discs read as blobs the moment you zoom in; this holds up magnified.
     vec2 uv = gl_PointCoord - 0.5;
-    // Hard-edged sprites read crisp; the soft halo is bloom's job only.
-    float m = smoothstep(0.5, 0.18 + vHash * 0.1, length(uv));
-    gl_FragColor = vec4(vec3(0.93) * vGlow * m, 1.0);
+    float d = length(uv) * 2.0;
+    if (d > 1.0) discard;
+    float core = exp(-d * d * 5.0);
+    float halo = smoothstep(1.0, 0.2, d) * (0.22 + vHash * 0.1);
+    gl_FragColor = vec4(vec3(0.93) * vGlow * (core + halo), 1.0);
   }
 `
 
@@ -158,6 +171,7 @@ const EJECTA_VERT = /* glsl */ `
   uniform float uPulse;
   uniform float uR;
   uniform float uDensity;
+  uniform float uZoom;
   attribute vec3 aDir;
   attribute float aBirth;  // scene-time of launch; large negative = dead slot
   attribute float aSpd;
@@ -179,7 +193,7 @@ const EJECTA_VERT = /* glsl */ `
     vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (2.1 - a01 * 1.5) * alive * (2.75 / max(0.4, -mv.z));
+    gl_PointSize = (2.1 - a01 * 1.5) * alive * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
 
@@ -249,6 +263,7 @@ const CORE_VERT = /* glsl */ `
   uniform float uR;
   uniform float uReveal;
   uniform float uDensity;
+  uniform float uZoom;
   attribute float aHash;
   attribute vec3 aSeed;
   varying float vHeat;
@@ -268,7 +283,7 @@ const CORE_VERT = /* glsl */ `
     float on = step(fract(aHash * 613.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.4 + vHeat * 2.4) * on * (2.75 / max(0.4, -mv.z));
+    gl_PointSize = (1.4 + vHeat * 2.4) * on * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
 
@@ -319,6 +334,9 @@ export class Scene {
   private t = 0
   private focusFrac = 0.5
   private quality = 1
+  /** Camera zoom, 1..5. Damped toward zoomTarget every frame. */
+  private zoom = 1
+  private zoomTarget = 1
   /** Reduced-motion visitors get a still star that still hears the music —
    *  the boil is content, the spin is decoration. */
   private calm = matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -354,6 +372,7 @@ export class Scene {
       uExpo: { value: 1 },
       // The transient fast-path: sub-frame attack, ~150ms decay, NO spring.
       uSnap: { value: 0 },
+      uZoom: { value: 1 },
       // The full analyser: 24 log bands, mapped to angular sectors of the
       // body — the star's spectral anatomy.
       uBands: { value: new Float32Array(24) },
@@ -501,6 +520,9 @@ export class Scene {
     // Tight bloom: crisp particles first, halo second.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.25, 0.55)
     this.composer.addPass(this.bloom)
+    // Without this the uniform keeps its initial 1 and the whole reserve
+    // renders at zoom 1 — double the intended cost, zero headroom left.
+    this.applyDensity()
     if (import.meta.env.DEV) (window as unknown as { __scene: Scene }).__scene = this
   }
 
@@ -530,8 +552,32 @@ export class Scene {
    *  particles AND a non-retina buffer. Called by the app's self-profiler. */
   setQuality(q: number) {
     this.quality = q
-    this.uniforms.uDensity.value = q
+    this.applyDensity()
     this.resize(this.lastW, this.lastH)
+  }
+
+  /** Visible fraction = the governor's budget x whatever zoom has spent.
+   *  Zoomed in, the view covers less sphere, so more of the reserve can
+   *  render for the same fragment cost. */
+  private applyDensity() {
+    const spend = Math.min(1, BASE_DENSITY * (0.55 + 0.45 * this.zoom * 1.15))
+    this.uniforms.uDensity.value = Math.min(1, spend) * this.quality
+  }
+
+  /** Pinch / wheel zoom, clamped. 1 = full body, 5 = surface detail. */
+  zoomBy(factor: number) {
+    this.zoomTarget = Math.max(1, Math.min(5, this.zoomTarget * factor))
+  }
+  setZoom(z: number) {
+    this.zoomTarget = Math.max(1, Math.min(5, z))
+  }
+  /** What fraction of the shell is actually rendering right now. */
+  get densityNow() {
+    return this.uniforms.uDensity.value as number
+  }
+
+  get zoomLevel() {
+    return this.zoom
   }
 
   /** The POWER ON moment reaches the star itself: a fast partial re-reveal
@@ -591,7 +637,11 @@ export class Scene {
     this.camera.aspect = aspect
     // Camera at x looking at (x,0,0) shows world-x at screen centre, so to
     // place world 0 RIGHT of centre the camera itself moves LEFT.
-    const off = -(this.focusFrac - 0.5) * 2 * aspect
+    // Closer camera = magnification; the pan offset shrinks with it so the
+    // subject stays where the chrome expects it.
+    const baseZ = 1 / Math.tan((40 / 2) * (Math.PI / 180))
+    this.camera.position.z = baseZ / this.zoom
+    const off = (-(this.focusFrac - 0.5) * 2 * aspect) / this.zoom
     this.camera.position.x = off
     this.camera.lookAt(off, 0, 0)
     this.camera.updateProjectionMatrix()
@@ -613,6 +663,14 @@ export class Scene {
     this.uniforms.uPulse.value = this.pulseE.update(pulse, dt, 16)
     this.uniforms.uAhead.value = this.aheadE.update(ahead, dt, 1.6)
     this.uniforms.uReveal.value = Math.min(1, (performance.now() - this.born) / 1700)
+
+    // Damped zoom: the dolly glides, and spending the reserve is gradual.
+    if (Math.abs(this.zoom - this.zoomTarget) > 1e-4) {
+      this.zoom += (this.zoomTarget - this.zoom) * Math.min(1, dt * 6)
+      this.uniforms.uZoom.value = this.zoom
+      this.applyDensity()
+      this.resize(this.lastW, this.lastH)
+    }
 
     // Reference cluster's motion law, unclamped for a sphere: free spin.
     const ease = Math.min(1, dt * 4)
