@@ -29,14 +29,15 @@ npm run dev
 
 ## Audio
 
-No audio ships in this repo (licensing). The instrument is fully usable
-without it:
+The house radio ships with 12 public-domain (CC0) tracks from
+[FreePD](https://freepd.com) — no rights reserved, redistribution
+permitted. And it's still yours to feed:
 
 - **Drop any audio file anywhere** — peaks decode in-browser, the strip
   becomes a scrubber, the star gets its future-sight.
 - **Mic** visualizes the room live.
 
-To wire a house radio: put mp3s in `public/tracks/`, list them in
+To change the radio: swap mp3s in `public/tracks/`, list them in
 `src/data/tracks.ts`, and pre-compute overview peaks (audiowaveform-
 compatible JSON, needs ffmpeg):
 
