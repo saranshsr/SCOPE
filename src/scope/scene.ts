@@ -17,10 +17,12 @@ import * as THREE from 'three'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js'
 
 const SHELL_N = 58000
 const CORE_N = 2600
 const EJECTA_N = 3600
+const LINK_N = 2200 // constellation segments
 
 /** Ashima 3D simplex noise — the standard GLSL implementation. */
 const SNOISE = /* glsl */ `
@@ -79,6 +81,8 @@ const SHELL_VERT = /* glsl */ `
   uniform float uR;
   uniform float uReveal;
   uniform float uDensity;
+  uniform float uTurb;
+  uniform float uExpo;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -92,10 +96,10 @@ const SHELL_VERT = /* glsl */ `
     float n2 = snoise(aDir * 5.3 + vec3(uTime * 0.26, 0.0, -uTime * 0.19));
     float n3 = snoise(aDir * 11.0 + vec3(-uTime * 0.53, uTime * 0.41, 0.0));
 
-    float disp =
+    float disp = (
       n1 * (0.05 + uLow * 0.30) +
       n2 * (uMid * 0.24 + uPulse * 0.10) +
-      n3 * (uHigh * 0.13);
+      n3 * (uHigh * 0.13)) * uTurb;
 
     // Volumetric body, not a hollow shell: each particle owns a depth
     // inside the ball (surface-biased), so the face-on view is a boiling
@@ -113,7 +117,7 @@ const SHELL_VERT = /* glsl */ `
     float tw = 0.72 + 0.28 * sin(uTime * (2.0 + aHash * 6.0) + aHash * 40.0);
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw * (0.55 + 0.45 * depth);
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw * (0.55 + 0.45 * depth) * uExpo;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -179,6 +183,50 @@ const EJECTA_FRAG = /* glsl */ `
   }
 `
 
+/** Constellation wireframe — the reference cluster's LineSegments, alive.
+ *  Each segment's endpoints run the SAME noise displacement as the shell,
+ *  so the lattice rides the boiling surface. Subsets flash on beats via a
+ *  time-rotating gate; between beats the lattice is a whisper. */
+const LINK_VERT = /* glsl */ `
+  uniform float uTime;
+  uniform float uLow;
+  uniform float uMid;
+  uniform float uHigh;
+  uniform float uPulse;
+  uniform float uAhead;
+  uniform float uR;
+  uniform float uReveal;
+  uniform float uDensity;
+  uniform float uTurb;
+  attribute vec3 aDir;
+  attribute float aHash;  // shared per segment
+  varying float vA;
+  __SNOISE__
+
+  void main() {
+    float n1 = snoise(aDir * 2.1 + vec3(0.0, uTime * 0.11, uTime * 0.07));
+    float n2 = snoise(aDir * 5.3 + vec3(uTime * 0.26, 0.0, -uTime * 0.19));
+    float disp = (n1 * (0.05 + uLow * 0.30) + n2 * (uMid * 0.24 + uPulse * 0.10)) * uTurb;
+    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp);
+    vec3 p = aDir * r;
+
+    // Rotating gate: a different ~fifth of the lattice arms on each beat
+    // window; uPulse lights the armed subset.
+    float gate = step(0.8, fract(aHash * 17.31 + floor(uTime * 0.8) * 0.618));
+    float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
+    vA = (0.028 + gate * uPulse * 0.34) * on;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`
+
+const LINK_FRAG = /* glsl */ `
+  precision mediump float;
+  varying float vA;
+  void main() {
+    gl_FragColor = vec4(vec3(0.9), vA);
+  }
+`
+
 const CORE_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uLow;
@@ -241,6 +289,9 @@ export class Scene {
   private cluster = new THREE.Group()
   private composer: EffectComposer
   private bloom: UnrealBloomPass
+  private after!: AfterimagePass
+  /** Owner dial, 0.25..2: scales the drift/spin rate. */
+  spinDial = 1
   private uniforms: Record<string, THREE.IUniform>
   private lowE = new Env()
   private midE = new Env()
@@ -284,6 +335,10 @@ export class Scene {
       // Adaptive quality: fraction of particles allowed to render. The
       // app's frame loop lowers this on hardware that can't hold 60.
       uDensity: { value: 1 },
+      // Owner dials: turbulence and exposure multipliers (spin lives on the
+      // CPU side of the motion law).
+      uTurb: { value: 1 },
+      uExpo: { value: 1 },
     }
 
     // --- the shell: fibonacci sphere ----------------------------------------
@@ -375,8 +430,54 @@ export class Scene {
       this.ejecta = { dir: aDir, birth: aBirth, spd: aSpd, cursor: 0 }
     }
 
+    // --- the constellation ---------------------------------------------
+    {
+      const GA = Math.PI * (3 - Math.sqrt(5))
+      const dirOf = (i: number) => {
+        const y = 1 - (i / (SHELL_N - 1)) * 2
+        const rad = Math.sqrt(1 - y * y)
+        const th = GA * i
+        return [Math.cos(th) * rad, y, Math.sin(th) * rad]
+      }
+      const dir = new Float32Array(LINK_N * 2 * 3)
+      const hash = new Float32Array(LINK_N * 2)
+      const pos = new Float32Array(LINK_N * 2 * 3)
+      // On a fibonacci lattice, index deltas of 1/13/21 land on spatial
+      // neighbours — short chords, never random cross-sphere slashes.
+      const DELTAS = [1, 13, 21]
+      for (let s = 0; s < LINK_N; s++) {
+        const i = Math.floor(Math.random() * (SHELL_N - 22))
+        const j = i + DELTAS[(Math.random() * DELTAS.length) | 0]
+        const h = Math.random()
+        const a = dirOf(i)
+        const b = dirOf(j)
+        dir.set(a, s * 6)
+        dir.set(b, s * 6 + 3)
+        hash[s * 2] = h
+        hash[s * 2 + 1] = h
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      geo.setAttribute('aDir', new THREE.BufferAttribute(dir, 3))
+      geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
+      const mat = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader: LINK_VERT.replace('__SNOISE__', SNOISE),
+        fragmentShader: LINK_FRAG,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+      })
+      this.cluster.add(new THREE.LineSegments(geo, mat))
+    }
+
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
+    // Phosphor persistence: the frame smears into itself like a slow CRT,
+    // heavier when the bass leans in. Before bloom, so trails glow too.
+    this.after = new AfterimagePass(0.82)
+    this.composer.addPass(this.after)
     // Tight bloom: crisp particles first, halo second.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.25, 0.55)
     this.composer.addPass(this.bloom)
@@ -385,6 +486,13 @@ export class Scene {
 
   get bloomPass() {
     return this.bloom
+  }
+
+  /** Owner tuning: turbulence / exposure / spin, each 0.25..2. */
+  setTuning(turb: number, expo: number, spin: number) {
+    this.uniforms.uTurb.value = turb
+    this.uniforms.uExpo.value = expo
+    this.spinDial = spin
   }
 
   /** Adaptive quality: q<1 halves the workload twice over — fewer
@@ -476,12 +584,14 @@ export class Scene {
     this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
     this.drag.x += (this.drag.tx - this.drag.x) * ease
     this.drag.y += (this.drag.ty - this.drag.y) * ease
-    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05)
+    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     this.cluster.rotation.x =
       Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y
 
-    this.bloom.strength = 0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15
+    this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value
+    // Persistence leans with the bass: quiet = crisp, heavy = long exposure.
+    ;(this.after.uniforms as { damp: { value: number } }).damp.value = 0.76 + this.uniforms.uLow.value * 0.15
     this.composer.render()
   }
 }

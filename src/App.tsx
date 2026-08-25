@@ -42,6 +42,19 @@ export default function App() {
   // the CSS animation per track.
   const [announce, setAnnounce] = useState<{ text: string; key: number } | null>(null)
   const [decoding, setDecoding] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [volume, setVolume] = useState(0.8)
+  const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
+  const tuningRef = useRef(tuning)
+  // signal/machine stats, written imperatively at chrome rate
+  const bpmRef = useRef<HTMLElement>(null)
+  const lockRef = useRef<HTMLElement>(null)
+  const levelRef = useRef<HTMLDivElement>(null)
+  const peakRef = useRef<HTMLElement>(null)
+  const fpsRef = useRef<HTMLElement>(null)
+  const ptsRef = useRef<HTMLElement>(null)
+  const qRef = useRef<HTMLElement>(null)
+  const bufRef = useRef<HTMLElement>(null)
   const sceneRef = useRef<Scene | null>(null)
 
   const engineRef = useRef<AudioEngine | null>(null)
@@ -53,6 +66,16 @@ export default function App() {
   // against a slow fetch landing after the track has already changed.
   const peaksRef = useRef<TrackPeaks | null>(null)
   const peaksGen = useRef(0)
+
+  useEffect(() => {
+    tuningRef.current = tuning
+    sceneRef.current?.setTuning(tuning.turb, tuning.expo, tuning.spin)
+  }, [tuning])
+
+  useEffect(() => {
+    const e = engineRef.current
+    if (e) e.el.volume = volume
+  }, [volume])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -260,6 +283,27 @@ export default function App() {
         if (pctLeftRef.current) pctLeftRef.current.textContent = pctText
         if (labelRef.current)
           labelRef.current.textContent = `tracking ${(94 + fp.tempoConfidence * 5.9).toFixed(2)}%`
+        // signal block
+        if (bpmRef.current)
+          bpmRef.current.textContent = fp.tempoConfidence > 0.12 ? `${Math.round(fp.tempo)}` : '——'
+        if (lockRef.current)
+          lockRef.current.textContent = `${Math.round(Math.min(1, fp.tempoConfidence) * 100)}%`
+        if (levelRef.current)
+          levelRef.current.style.width = `${Math.min(100, Math.round(f.rms * 240))}%`
+        if (peakRef.current) {
+          let pk = 0
+          for (let i = 1; i < 24; i++) if (f.bands[i] > f.bands[pk]) pk = i
+          const hz = Math.round(60 * Math.pow(12000 / 60, pk / 23))
+          peakRef.current.textContent = hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${hz}`
+        }
+        // machine block
+        if (fpsRef.current) fpsRef.current.textContent = `${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))}`
+        if (ptsRef.current) ptsRef.current.textContent = `${Math.round((58000 + 2600 + 3600) * perf.q / 1000)}k`
+        if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
+        if (bufRef.current) {
+          const c = canvas as HTMLCanvasElement
+          bufRef.current.textContent = `${c.width}×${c.height}`
+        }
         // a..e — five live band levels; rows flicker in and out like the
         // reference (each row has its own visibility cycle).
         for (let i = 0; i < 5; i++) {
@@ -419,7 +463,21 @@ export default function App() {
             ))}
           </output>
 
-          <nav className="rail-src rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
+          {/* SIGNAL / MACHINE — real values only, grid-gap hairlines. */}
+          <dl className="statgrid rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
+            <div><dt>bpm</dt><dd ref={bpmRef}>——</dd></div>
+            <div><dt>lock</dt><dd ref={lockRef}>0%</dd></div>
+            <div><dt>peak</dt><dd ref={peakRef}>——</dd></div>
+            <div><dt>fps</dt><dd ref={fpsRef}>60</dd></div>
+            <div><dt>pts</dt><dd ref={ptsRef}>64k</dd></div>
+            <div><dt>quality</dt><dd ref={qRef}>full</dd></div>
+          </dl>
+          <div className="level rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
+            <span className="level-tag">level</span>
+            <div className="level-track"><div ref={levelRef} className="level-fill" /></div>
+          </div>
+
+          <nav className="rail-src rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
             <button className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
               <Decode text="radio" duration={380} replayOnHover />
             </button>
@@ -431,7 +489,54 @@ export default function App() {
             </button>
           </nav>
 
-          <div className="rail-foot rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
+          {/* transport + volume */}
+          <div className="transport rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
+            <button
+              onClick={() => {
+                const e = engineRef.current
+                if (!e || e.kind === 'mic') return
+                if (e.el.paused) { void e.el.play(); setPaused(false) }
+                else { e.el.pause(); setPaused(true) }
+              }}
+            >
+              <Decode text={paused ? 'play' : 'pause'} duration={300} replayOnHover />
+            </button>
+            <button onClick={() => void engineRef.current?.next()}>
+              <Decode text="skip" duration={300} replayOnHover />
+            </button>
+            <div className="vol">
+              <span>vol</span>
+              <input
+                type="range" min={0} max={1} step={0.01} value={volume}
+                onChange={(ev) => setVolume(Number(ev.target.value))}
+                aria-label="volume"
+              />
+            </div>
+          </div>
+
+          {/* response tuning — the instrument's own dials */}
+          <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+            {([['turb', 'turbulence'], ['expo', 'exposure'], ['spin', 'spin']] as const).map(([k, label]) => (
+              <label key={k} className="dial">
+                <span>{label}</span>
+                <input
+                  type="range" min={0.25} max={2} step={0.05} value={tuning[k]}
+                  onChange={(ev) => setTuning((t) => ({ ...t, [k]: Number(ev.target.value) }))}
+                  aria-label={label}
+                />
+                <data>{Math.round(tuning[k] * 100)}</data>
+              </label>
+            ))}
+            <div className="presets">
+              {([['calm', { turb: 0.6, expo: 0.8, spin: 0.5 }], ['std', { turb: 1, expo: 1, spin: 1 }], ['violent', { turb: 1.6, expo: 1.3, spin: 1.8 }]] as const).map(([name, t]) => (
+                <button key={name} onClick={() => setTuning(t)}>
+                  <Decode text={name} duration={300} replayOnHover />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <samp className="deck-name"><Decode text={name} duration={700} /></samp>
             <canvas
               ref={waveRef}
