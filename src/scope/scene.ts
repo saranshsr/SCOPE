@@ -231,6 +231,7 @@ const EJECTA_VERT = /* glsl */ `
   uniform float uZoom;
   uniform float uDissect;
   attribute vec3 aDir;
+  attribute vec3 aOrg;     // launch point — the surface, or a tier's ring
   attribute float aBirth;  // scene-time of launch; large negative = dead slot
   attribute float aSpd;
   attribute float aHash;
@@ -246,7 +247,7 @@ const EJECTA_VERT = /* glsl */ `
     // dead-or-alive particle costs the same and nothing runs on the CPU.
     float k = 2.1;
     float dist = aSpd * (1.0 - exp(-k * age)) / k;
-    vec3 p = aDir * (uR * 0.60 + dist);
+    vec3 p = aOrg + aDir * dist;
 
     vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25) * (1.0 - uDissect * 0.6);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -436,7 +437,7 @@ export class Scene {
   private tierCount = 3
   private lastDis = 0
   private _v = new THREE.Vector3()
-  private ejecta!: { dir: THREE.BufferAttribute; birth: THREE.BufferAttribute; spd: THREE.BufferAttribute; cursor: number }
+  private ejecta!: { dir: THREE.BufferAttribute; org: THREE.BufferAttribute; birth: THREE.BufferAttribute; spd: THREE.BufferAttribute; cursor: number }
   private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
   private drag = { x: 0, y: 0, tx: 0, ty: 0 }
   private driftT = 0
@@ -574,6 +575,7 @@ export class Scene {
     // --- the ejecta pool -------------------------------------------------
     {
       const dir = new Float32Array(EJECTA_N * 3)
+      const org = new Float32Array(EJECTA_N * 3)
       const birth = new Float32Array(EJECTA_N).fill(-1e4) // all dead
       const spd = new Float32Array(EJECTA_N)
       const hash = new Float32Array(EJECTA_N)
@@ -581,10 +583,12 @@ export class Scene {
       for (let i = 0; i < EJECTA_N; i++) hash[i] = Math.random()
       const geo = new THREE.BufferGeometry()
       const aDir = new THREE.BufferAttribute(dir, 3)
+      const aOrg = new THREE.BufferAttribute(org, 3)
       const aBirth = new THREE.BufferAttribute(birth, 1)
       const aSpd = new THREE.BufferAttribute(spd, 1)
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
       geo.setAttribute('aDir', aDir)
+      geo.setAttribute('aOrg', aOrg)
       geo.setAttribute('aBirth', aBirth)
       geo.setAttribute('aSpd', aSpd)
       geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
@@ -597,7 +601,7 @@ export class Scene {
         depthTest: false,
       })
       this.cluster.add(new THREE.Points(geo, mat))
-      this.ejecta = { dir: aDir, birth: aBirth, spd: aSpd, cursor: 0 }
+      this.ejecta = { dir: aDir, org: aOrg, birth: aBirth, spd: aSpd, cursor: 0 }
     }
 
     // --- the constellation ---------------------------------------------
@@ -854,22 +858,42 @@ export class Scene {
   }
 
   /** A beat erupts matter from the surface: take the next slots in the
-   *  ring pool, stamp launch time, direction and speed. Recycling means a
-   *  long build-up can never exhaust memory — old flares are overwritten. */
-  burst(strength: number) {
+   *  ring pool, stamp launch time, origin, direction and speed. Recycling
+   *  means a long build-up can never exhaust memory — old flares are
+   *  overwritten. Pass a tier index and the eruption leaves THAT ring
+   *  instead of the photosphere — dissected, the drums erupt from the
+   *  drums' own tier, not from the empty centre the star vacated. */
+  burst(strength: number, tier: number | null = null) {
     const n = Math.round(90 + strength * 240)
     const e = this.ejecta
+    const fromRing = tier != null && (this.uniforms.uDissect.value as number) > 0.35
+    const ringY = fromRing ? this.tierYNow(tier as number) : 0
+    const ringR = 0.88 * 0.5
     for (let i = 0; i < n; i++) {
       const s = e.cursor
       e.cursor = (e.cursor + 1) % EJECTA_N
-      // Uniform random direction — flares leave the whole photosphere.
-      const u = Math.random() * Math.PI * 2
-      const v = Math.acos(2 * Math.random() - 1)
-      e.dir.setXYZ(s, Math.sin(v) * Math.cos(u), Math.sin(v) * Math.sin(u), Math.cos(v))
+      if (fromRing) {
+        // Launch from the ring's rim, spraying outward and off-plane.
+        const th = Math.random() * Math.PI * 2
+        e.org.setXYZ(s, Math.cos(th) * ringR, ringY, Math.sin(th) * ringR)
+        const up = Math.random() * 1.6 - 0.5
+        const m = Math.hypot(1, up)
+        e.dir.setXYZ(s, Math.cos(th) / m, up / m, Math.sin(th) / m)
+      } else {
+        // Uniform random direction — flares leave the whole photosphere.
+        const u = Math.random() * Math.PI * 2
+        const v = Math.acos(2 * Math.random() - 1)
+        const dx = Math.sin(v) * Math.cos(u)
+        const dy = Math.sin(v) * Math.sin(u)
+        const dz = Math.cos(v)
+        e.dir.setXYZ(s, dx, dy, dz)
+        e.org.setXYZ(s, dx * 0.88 * 0.6, dy * 0.88 * 0.6, dz * 0.88 * 0.6)
+      }
       e.birth.setX(s, this.t)
       e.spd.setX(s, (0.5 + Math.random() * 0.9) * (0.5 + strength))
     }
     e.dir.needsUpdate = true
+    e.org.needsUpdate = true
     e.birth.needsUpdate = true
     e.spd.needsUpdate = true
   }

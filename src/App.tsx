@@ -600,8 +600,13 @@ export default function App() {
       if (fp.tempoConfidence > 0.2 && fp.tempo > 0) engine.setEchoTime(60 / fp.tempo * (fp.tempo > 140 ? 1 : 0.75))
       if (beat.trigger) {
         beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
-        // The star erupts on real hits — the lifecycle layer.
-        if (startedRef.current && beat.strength > 0.25) scene.burst(beat.strength)
+        // The star erupts on real hits — the lifecycle layer. Dissected,
+        // the eruption leaves the beat's own ring: drums if stems name
+        // one, the low tier (the kick's home) otherwise.
+        if (startedRef.current && beat.strength > 0.25) {
+          const bt = tiers.findIndex((t2) => t2.role === 'drums')
+          scene.burst(beat.strength, bt >= 0 ? bt : 0)
+        }
       }
       beatPulse *= Math.exp(-dt * 5)
 
@@ -620,7 +625,8 @@ export default function App() {
         scene.setVocal(Math.min(1.4, vocal * 4))
         // Drum-gated eruption: far tighter than full-mix onset detection.
         if (drums > 0.3 && drums > drumPrev * 1.6) {
-          scene.burst(Math.min(1, drums * 1.6))
+          const bt = tiers.findIndex((t2) => t2.role === 'drums')
+          scene.burst(Math.min(1, drums * 1.6), bt >= 0 ? bt : null)
           snapEnv = 1
         }
         drumPrev = drums * 0.7 + drumPrev * 0.3
