@@ -296,6 +296,9 @@ export default function App() {
     const finePointer = matchMedia('(pointer: fine)').matches
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
     const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false, dragging: false, lx: 0, ly: 0, axisHover: false }
+    // what the idle reticle currently says — so hints never clobber a
+    // live gesture readout, and gesture readouts never leave stale hints
+    let hintShown = ''
     const onCurMove = (e: PointerEvent) => {
       cur.tx = e.clientX
       cur.ty = e.clientY
@@ -397,12 +400,17 @@ export default function App() {
           scene.dissect < 0.5 &&
           Math.abs(e.clientX - c3.x) < 30 &&
           Math.abs(e.clientY - c3.y) < h * 0.38
-        if (retLabelRef.current) {
-          const cue = cur.axisHover ? 'dissect ↕' : ''
-          // never clobber a live gesture readout — only own the hint
-          if (cur.axisHover || retLabelRef.current.textContent === 'dissect ↕')
-            retLabelRef.current.textContent = cue
+        // The idle reticle names what the hand is over: the seam when the
+        // star is whole, the tier when the stack is open.
+        let cue = ''
+        if (cur.axisHover) cue = 'dissect ↕'
+        else if (scene.dissect > 0.5 && !cur.overUi) {
+          const ti = pickTier(e.clientX, e.clientY)
+          if (ti >= 0) cue = `${tiers[ti].label} · grab`
         }
+        if (retLabelRef.current && (cue || retLabelRef.current.textContent === hintShown))
+          retLabelRef.current.textContent = cue
+        hintShown = cue
       } else {
         cur.axisHover = false
       }
