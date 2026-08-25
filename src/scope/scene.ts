@@ -83,6 +83,8 @@ const SHELL_VERT = /* glsl */ `
   uniform float uDensity;
   uniform float uTurb;
   uniform float uExpo;
+  uniform float uSnap;
+  uniform float uBands[24];
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -96,10 +98,17 @@ const SHELL_VERT = /* glsl */ `
     float n2 = snoise(aDir * 5.3 + vec3(uTime * 0.26, 0.0, -uTime * 0.19));
     float n3 = snoise(aDir * 11.0 + vec3(-uTime * 0.53, uTime * 0.41, 0.0));
 
+    // Spectral anatomy: each angular sector of the body belongs to one of
+    // the analyser's 24 bands — the hi-hat shimmers HERE, the bass heaves
+    // THERE. Sectors rotate with the body, so the anatomy is anatomical.
+    float sector = (atan(aDir.z, aDir.x) / 6.28318 + 0.5) * 24.0;
+    float bandE = uBands[int(mod(floor(sector), 24.0))];
+
     float disp = (
       n1 * (0.05 + uLow * 0.30) +
       n2 * (uMid * 0.24 + uPulse * 0.10) +
-      n3 * (uHigh * 0.13)) * uTurb;
+      n3 * (uHigh * 0.13) +
+      n2 * bandE * 0.20) * uTurb;
 
     // Volumetric body, not a hollow shell: each particle owns a depth
     // inside the ball (surface-biased), so the face-on view is a boiling
@@ -117,13 +126,14 @@ const SHELL_VERT = /* glsl */ `
     float tw = 0.72 + 0.28 * sin(uTime * (2.0 + aHash * 6.0) + aHash * 40.0);
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13) * tw * (0.55 + 0.45 * depth) * uExpo;
+    // Snap is unsprung: the kick flashes the frame it lands.
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35) * on * (2.75 / max(0.4, -mv.z));
+    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9) * on * (2.75 / max(0.4, -mv.z));
   }
 `
 
@@ -198,6 +208,8 @@ const LINK_VERT = /* glsl */ `
   uniform float uReveal;
   uniform float uDensity;
   uniform float uTurb;
+  uniform float uSnap;
+  uniform float uOnsetN;
   attribute vec3 aDir;
   attribute float aHash;  // shared per segment
   varying float vA;
@@ -210,11 +222,12 @@ const LINK_VERT = /* glsl */ `
     float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp);
     vec3 p = aDir * r;
 
-    // Rotating gate: a different ~fifth of the lattice arms on each beat
-    // window; uPulse lights the armed subset.
-    float gate = step(0.8, fract(aHash * 17.31 + floor(uTime * 0.8) * 0.618));
+    // Onset-driven: every real transient (snare, hat, stab) re-deals which
+    // fifth of the lattice is armed, and the unsprung snap lights it the
+    // same frame the sound happens.
+    float gate = step(0.8, fract(aHash * 17.31 + uOnsetN * 0.618));
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
-    vA = (0.028 + gate * uPulse * 0.34) * on;
+    vA = (0.028 + gate * max(uPulse * 0.3, uSnap * 0.5)) * on;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `
@@ -339,6 +352,13 @@ export class Scene {
       // CPU side of the motion law).
       uTurb: { value: 1 },
       uExpo: { value: 1 },
+      // The transient fast-path: sub-frame attack, ~150ms decay, NO spring.
+      uSnap: { value: 0 },
+      // The full analyser: 24 log bands, mapped to angular sectors of the
+      // body — the star's spectral anatomy.
+      uBands: { value: new Float32Array(24) },
+      // Onset counter rotates which constellations arm.
+      uOnsetN: { value: 0 },
     }
 
     // --- the shell: fibonacci sphere ----------------------------------------
@@ -488,6 +508,17 @@ export class Scene {
     return this.bloom
   }
 
+  /** The full analyser feed — 24 log bands into the anatomy. */
+  setBands(bands: Float32Array) {
+    const u = this.uniforms.uBands.value as Float32Array
+    for (let i = 0; i < 24; i++) u[i] = bands[i]
+  }
+
+  /** A real transient happened — re-deal the armed constellations. */
+  onset() {
+    this.uniforms.uOnsetN.value = (this.uniforms.uOnsetN.value + 1) % 4096
+  }
+
   /** Owner tuning: turbulence / exposure / spin, each 0.25..2. */
   setTuning(turb: number, expo: number, spin: number) {
     this.uniforms.uTurb.value = turb
@@ -568,8 +599,13 @@ export class Scene {
     this.uniforms.uR.value = 0.88
   }
 
-  render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0) {
-    this.t += dt
+  render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0, snap = 0) {
+    // The velocity edit: simulation time itself lurches on hits and eases
+    // back between them — motion CUTS on the beat instead of drifting
+    // through it. Snap is unsprung by design.
+    this.uniforms.uSnap.value = snap
+    const warp = 0.7 + this.uniforms.uPulse.value * 1.6 + snap * 1.4
+    this.t += dt * warp
     this.uniforms.uTime.value = this.t
     this.uniforms.uLow.value = this.lowE.update(low, dt, 11)
     this.uniforms.uMid.value = this.midE.update(mid, dt, 9)
@@ -584,7 +620,7 @@ export class Scene {
     this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
     this.drag.x += (this.drag.tx - this.drag.x) * ease
     this.drag.y += (this.drag.ty - this.drag.y) * ease
-    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial
+    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial * (0.75 + warp * 0.25)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     this.cluster.rotation.x =
       Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y

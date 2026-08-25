@@ -202,6 +202,9 @@ export default function App() {
     let waveHead = 0
 
     let beatPulse = 0
+    // The transient fast-path: instant attack on spectral-flux onsets,
+    // ~150ms decay. Deliberately NOT a spring — snap must not be smoothed.
+    let snapEnv = 0
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
@@ -215,6 +218,12 @@ export default function App() {
       const t = engine.analyser.now
       const fp = tracker.update(f, engine.analyser.onsets, t, dt)
       const beat = beatClock.update(f, fp, t, dt)
+      if (f.onset) {
+        snapEnv = 1
+        scene.onset()
+      }
+      snapEnv *= Math.exp(-dt * 9)
+      scene.setBands(f.bands)
       if (beat.trigger) {
         beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
         // The star erupts on real hits — the lifecycle layer.
@@ -229,7 +238,7 @@ export default function App() {
 
       // Idle (pre-start) the instrument still breathes, barely — a machine
       // on standby, not a screenshot.
-      scene.render(dt, f.low, f.mid, f.high, beatPulse, ahead)
+      scene.render(dt, f.low, f.mid, f.high, beatPulse, ahead, snapEnv)
 
       wave[waveHead] = f.rms
       waveHead = (waveHead + 1) % wave.length
