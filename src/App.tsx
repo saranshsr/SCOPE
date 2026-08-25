@@ -575,6 +575,8 @@ export default function App() {
     let drumPrev = 0
     let lastInfos: StemInfo[] | null = null
     let surveyDirty = false
+    let seamFlashUntil = 0
+    let wasStarted = false
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
@@ -642,7 +644,13 @@ export default function App() {
       // The survey drawing rides every frame while the stack is open —
       // markers, drop-lines and labels are projected from the SAME cluster
       // transform the particles just rendered with.
-      const seamWant = cur.axisHover || sect.axis
+      // Touch has no hover: flash the seam for a few seconds after power-on
+      // so every device gets shown the split line once.
+      if (startedRef.current && !wasStarted) {
+        wasStarted = true
+        seamFlashUntil = now + 4500
+      }
+      const seamWant = cur.axisHover || sect.axis || now < seamFlashUntil
       if (scene.dissect > 0.004 || seamWant) {
         surveyDirty = true
         for (let i = 0; i < tiers.length; i++) {
