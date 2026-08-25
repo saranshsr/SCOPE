@@ -30,6 +30,7 @@ export class AudioEngine {
   private micSource: MediaStreamAudioSourceNode | null = null
   private micStream: MediaStream | null = null
   private filter!: BiquadFilterNode
+  private _rate = 1
 
   kind: SourceKind = 'radio'
   playlist: TrackInfo[] = []
@@ -58,7 +59,15 @@ export class AudioEngine {
     // One persistent pair instead of per-call listeners (which leaked and
     // cross-fired between sources). 'playing' confirms sound actually flows;
     // 'error' is the designed-failure path for whatever was playing.
+    // Browsers reset playbackRate on every src change, so the deck's rate
+    // is engine state and gets re-applied on each load — otherwise the dial
+    // keeps reading 70 while the audio silently runs at 100.
+    this.el.addEventListener('loadstart', () => {
+      this.el.playbackRate = this._rate
+      this.el.preservesPitch = false
+    })
     this.el.addEventListener('playing', () => {
+      this.el.playbackRate = this._rate
       this.watchdog++ // real audio arrived — cancel any pending verdict
       this.errStreak = 0
       if (this.pendingAnnounce) {
@@ -218,6 +227,16 @@ export class AudioEngine {
     this.micSource = null
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.micStream = null
+  }
+
+  /** Playback rate, 0.5..1.5. Vinyl-style: pitch bends with speed. */
+  set rate(r: number) {
+    this._rate = r
+    this.el.playbackRate = r
+    this.el.preservesPitch = false
+  }
+  get rate() {
+    return this._rate
   }
 
   /** Solo one of the 24 log bands (60..12k), or null to hear everything.

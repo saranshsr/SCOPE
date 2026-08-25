@@ -84,11 +84,11 @@ export default function App() {
   useEffect(() => {
     const e = engineRef.current
     if (!e) return
-    e.el.playbackRate = rate
     // Chopped-and-screwed honesty: rate bends pitch like vinyl, not like a
     // podcast app. The analyser hears the bent audio, so the whole visual
-    // system follows for free.
-    e.el.preservesPitch = false
+    // system follows for free. The engine owns it so track changes can't
+    // silently reset it.
+    e.rate = rate
   }, [rate])
 
   useEffect(() => {
@@ -117,7 +117,6 @@ export default function App() {
       })
       .catch(() => {})
     engine.onTrackChange = (tr) => {
-      engine.el.preservesPitch = false
       setTrack(tr)
       setSource(engine.kind)
       if (startedRef.current && tr) {
@@ -504,7 +503,13 @@ export default function App() {
           1px grid-gap dividers, real values only. */}
       <dl className="titleblock">
         <div><dt>src</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
-        <div><dt>unit</dt><dd>D-01</dd></div>
+        {/* Non-default state is never silent: a forgotten rate or an armed
+            solo makes the audio sound wrong, so the plate says so in red. */}
+        <div className={rate !== 1 ? 'armed' : ''}><dt>rate</dt><dd>{rate.toFixed(2)}×</dd></div>
+        <div className={solo != null ? 'armed' : ''}>
+          <dt>solo</dt>
+          <dd>{solo == null ? 'off' : (() => { const hz = Math.round(60 * Math.pow(200, solo / 23)); return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${hz}` })()}</dd>
+        </div>
         <div><dt>cal</dt><dd>44.1K</dd></div>
         <div><dt>fft</dt><dd>2048</dd></div>
       </dl>

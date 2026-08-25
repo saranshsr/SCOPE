@@ -204,7 +204,7 @@ body {
   right: var(--edge);
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, auto);
+  grid-template-columns: repeat(5, auto);
   gap: 1px;
   background: rgba(234, 234, 234, 0.16);
   border: 1px solid rgba(234, 234, 234, 0.16);
@@ -772,7 +772,7 @@ body {
 @media (max-width: 720px) {
   .ruler-x { left: 0; }
   .ruler-y { display: none; }
-  .titleblock { grid-template-columns: repeat(2, auto); }
+  .titleblock { grid-template-columns: repeat(3, auto); }
   /* Priorities invert on the phone sheet: identity, then what's playing
      and its scrubber, then sources and transport — stats and tuning live
      below the fold for the curious thumb. Desktop keeps the pinned foot. */
@@ -969,3 +969,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   transition: opacity 500ms ease;
 }
 .app.ambient { cursor: none; }
+
+/* A title-block cell in a non-default state — the machine admitting it. */
+.titleblock .armed dt { color: rgba(255, 42, 42, 0.75); }
+.titleblock .armed dd { color: var(--red); }
