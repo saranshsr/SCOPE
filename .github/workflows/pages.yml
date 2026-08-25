@@ -1,39 +1,34 @@
-# Deploys every push on main to GitHub Pages — the always-on mirror of the
-# instrument, radio included (the shipped set is CC0). Vercel remains the
-# primary target once its CLI is authenticated.
+# Deploys every push on main to GitHub Pages via the gh-pages branch —
+# the branch method auto-provisions Pages on public repos and needs no
+# settings API (configure-pages' enablement was refused for this token).
 name: pages
 on:
   push:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-      - uses: actions/configure-pages@v4
-        with:
-          enablement: true
       - run: npm ci
       - run: npx vite build --base=/SCOPE/
         env:
           VITE_SITE_URL: https://saranshsr.github.io/SCOPE
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: push dist to gh-pages
+        run: |
+          cd dist
+          touch .nojekyll
+          git init -b gh-pages
+          git add -A
+          git -c user.name=github-actions -c user.email=actions@github.com commit -m "deploy ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
