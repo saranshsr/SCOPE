@@ -1001,3 +1001,40 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: var(--red);
 }
+
+/* --- the stem strips: each separated part, live level, one-tap mute -------- */
+.stemstrip {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  display: grid;
+  gap: 6px;
+}
+.stem {
+  display: grid;
+  grid-template-columns: 58px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.14);
+  padding: 6px 8px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--ink);
+}
+.stem-role { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; text-align: left; }
+.stem-bar { height: 5px; border: 1px solid rgba(234, 234, 234, 0.18); display: block; }
+.stem-bar i { display: block; height: 100%; background: var(--ink); transition: width 100ms linear; }
+.stem-ms { font-size: 8px; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; text-align: right; }
+.stem-muted { border-color: rgba(255, 42, 42, 0.5); }
+.stem-muted .stem-role, .stem-muted .stem-ms { color: var(--red); }
+.stem-muted .stem-bar i { background: rgba(255, 42, 42, 0.4); }
+
+.stemhint {
+  display: block;
+  margin-top: 10px;
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(234, 234, 234, 0.28);
+}

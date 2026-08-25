@@ -27,6 +27,7 @@ const BASE_DENSITY = 0.55
 const CORE_N = 2600
 const EJECTA_N = 3600
 const LINK_N = 2200 // constellation segments
+const CORONA_N = 2600 // the vocal ring
 
 /** Ashima 3D simplex noise — the standard GLSL implementation. */
 const SNOISE = /* glsl */ `
@@ -319,6 +320,43 @@ const CORE_FRAG = /* glsl */ `
   }
 `
 
+/** The corona — the vocal stem's visible voice. A tilted ring of embers
+ *  around the body that only exists while a voice sings: radius breathes
+ *  with it, particles drift along the ring, noise keeps it organic. Kill
+ *  the vocal stem and the corona dies with it — feedback that cannot be
+ *  missed. */
+const CORONA_VERT = /* glsl */ `
+  uniform float uTime;
+  uniform float uVocal;
+  uniform float uR;
+  uniform float uZoom;
+  attribute float aTheta;
+  attribute float aHash;
+  varying float vA;
+  __SNOISE__
+
+  void main() {
+    float th = aTheta + uTime * (0.08 + aHash * 0.05);
+    float r = uR * (0.86 + uVocal * 0.16 + 0.03 * snoise(vec3(cos(th), sin(th), uTime * 0.3) * 2.0 + aHash * 7.0));
+    // a ring tilted out of the body's plane so it reads as its own object
+    vec3 p = vec3(cos(th) * r, sin(th) * r * 0.42, sin(th) * r * 0.5);
+    vA = uVocal * (0.25 + 0.75 * fract(aHash * 91.7)) * smoothstep(0.02, 0.2, uVocal);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.2 + uVocal * 1.6) * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
+  }
+`
+
+const CORONA_FRAG = /* glsl */ `
+  precision mediump float;
+  varying float vA;
+  void main() {
+    vec2 uv = gl_PointCoord - 0.5;
+    float m = smoothstep(0.5, 0.1, length(uv));
+    gl_FragColor = vec4(vec3(0.95) * vA * m, 1.0);
+  }
+`
+
 /** Critically-damped smoother — fast attack, settle without overshoot. */
 class Env {
   v = 0
@@ -400,6 +438,8 @@ export class Scene {
       uGrabPos: { value: new THREE.Vector3() },
       uGrabStr: { value: 0 },
       uGrabBand: { value: -1 }, // 0 low / 1 mid / 2 high / -1 all
+      // The vocal voice: 0 = no corona; rises with vocal-stem presence.
+      uVocal: { value: 0 },
       uEqVis: { value: new THREE.Vector3(1, 1, 1) },
       // The full analyser: 24 log bands, mapped to angular sectors of the
       // body — the star's spectral anatomy.
@@ -539,6 +579,30 @@ export class Scene {
       this.cluster.add(new THREE.LineSegments(geo, mat))
     }
 
+    // --- the corona --------------------------------------------------------
+    {
+      const theta = new Float32Array(CORONA_N)
+      const hash = new Float32Array(CORONA_N)
+      const pos = new Float32Array(CORONA_N * 3)
+      for (let i = 0; i < CORONA_N; i++) {
+        theta[i] = (i / CORONA_N) * Math.PI * 2
+        hash[i] = Math.random()
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      geo.setAttribute('aTheta', new THREE.BufferAttribute(theta, 1))
+      geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
+      const mat = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader: CORONA_VERT.replace('__SNOISE__', SNOISE),
+        fragmentShader: CORONA_FRAG,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      })
+      this.cluster.add(new THREE.Points(geo, mat))
+    }
+
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     // Phosphor persistence: the frame smears into itself like a slow CRT,
@@ -610,6 +674,11 @@ export class Scene {
     const hit = new THREE.Vector3()
     if (!ray.ray.intersectSphere(sphere, hit)) return null
     return this.cluster.worldToLocal(hit)
+  }
+
+  /** The vocal stem's presence, damped by the caller. */
+  setVocal(v: number) {
+    this.uniforms.uVocal.value = Math.max(0, Math.min(1.4, v))
   }
 
   /** Cursor ray -> the body's depth plane. ALWAYS returns a point, so the

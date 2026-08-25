@@ -12,6 +12,17 @@ It reads the whole track's peaks up front, so the surface tension rises a
 few seconds *before* a drop lands. Grab it and spin it; it drifts on its
 own the rest of the time.
 
+**Stem control.** Drop separated stems together (files named
+vocals/drums/bass/whatever — [StemDeck](https://github.com/stemdeckapp/stemdeck)
+splits any track locally, free, Apache-2.0) and scope becomes a stem
+deck: sample-locked multitrack playback, per-stem strips with live
+meters and one-tap mute, and the orb's quadrants become TRUE stem
+controls — grab the drums' territory and push in for a real drum mute,
+pull the vocals out to hear only the voice. Each stem owns a visual
+organ: drums gate the eruptions, bass drives the photosphere, vocals
+light a corona ring that dies when the voice does. Everything stays in
+your browser — stems are never uploaded.
+
 **The orb is the mixer.** Grab its body and pull: outward boosts the EQ
 band you're holding, pushing through the core kills it (momentary, like
 holding a kill through a phrase). Drag across for the colour filter

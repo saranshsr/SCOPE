@@ -6,6 +6,7 @@ import { Scene } from './scope/scene'
 import { playlist } from './data/tracks'
 import { loadPeaks, peaksFromFile, energyAhead, type TrackPeaks } from './scope/peaks'
 import { fetchAudiusRadio } from './audio/audius'
+import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
 
 /**
@@ -18,7 +19,7 @@ import { Decode } from './scope/Decode'
  * to the DOM from the frame loop — React state only handles mode changes.
  */
 
-const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]' }
+const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]', stems: '[04]' }
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -50,6 +51,8 @@ export default function App() {
   const [solo, setSolo] = useState<number | null>(null) // band index 0..23
   const soloRef = useRef<number | null>(null)
   const [ambient, setAmbient] = useState(false)
+  const [stemInfo, setStemInfo] = useState<StemInfo[] | null>(null)
+  const stemDeckRef = useRef<StemDeck | null>(null)
   const tuningRef = useRef(tuning)
   // signal/machine stats, written imperatively at chrome rate
   const bpmRef = useRef<HTMLElement>(null)
@@ -133,6 +136,11 @@ export default function App() {
       })
       .catch(() => {})
     engine.onTrackChange = (tr) => {
+      if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
+        stemDeckRef.current.pause()
+        setStemInfo(null)
+        scene.setVocal(0)
+      }
       setTrack(tr)
       setSource(engine.kind)
       if (startedRef.current && tr) {
@@ -207,7 +215,19 @@ export default function App() {
           const radial = Math.max(-1, Math.min(1.8, (rNow - mix.r0) / mix.r0))
           const db = radial < 0 ? radial * 30 : Math.min(1, radial) * 9
           mixState.eq = db
-          eng2?.eq(mix.band, db)
+          if (eng2?.kind === 'stems' && stemDeckRef.current) {
+            // TRUE stem control: quadrant by grab angle — drums low, bass
+            // left, vocals top, melody right. Push in = real mute.
+            const ang = Math.atan2(-(mix.sy - c.y), mix.sx - c.x) // y up
+            const role: StemRole =
+              ang > Math.PI * 0.25 && ang < Math.PI * 0.75 ? 'vocals'
+              : ang < -Math.PI * 0.25 && ang > -Math.PI * 0.75 ? 'drums'
+              : Math.abs(ang) >= Math.PI * 0.75 ? 'bass' : 'other'
+            mix.stemRole = role
+            stemDeckRef.current.setStemGain(role, radial < 0 ? 1 + radial : 1 + Math.min(1, radial))
+          } else {
+            eng2?.eq(mix.band, db)
+          }
           const vis = radial < 0 ? 1 + radial * 0.95 : 1 + Math.min(1, radial) * 0.5
           scene.setEqVis(
             mix.band === 'low' ? vis : 1,
@@ -232,7 +252,9 @@ export default function App() {
                 ? `echo ${Math.round(mix.echo * 100)}%`
                 : Math.abs(mixState.sweep) > 0.05 && Math.abs(e.movementX ?? 1) > Math.abs(e.movementY ?? 0)
                   ? `${mixState.sweep < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(mixState.sweep) * 100)}`
-                  : `${mix.band} ${db > 0 ? '+' : ''}${Math.round(db)}db`
+                  : mix.stemRole
+                    ? `${mix.stemRole} ${radial < 0 ? Math.round((1 + radial) * 100) + '%' : '+' + Math.round(Math.min(1, radial) * 100) + '%'}`
+                    : `${mix.band} ${db > 0 ? '+' : ''}${Math.round(db)}db`
           }
         }
       }
@@ -245,7 +267,7 @@ export default function App() {
     //   radial pull out / push in -> boost / kill (momentary)
     //   horizontal travel         -> the colour filter sweep (latches)
     //   pulling FAR out           -> echo builds while held, rings out after
-    const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', sx: 0, sy: 0, r0: 1, sweep0: 0, echo: 0 }
+    const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', stemRole: null as StemRole | null, sx: 0, sy: 0, r0: 1, sweep0: 0, echo: 0 }
     const mixState = { sweep: 0, eq: 0 }
     const centerPx = () => {
       const fracX = startedRef.current && w > 720 ? (272 + (w - 272) / 2) / w : 0.5
@@ -284,7 +306,9 @@ export default function App() {
         appRef.current?.classList.remove('mixing')
         const eng2 = engineRef.current
         // Momentary: the EQ springs back flat; the echo loop drains itself;
-        // the sweep LATCHES like the knob it is.
+        // the sweep LATCHES like the knob it is. A held stem returns home.
+        if (mix.stemRole && stemDeckRef.current) stemDeckRef.current.setStemGain(mix.stemRole, 1)
+        mix.stemRole = null
         eng2?.eq(mix.band, 0)
         eng2?.echo(0)
         scene.setGrab(null, 0)
@@ -318,6 +342,7 @@ export default function App() {
     // The transient fast-path: instant attack on spectral-flux onsets,
     // ~150ms decay. Deliberately NOT a spring — snap must not be smoothed.
     let snapEnv = 0
+    let drumPrev = 0
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
@@ -345,9 +370,36 @@ export default function App() {
       }
       beatPulse *= Math.exp(-dt * 5)
 
+      // Stem voices: each part drives its own visual organ. The mix bus
+      // already feeds the analyser (anatomy/spectrum/beats keep working);
+      // these are the per-stem additions.
+      const deckNow = stemDeckRef.current
+      if (engine.kind === 'stems' && deckNow?.playing) {
+        const infos = deckNow.info()
+        let vocal = 0, drums = 0
+        for (const s of infos) {
+          if (s.role === 'vocals') vocal = Math.max(vocal, s.level)
+          if (s.role === 'drums') drums = Math.max(drums, s.level)
+        }
+        scene.setVocal(Math.min(1.4, vocal * 4))
+        // Drum-gated eruption: far tighter than full-mix onset detection.
+        if (drums > 0.3 && drums > drumPrev * 1.6) {
+          scene.burst(Math.min(1, drums * 1.6))
+          snapEnv = 1
+        }
+        drumPrev = drums * 0.7 + drumPrev * 0.3
+      } else if (engine.kind !== 'stems') {
+        scene.setVocal(0)
+      }
+
       // Anticipation: mean energy of the next 8 seconds, from the peaks.
       const elNow = engine.el
-      const progress = elNow.duration > 0 ? elNow.currentTime / elNow.duration : 0
+      const progress =
+        engine.kind === 'stems' && stemDeckRef.current
+          ? stemDeckRef.current.currentTime() / Math.max(1, stemDeckRef.current.duration)
+          : elNow.duration > 0
+            ? elNow.currentTime / elNow.duration
+            : 0
       const ahead = peaksRef.current ? energyAhead(peaksRef.current, progress, 8) : 0
 
       // Idle (pre-start) the instrument still breathes, barely — a machine
@@ -424,7 +476,8 @@ export default function App() {
         if (ptsRef.current)
           ptsRef.current.textContent = `${Math.round((108000 * (scene.densityNow) + 2600 + 3600) / 1000)}k`
         if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
-        setPaused(engineRef.current?.el.paused ?? false)
+        setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : (engineRef.current?.el.paused ?? false))
+        if (engine.kind === 'stems' && stemDeckRef.current) setStemInfo(stemDeckRef.current.info())
         if (zoomRef.current) zoomRef.current.textContent = `${scene.zoomLevel.toFixed(1)}×`
         if (fltRef.current && fltCellRef.current) {
           const sv = mixState.sweep
@@ -463,8 +516,29 @@ export default function App() {
     const onDragOver = (e: DragEvent) => e.preventDefault()
     const onDrop = (e: DragEvent) => {
       e.preventDefault()
-      const file = e.dataTransfer?.files?.[0]
-      if (!file || !/^(audio|video)\//.test(file.type)) return
+      const all = [...(e.dataTransfer?.files ?? [])].filter((f) => /^(audio|video)\//.test(f.type))
+      // Several stems dropped together = the stem deck takes the stage.
+      if (all.length >= 2 && looksLikeStems(all)) {
+        startedRef.current = true
+        setStarted(true)
+        focus()
+        scene.powerOn()
+        engine.unlock()
+        const deck = stemDeckRef.current ?? new StemDeck(engine.ctx, engine.busHead)
+        stemDeckRef.current = deck
+        setDecoding(true)
+        void deck.load(all).then(() => {
+          engine.enterStems(`stem deck · ${all.length} stems`)
+          deck.play(0)
+          const p = deck.peaks()
+          peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
+          setDecoding(false)
+          setStemInfo(deck.info())
+        })
+        return
+      }
+      const file = all[0]
+      if (!file) return
       startedRef.current = true
       setStarted(true)
       focus()
@@ -737,6 +811,11 @@ export default function App() {
                 onClick={() => {
                   const e = engineRef.current
                   if (!e) return
+                  if (e.kind === 'stems') {
+                    const d = stemDeckRef.current
+                    if (d) d.playing ? d.pause() : d.play()
+                    return
+                  }
                   if (e.el.paused) void e.el.play()
                   else e.el.pause()
                 }}
@@ -796,6 +875,27 @@ export default function App() {
             </div>
           </div>
 
+          {/* the stem strips — each separated part, its live level, one-tap
+              mute. Only exists while the deck holds stems. */}
+          {source === 'stems' && stemInfo && (
+            <div className="stemstrip rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+              {stemInfo.map((s, i) => (
+                <button
+                  key={i}
+                  className={`stem${s.muted ? ' stem-muted' : ''}`}
+                  onClick={() => {
+                    stemDeckRef.current?.toggleMute(i)
+                    setStemInfo(stemDeckRef.current?.info() ?? null)
+                  }}
+                >
+                  <span className="stem-role">{s.role}</span>
+                  <span className="stem-bar"><i style={{ width: `${Math.min(100, s.level * 260)}%` }} /></span>
+                  <span className="stem-ms">{s.muted ? 'muted' : 'live'}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <samp className="deck-name"><Decode text={name} duration={700} /></samp>
             <canvas
@@ -805,16 +905,25 @@ export default function App() {
               height={104}
               onPointerDown={(e) => {
                 // The full-track strip is a scrubber, when there IS a track.
-                const el = engineRef.current?.el
-                if (!el || !isFinite(el.duration) || el.duration <= 0) return
                 const r = e.currentTarget.getBoundingClientRect()
-                el.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * el.duration
+                const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+                const eng = engineRef.current
+                if (eng?.kind === 'stems' && stemDeckRef.current) {
+                  stemDeckRef.current.seek(frac * stemDeckRef.current.duration)
+                  return
+                }
+                const el = eng?.el
+                if (!el || !isFinite(el.duration) || el.duration <= 0) return
+                el.currentTime = frac * el.duration
               }}
             />
             <div className="deck-counts">
               <data ref={cElapsedRef}>· 0</data>
               <data ref={cTotalRef}>· 0</data>
             </div>
+            {source !== 'stems' && (
+              <span className="stemhint">have stems? drop them together (vocals·drums·bass) — split any track locally with stemdeck</span>
+            )}
             <kbd className="keyline">grab the orb: pull=eq · across=filter · far=echo · spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
           </div>
         </aside>

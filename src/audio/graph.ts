@@ -13,7 +13,7 @@
 
 import { Analyser } from './features'
 
-export type SourceKind = 'radio' | 'file' | 'mic'
+export type SourceKind = 'radio' | 'file' | 'mic' | 'stems'
 
 export interface TrackInfo {
   title: string
@@ -280,6 +280,22 @@ export class AudioEngine {
   }
   get rate() {
     return this._rate
+  }
+
+  /** The head of the performance desk — external sources (the stem deck)
+   *  plug in here so EQ/sweep/echo/solo and the analyser hear them. */
+  get busHead(): AudioNode {
+    return this.eqLow
+  }
+
+  /** Enter stem-deck mode: the element and mic stand down; the deck owns
+   *  playback and announces itself through the usual channel. */
+  enterStems(title: string) {
+    this.el.pause()
+    this.stopMic()
+    this.pendingAnnounce = null
+    this.kind = 'stems'
+    this.onTrackChange?.({ title, artist: 'stem deck', src: '' })
   }
 
   /** Performance EQ, momentary by design: the app springs it back. dB in
