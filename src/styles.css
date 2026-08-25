@@ -989,3 +989,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* Mixing: the reticle's dot goes red — you are holding the audio. */
 .app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
 .app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(255, 42, 42, 0.7); }
+
+/* the live parameter riding the reticle while you hold audio */
+.ret-label {
+  position: absolute;
+  left: 20px;
+  top: -4px;
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--red);
+}

@@ -91,6 +91,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uZoom;
   uniform vec3 uGrabPos;
   uniform float uGrabStr;
+  uniform float uGrabBand;
   uniform vec3 uEqVis;
   uniform float uBands[24];
   attribute vec3 aDir;
@@ -123,7 +124,7 @@ const SHELL_VERT = /* glsl */ `
       n3 * (uHigh * 0.13) +
       n2 * bandE * 0.20) * uTurb;
 
-    float eqBody = 0.75 + 0.25 * eqV; // kills deflate the whole sector
+    float eqBody = 0.52 + 0.48 * min(eqV, 1.25); // kills CAVE, boosts flare
     // Volumetric body, not a hollow shell: each particle owns a depth
     // inside the ball (surface-biased), so the face-on view is a boiling
     // solid mass like the reference, and tilting reveals real volume.
@@ -134,11 +135,16 @@ const SHELL_VERT = /* glsl */ `
     float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth * eqBody;
     vec3 p = aDir * r;
 
-    // The hand in the matter: particles near the grab point spring toward
-    // it, falling off exponentially so you hold a HANDFUL, not the orb.
+    // The hand in the matter. Band-selective: you grab the BASS and the
+    // bass sectors' particles stream to your hand — everything else barely
+    // stirs. Wider falloff + stronger pull than v1: the tendril must READ.
+    float pullHeat = 0.0;
     if (uGrabStr > 0.001) {
-      float pullW = exp(-length(p - uGrabPos) * 3.0) * uGrabStr;
-      p = mix(p, uGrabPos, min(0.85, pullW));
+      float grp = si < 8 ? 0.0 : si < 16 ? 1.0 : 2.0;
+      float bandW = uGrabBand < -0.5 ? 1.0 : (abs(grp - uGrabBand) < 0.5 ? 1.0 : 0.12);
+      float pullW = exp(-length(p - uGrabPos) * 1.6) * uGrabStr * bandW;
+      p = mix(p, uGrabPos, min(0.92, pullW));
+      pullHeat = pullW * 0.55; // pulled matter burns brighter — the tendril is hot
     }
 
     // Hot where deformed — flares glow. A slow per-particle twinkle keeps
@@ -148,7 +154,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV);
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) + pullHeat;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -393,6 +399,7 @@ export class Scene {
       // matter, and per-band-group EQ visual multipliers (low/mid/high).
       uGrabPos: { value: new THREE.Vector3() },
       uGrabStr: { value: 0 },
+      uGrabBand: { value: -1 }, // 0 low / 1 mid / 2 high / -1 all
       uEqVis: { value: new THREE.Vector3(1, 1, 1) },
       // The full analyser: 24 log bands, mapped to angular sectors of the
       // body — the star's spectral anatomy.
@@ -605,10 +612,23 @@ export class Scene {
     return this.cluster.worldToLocal(hit)
   }
 
-  /** Drive the grab visual: local-space point + strength 0..1. */
-  setGrab(local: THREE.Vector3 | null, strength: number) {
+  /** Cursor ray -> the body's depth plane. ALWAYS returns a point, so the
+   *  tendril follows the hand even after it leaves the silhouette — that
+   *  was the broken first link of the feedback chain. */
+  grabPlane(nx: number, ny: number): THREE.Vector3 {
+    const ray = new THREE.Raycaster()
+    ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera)
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
+    const hit = new THREE.Vector3()
+    ray.ray.intersectPlane(plane, hit)
+    return this.cluster.worldToLocal(hit)
+  }
+
+  /** Drive the grab visual: local point + strength + band (0/1/2, -1 all). */
+  setGrab(local: THREE.Vector3 | null, strength: number, band = -1) {
     if (local) (this.uniforms.uGrabPos.value as THREE.Vector3).copy(local)
     this.uniforms.uGrabStr.value = local ? strength : 0
+    this.uniforms.uGrabBand.value = band
   }
 
   /** EQ visual multipliers, 1 = flat, 0 = killed, ~1.5 = boosted. */

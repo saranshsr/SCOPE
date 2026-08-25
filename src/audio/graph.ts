@@ -135,7 +135,7 @@ export class AudioEngine {
       if (token !== this.watchdog || this.kind !== 'radio') return
       const alive = this.el.readyState >= 2 && isFinite(this.el.duration) && !this.el.paused
       if (!alive) this.onElementError()
-    }, 4000)
+    }, 5500) // remote streams (audius) legitimately take longer to arm
   }
 
   /** Announce queued until the element reports 'playing'. */

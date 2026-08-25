@@ -5,6 +5,7 @@ import { BeatClock } from './audio/beat'
 import { Scene } from './scope/scene'
 import { playlist } from './data/tracks'
 import { loadPeaks, peaksFromFile, energyAhead, type TrackPeaks } from './scope/peaks'
+import { fetchAudiusRadio } from './audio/audius'
 import { Decode } from './scope/Decode'
 
 /**
@@ -64,6 +65,7 @@ export default function App() {
   const fltCellRef = useRef<HTMLDivElement>(null)
   const echoRef = useRef<HTMLElement>(null)
   const echoCellRef = useRef<HTMLDivElement>(null)
+  const retLabelRef = useRef<HTMLSpanElement>(null)
   const sceneRef = useRef<Scene | null>(null)
 
   const engineRef = useRef<AudioEngine | null>(null)
@@ -110,13 +112,22 @@ export default function App() {
     const engine = new AudioEngine()
     engineRef.current = engine
     engine.setPlaylist(playlist)
-    // The owner's own library outranks the shipped CC0 set — purely by
-    // presence. The manifest lives in a gitignored dir that never reaches
-    // the repo or the deploy, so production falls back silently.
+    // Radio priority: the owner's local library (dev machine only), then
+    // the Audius trending stream (real released club music, legal to
+    // stream and analyse), then the shipped permissive set as the offline
+    // floor. Whichever resolves best before power-on wins.
+    let radioTier = 0 // 0 shipped, 1 audius, 2 local
+    void fetchAudiusRadio().then((list) => {
+      if (list.length >= 8 && radioTier < 1 && engine.kind === 'radio' && !startedRef.current) {
+        radioTier = 1
+        engine.setPlaylist(list)
+      }
+    })
     void fetch(`${import.meta.env.BASE_URL}tracks-local/manifest.json`)
       .then((r) => (r.ok ? r.json() : null))
       .then((local: TrackInfo[] | null) => {
         if (local?.length && engine.kind === 'radio' && !startedRef.current) {
+          radioTier = 2
           engine.setPlaylist(local)
         }
       })
@@ -209,9 +220,20 @@ export default function App() {
           // far pull: echo builds
           mix.echo = Math.max(0, Math.min(1, radial - 0.8))
           eng2?.echo(mix.echo)
-          // the hand tracks the surface (or its tangent) as you pull
-          const hit = scene.bodyHit((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1)
-          if (hit) scene.setGrab(hit, 0.6 + Math.abs(radial) * 0.3)
+          // the tendril follows the HAND — depth-plane projection never
+          // misses, so pulled matter stretches out of the body with you
+          const hand = scene.grabPlane((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1)
+          const bandIdx = mix.band === 'low' ? 0 : mix.band === 'mid' ? 1 : 2
+          scene.setGrab(hand, 0.65 + Math.min(1.2, Math.abs(radial)) * 0.55, bandIdx)
+          // live parameter at the reticle — the number rides your hand
+          if (retLabelRef.current) {
+            retLabelRef.current.textContent =
+              mix.echo > 0.02
+                ? `echo ${Math.round(mix.echo * 100)}%`
+                : Math.abs(mixState.sweep) > 0.05 && Math.abs(e.movementX ?? 1) > Math.abs(e.movementY ?? 0)
+                  ? `${mixState.sweep < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(mixState.sweep) * 100)}`
+                  : `${mix.band} ${db > 0 ? '+' : ''}${Math.round(db)}db`
+          }
         }
       }
       cur.lx = e.clientX
@@ -248,7 +270,7 @@ export default function App() {
         const rel = (e.clientY - bodyTopPx) / (2 * mix.r0)
         mix.band = rel < 0.34 ? 'high' : rel < 0.66 ? 'mid' : 'low'
         appRef.current?.classList.add('mixing')
-        scene.setGrab(hit, 0.6)
+        scene.setGrab(hit, 0.6, mix.band === 'low' ? 0 : mix.band === 'mid' ? 1 : 2)
       } else {
         cur.dragging = true
         appRef.current?.classList.add('grabbing')
@@ -268,6 +290,7 @@ export default function App() {
         scene.setGrab(null, 0)
         scene.setEqVis(1, 1, 1)
         mixState.eq = 0
+        if (retLabelRef.current) retLabelRef.current.textContent = ''
       }
     }
     window.addEventListener('pointermove', onCurMove)
@@ -375,7 +398,7 @@ export default function App() {
       if (chromeAcc > 0.16) {
         chromeAcc = 0
         drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress)
-        drawSpectrum(specRef.current, f.bands, soloRef.current)
+        drawSpectrum(specRef.current, f.bands, soloRef.current, mix.on ? mix.band : null, mixState.eq)
         const el = engine.el
         const pct = el.duration > 0 ? (el.currentTime / el.duration) * 100 : 0
         const pctText = `${pct.toFixed(1)}%`
@@ -605,6 +628,7 @@ export default function App() {
 
       <div ref={reticleRef} className="reticle" aria-hidden="true">
         <i className="ret-h" /><i className="ret-v" /><i className="ret-dot" />
+        <span ref={retLabelRef} className="ret-label" />
       </div>
 
       {/* crosshair — full frame, playhead % in red at each axis head */}
@@ -932,7 +956,13 @@ function drawWave(
  *  gauges glide. */
 const peaks = new Float32Array(24)
 const shown = new Float32Array(24)
-function drawSpectrum(cv: HTMLCanvasElement | null, bands: Float32Array, solo: number | null = null) {
+function drawSpectrum(
+  cv: HTMLCanvasElement | null,
+  bands: Float32Array,
+  solo: number | null = null,
+  mixBand: 'low' | 'mid' | 'high' | null = null,
+  mixDb = 0,
+) {
   const g = cv?.getContext('2d')
   if (!cv || !g) return
   g.clearRect(0, 0, cv.width, cv.height)
@@ -948,6 +978,12 @@ function drawSpectrum(cv: HTMLCanvasElement | null, bands: Float32Array, solo: n
     g.fillStyle = 'rgba(234,234,234,0.88)'
     // The armed band burns red; its neighbours dim to show the cut.
     if (solo != null) g.fillStyle = i === solo ? '#ff2a2a' : 'rgba(234,234,234,0.25)'
+    // The HELD EQ range tints red while you bend it — the analytical view
+    // agreeing with the sculptural one.
+    if (mixBand != null) {
+      const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
+      if (inBand) g.fillStyle = `rgba(255,42,42,${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
+    }
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly
     const py = cv.height - peaks[i] * (cv.height - 4)
