@@ -14,8 +14,10 @@ PPS = 20
 SPP = RATE // PPS
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-tracks = os.path.join(root, 'public', 'tracks-local')
-peaks = os.path.join(root, 'public', 'peaks-local')
+# Outside public/ by design: Vite copies public/ wholesale into dist, which
+# once put 583MB of unlicensed audio into every build. See vite.config.ts.
+tracks = os.path.join(root, 'local-media', 'tracks')
+peaks = os.path.join(root, 'local-media', 'peaks')
 os.makedirs(peaks, exist_ok=True)
 
 NOISE = re.compile(r'\b(soundloadmate|com|free|dl|download|premiere|official|audio|edit(ion)?|snippet|out|now|on|bandcamp|ep|records?|music)\b')
