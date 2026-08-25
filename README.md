@@ -2,7 +2,8 @@
 
 ![SCOPE](public/og.png)
 
-A star made of 58,000 particles that listens.
+A star of 108,000 particles that listens — about 63k burn at rest, and
+zooming in spends the reserve.
 
 The shell is a fibonacci sphere displaced by three octaves of drifting 3D
 simplex noise: bass swells the photosphere, mids drive the boil, highs add
@@ -55,6 +56,25 @@ announcements that decode character by character.
 
 Built with Vite + React + TypeScript + Three.js. No backend.
 
+## Controls
+
+| where | gesture | result |
+| --- | --- | --- |
+| body | pull out / push in | EQ boost / kill (momentary) |
+| body | drag across | colour filter sweep (latches) |
+| body | pull far + hold | echo builds, rings out on release |
+| axis | pull up / `D` | dissect into the survey stack |
+| ring (open) | drag from axis | tier level — real stem gain with stems |
+| ring (open) | tap | tier solo |
+| ring (open) | push to the axis | tier mute (latches) |
+| empty space | drag | spin |
+| anywhere | wheel / pinch | zoom 1–5× (spends the particle reserve) |
+| spectrum | tap a bar | bandpass solo |
+
+`space` pause · `n` skip · `←→` seek · `↑↓` volume · `1–3` presets ·
+`r/f/m` source · `h` ambient · `+/−/0` zoom — the console shows the
+legend for whichever state you're in.
+
 ## Run
 
 ```bash
@@ -64,9 +84,16 @@ npm run dev
 
 ## Audio
 
-The house radio ships with 12 public-domain (CC0) tracks from
-[FreePD](https://freepd.com) — no rights reserved, redistribution
-permitted. And it's still yours to feed:
+The radio tunes itself to the best source it can reach:
+
+1. **Audius trending** — real released club music (house, tech house,
+   dubstep, DnB) streamed legally from the artist-run
+   [Audius](https://audius.co) network's public API. CORS-open, so the
+   analyser hears every bar.
+2. **Shipped set** — 12 public-domain (CC0) tracks from
+   [FreePD](https://freepd.com) as the offline floor.
+
+And it's still yours to feed:
 
 - **Drop any audio file anywhere** — peaks decode in-browser, the strip
   becomes a scrubber, the star gets its future-sight.
