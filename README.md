@@ -12,6 +12,15 @@ It reads the whole track's peaks up front, so the surface tension rises a
 few seconds *before* a drop lands. Grab it and spin it; it drifts on its
 own the rest of the time.
 
+**The orb is the mixer.** Grab its body and pull: outward boosts the EQ
+band you're holding, pushing through the core kills it (momentary, like
+holding a kill through a phrase). Drag across for the colour filter
+(high-pass left, low-pass right — latches like the knob it is). Pull far
+out and hold to build an echo that rings out when you let go. Where you
+grab is what you grab: highs at the top, lows at the bottom, and the
+killed band's sectors visibly collapse dark. Grabbing empty space still
+spins it.
+
 Tools: click any spectrum bar to **solo that band** (a real bandpass —
 you hear the slice, the star dances to it alone), a **rate dial**
 (0.5–1.5×, vinyl-style pitch bend), **ambient mode** (H hides every

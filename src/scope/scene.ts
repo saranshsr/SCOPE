@@ -89,6 +89,9 @@ const SHELL_VERT = /* glsl */ `
   uniform float uExpo;
   uniform float uSnap;
   uniform float uZoom;
+  uniform vec3 uGrabPos;
+  uniform float uGrabStr;
+  uniform vec3 uEqVis;
   uniform float uBands[24];
   attribute vec3 aDir;
   attribute float aHash;
@@ -107,7 +110,12 @@ const SHELL_VERT = /* glsl */ `
     // the analyser's 24 bands — the hi-hat shimmers HERE, the bass heaves
     // THERE. Sectors rotate with the body, so the anatomy is anatomical.
     float sector = (atan(aDir.z, aDir.x) / 6.28318 + 0.5) * 24.0;
-    float bandE = uBands[int(mod(floor(sector), 24.0))];
+    int si = int(mod(floor(sector), 24.0));
+    float bandE = uBands[si];
+    // The EQ made visible: killed bands' sectors collapse dark, boosted
+    // bands bulge bright. 1.0 = flat.
+    float eqV = si < 8 ? uEqVis.x : si < 16 ? uEqVis.y : uEqVis.z;
+    bandE *= eqV;
 
     float disp = (
       n1 * (0.05 + uLow * 0.30) +
@@ -115,6 +123,7 @@ const SHELL_VERT = /* glsl */ `
       n3 * (uHigh * 0.13) +
       n2 * bandE * 0.20) * uTurb;
 
+    float eqBody = 0.75 + 0.25 * eqV; // kills deflate the whole sector
     // Volumetric body, not a hollow shell: each particle owns a depth
     // inside the ball (surface-biased), so the face-on view is a boiling
     // solid mass like the reference, and tilting reveals real volume.
@@ -122,8 +131,15 @@ const SHELL_VERT = /* glsl */ `
     float depth = mix(0.42, 1.0, pow(h2, 0.38));
     // The photosphere: base radius breathes with the bass; anticipation
     // (the peaks feed) raises the surface tension before a drop lands.
-    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth;
+    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth * eqBody;
     vec3 p = aDir * r;
+
+    // The hand in the matter: particles near the grab point spring toward
+    // it, falling off exponentially so you hold a HANDFUL, not the orb.
+    if (uGrabStr > 0.001) {
+      float pullW = exp(-length(p - uGrabPos) * 3.0) * uGrabStr;
+      p = mix(p, uGrabPos, min(0.85, pullW));
+    }
 
     // Hot where deformed — flares glow. A slow per-particle twinkle keeps
     // the surface grainy even in still passages.
@@ -132,7 +148,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV);
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -373,6 +389,11 @@ export class Scene {
       // The transient fast-path: sub-frame attack, ~150ms decay, NO spring.
       uSnap: { value: 0 },
       uZoom: { value: 1 },
+      // The grab: a point in cluster-local space that attracts nearby
+      // matter, and per-band-group EQ visual multipliers (low/mid/high).
+      uGrabPos: { value: new THREE.Vector3() },
+      uGrabStr: { value: 0 },
+      uEqVis: { value: new THREE.Vector3(1, 1, 1) },
       // The full analyser: 24 log bands, mapped to angular sectors of the
       // body — the star's spectral anatomy.
       uBands: { value: new Float32Array(24) },
@@ -571,6 +592,30 @@ export class Scene {
   setZoom(z: number) {
     this.zoomTarget = Math.max(1, Math.min(5, z))
   }
+  /** Ray-cast a screen point against the body sphere. Returns the hit in
+   *  CLUSTER-LOCAL space (what the shader needs) or null on miss. nx/ny in
+   *  [-1,1] NDC. */
+  bodyHit(nx: number, ny: number): THREE.Vector3 | null {
+    const ray = new THREE.Raycaster()
+    ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera)
+    const bodyR = 0.88 * 0.62 // uR x resting photosphere
+    const sphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), bodyR)
+    const hit = new THREE.Vector3()
+    if (!ray.ray.intersectSphere(sphere, hit)) return null
+    return this.cluster.worldToLocal(hit)
+  }
+
+  /** Drive the grab visual: local-space point + strength 0..1. */
+  setGrab(local: THREE.Vector3 | null, strength: number) {
+    if (local) (this.uniforms.uGrabPos.value as THREE.Vector3).copy(local)
+    this.uniforms.uGrabStr.value = local ? strength : 0
+  }
+
+  /** EQ visual multipliers, 1 = flat, 0 = killed, ~1.5 = boosted. */
+  setEqVis(low: number, mid: number, high: number) {
+    ;(this.uniforms.uEqVis.value as THREE.Vector3).set(low, mid, high)
+  }
+
   /** What fraction of the shell is actually rendering right now. */
   get densityNow() {
     return this.uniforms.uDensity.value as number

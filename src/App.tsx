@@ -60,6 +60,10 @@ export default function App() {
   const qRef = useRef<HTMLElement>(null)
   const bufRef = useRef<HTMLElement>(null)
   const zoomRef = useRef<HTMLElement>(null)
+  const fltRef = useRef<HTMLElement>(null)
+  const fltCellRef = useRef<HTMLDivElement>(null)
+  const echoRef = useRef<HTMLElement>(null)
+  const echoCellRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<Scene | null>(null)
 
   const engineRef = useRef<AudioEngine | null>(null)
@@ -184,16 +188,68 @@ export default function App() {
         if (cur.dragging) {
           scene.dragBy((e.clientX - cur.lx) * 0.006, (e.clientY - cur.ly) * 0.004)
         }
+        if (mix.on) {
+          const eng2 = engineRef.current
+          const c = centerPx()
+          const rNow = Math.hypot(e.clientX - c.x, e.clientY - c.y)
+          // radial: -1 (through the core) .. +1 (one radius out)
+          const radial = Math.max(-1, Math.min(1.8, (rNow - mix.r0) / mix.r0))
+          const db = radial < 0 ? radial * 30 : Math.min(1, radial) * 9
+          mixState.eq = db
+          eng2?.eq(mix.band, db)
+          const vis = radial < 0 ? 1 + radial * 0.95 : 1 + Math.min(1, radial) * 0.5
+          scene.setEqVis(
+            mix.band === 'low' ? vis : 1,
+            mix.band === 'mid' ? vis : 1,
+            mix.band === 'high' ? vis : 1,
+          )
+          // horizontal: the colour filter, latching
+          mixState.sweep = Math.max(-1, Math.min(1, mix.sweep0 + (e.clientX - mix.sx) / (w * 0.3)))
+          eng2?.sweep(mixState.sweep)
+          // far pull: echo builds
+          mix.echo = Math.max(0, Math.min(1, radial - 0.8))
+          eng2?.echo(mix.echo)
+          // the hand tracks the surface (or its tangent) as you pull
+          const hit = scene.bodyHit((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1)
+          if (hit) scene.setGrab(hit, 0.6 + Math.abs(radial) * 0.3)
+        }
       }
       cur.lx = e.clientX
       cur.ly = e.clientY
+    }
+    // THE MIX GESTURE. Grabbing the body manipulates the audio; grabbing
+    // empty space spins, as before. One continuous drag drives:
+    //   vertical grab-start zone  -> which EQ band you're holding
+    //   radial pull out / push in -> boost / kill (momentary)
+    //   horizontal travel         -> the colour filter sweep (latches)
+    //   pulling FAR out           -> echo builds while held, rings out after
+    const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', sx: 0, sy: 0, r0: 1, sweep0: 0, echo: 0 }
+    const mixState = { sweep: 0, eq: 0 }
+    const centerPx = () => {
+      const fracX = startedRef.current && w > 720 ? (272 + (w - 272) / 2) / w : 0.5
+      return { x: fracX * w, y: h / 2 }
     }
     const onCurDown = (e: PointerEvent) => {
       cur.down = 1
       cur.lx = e.clientX
       cur.ly = e.clientY
       const overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
-      if (!overUi && startedRef.current) {
+      if (overUi || !startedRef.current) return
+      const hit = scene.bodyHit((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1)
+      if (hit && pts.size < 2) {
+        mix.on = true
+        mix.sx = e.clientX
+        mix.sy = e.clientY
+        mix.sweep0 = mixState.sweep
+        const c = centerPx()
+        mix.r0 = Math.max(40, Math.hypot(e.clientX - c.x, e.clientY - c.y))
+        // Mixer truth: highs at the top of the column, lows at the bottom.
+        const bodyTopPx = c.y - mix.r0
+        const rel = (e.clientY - bodyTopPx) / (2 * mix.r0)
+        mix.band = rel < 0.34 ? 'high' : rel < 0.66 ? 'mid' : 'low'
+        appRef.current?.classList.add('mixing')
+        scene.setGrab(hit, 0.6)
+      } else {
         cur.dragging = true
         appRef.current?.classList.add('grabbing')
       }
@@ -201,6 +257,18 @@ export default function App() {
     const onCurUp = () => {
       cur.dragging = false
       appRef.current?.classList.remove('grabbing')
+      if (mix.on) {
+        mix.on = false
+        appRef.current?.classList.remove('mixing')
+        const eng2 = engineRef.current
+        // Momentary: the EQ springs back flat; the echo loop drains itself;
+        // the sweep LATCHES like the knob it is.
+        eng2?.eq(mix.band, 0)
+        eng2?.echo(0)
+        scene.setGrab(null, 0)
+        scene.setEqVis(1, 1, 1)
+        mixState.eq = 0
+      }
     }
     window.addEventListener('pointermove', onCurMove)
     window.addEventListener('pointerdown', onCurDown)
@@ -246,6 +314,7 @@ export default function App() {
       }
       snapEnv *= Math.exp(-dt * 9)
       scene.setBands(f.bands)
+      if (fp.tempoConfidence > 0.2 && fp.tempo > 0) engine.setEchoTime(60 / fp.tempo * (fp.tempo > 140 ? 1 : 0.75))
       if (beat.trigger) {
         beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
         // The star erupts on real hits — the lifecycle layer.
@@ -334,6 +403,15 @@ export default function App() {
         if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
         setPaused(engineRef.current?.el.paused ?? false)
         if (zoomRef.current) zoomRef.current.textContent = `${scene.zoomLevel.toFixed(1)}×`
+        if (fltRef.current && fltCellRef.current) {
+          const sv = mixState.sweep
+          fltRef.current.textContent = Math.abs(sv) < 0.04 ? '——' : `${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)}`
+          fltCellRef.current.classList.toggle('armed', Math.abs(sv) >= 0.04)
+        }
+        if (echoRef.current && echoCellRef.current) {
+          echoRef.current.textContent = `${Math.round(mix.echo * 100)}%`
+          echoCellRef.current.classList.toggle('armed', mix.echo > 0.02)
+        }
         if (bufRef.current) {
           const c = canvas as HTMLCanvasElement
           bufRef.current.textContent = `${c.width}×${c.height}`
@@ -606,6 +684,8 @@ export default function App() {
             <div><dt>pts</dt><dd ref={ptsRef}>64k</dd></div>
             <div><dt>quality</dt><dd ref={qRef}>full</dd></div>
             <div><dt>zoom</dt><dd ref={zoomRef}>1.0×</dd></div>
+            <div ref={fltCellRef}><dt>flt</dt><dd ref={fltRef}>——</dd></div>
+            <div ref={echoCellRef}><dt>echo</dt><dd ref={echoRef}>0%</dd></div>
           </dl>
           <div className="level rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
             <span className="level-tag">level</span>
@@ -711,7 +791,7 @@ export default function App() {
               <data ref={cElapsedRef}>· 0</data>
               <data ref={cTotalRef}>· 0</data>
             </div>
-            <kbd className="keyline">spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
+            <kbd className="keyline">grab the orb: pull=eq · across=filter · far=echo · spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
           </div>
         </aside>
       )}

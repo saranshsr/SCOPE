@@ -982,6 +982,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .app.ambient { cursor: none; }
 
-/* A title-block cell in a non-default state — the machine admitting it. */
-.titleblock .armed dt { color: rgba(255, 42, 42, 0.75); }
-.titleblock .armed dd { color: var(--red); }
+/* A cell in a non-default state — the machine admitting it. */
+.titleblock .armed dt, .statgrid .armed dt { color: rgba(255, 42, 42, 0.75); }
+.titleblock .armed dd, .statgrid .armed dd { color: var(--red); }
+
+/* Mixing: the reticle's dot goes red — you are holding the audio. */
+.app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
+.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(255, 42, 42, 0.7); }

@@ -30,6 +30,13 @@ export class AudioEngine {
   private micSource: MediaStreamAudioSourceNode | null = null
   private micStream: MediaStream | null = null
   private filter!: BiquadFilterNode
+  private eqLow!: BiquadFilterNode
+  private eqMid!: BiquadFilterNode
+  private eqHigh!: BiquadFilterNode
+  private sweepF!: BiquadFilterNode
+  private echoSend!: GainNode
+  private echoDelay!: DelayNode
+  private echoFb!: GainNode
   private _rate = 1
 
   kind: SourceKind = 'radio'
@@ -43,14 +50,50 @@ export class AudioEngine {
     this.gain = this.ctx.createGain()
     this.gain.gain.value = 0.8
 
-    // The solo filter: every source passes through it BEFORE analysis, so
-    // soloing a band isolates what you hear AND what the star sees. Allpass
-    // = transparent bypass; bandpass = the armed slice.
+    // THE PERFORMANCE CHAIN — every source passes through the whole desk
+    // BEFORE analysis, so the star sees exactly what you hear, echoes and
+    // kills included:  src -> eq(3) -> sweep -> solo -> [dry + echo] -> analyser
+    this.eqLow = this.ctx.createBiquadFilter()
+    this.eqLow.type = 'lowshelf'
+    this.eqLow.frequency.value = 220
+    this.eqMid = this.ctx.createBiquadFilter()
+    this.eqMid.type = 'peaking'
+    this.eqMid.frequency.value = 1200
+    this.eqMid.Q.value = 0.8
+    this.eqHigh = this.ctx.createBiquadFilter()
+    this.eqHigh.type = 'highshelf'
+    this.eqHigh.frequency.value = 4200
+
+    // The colour filter: one knob, HP left, LP right. Allpass at centre.
+    this.sweepF = this.ctx.createBiquadFilter()
+    this.sweepF.type = 'allpass'
+    this.sweepF.frequency.value = 800
+    this.sweepF.Q.value = 0.9
+
+    // The solo filter (spectrum tap-to-solo), unchanged in role.
     this.filter = this.ctx.createBiquadFilter()
     this.filter.type = 'allpass'
     this.filter.frequency.value = 1000
     this.filter.Q.value = 0.0001
-    this.filter.connect(this.analyser.node)
+
+    // Echo send/return: a feedback delay the star can hear ringing out.
+    this.echoSend = this.ctx.createGain()
+    this.echoSend.gain.value = 0
+    this.echoDelay = this.ctx.createDelay(2)
+    this.echoDelay.delayTime.value = 0.42
+    this.echoFb = this.ctx.createGain()
+    this.echoFb.gain.value = 0
+
+    this.eqLow.connect(this.eqMid)
+    this.eqMid.connect(this.eqHigh)
+    this.eqHigh.connect(this.sweepF)
+    this.sweepF.connect(this.filter)
+    this.filter.connect(this.analyser.node)          // dry
+    this.filter.connect(this.echoSend)               // send
+    this.echoSend.connect(this.echoDelay)
+    this.echoDelay.connect(this.echoFb)
+    this.echoFb.connect(this.echoDelay)              // feedback loop
+    this.echoDelay.connect(this.analyser.node)       // return
 
     this.el = new Audio()
     this.el.crossOrigin = 'anonymous'
@@ -129,7 +172,7 @@ export class AudioEngine {
     if (this.ctx.state === 'suspended') await this.ctx.resume()
     if (!this.elSource) {
       this.elSource = this.ctx.createMediaElementSource(this.el)
-      this.elSource.connect(this.filter)
+      this.elSource.connect(this.eqLow)
     }
   }
 
@@ -217,7 +260,7 @@ export class AudioEngine {
     this.stopMic()
     this.micStream = stream
     this.micSource = this.ctx.createMediaStreamSource(stream)
-    this.micSource.connect(this.filter)
+    this.micSource.connect(this.eqLow)
     this.kind = 'mic'
     this.onTrackChange?.({ title: 'live input', artist: 'the room', src: '' })
   }
@@ -237,6 +280,50 @@ export class AudioEngine {
   }
   get rate() {
     return this._rate
+  }
+
+  /** Performance EQ, momentary by design: the app springs it back. dB in
+   *  [-30, +10]; -30 on a shelf is a real DJ kill. 40ms ramps, no zipper. */
+  eq(band: 'low' | 'mid' | 'high', db: number) {
+    const node = band === 'low' ? this.eqLow : band === 'mid' ? this.eqMid : this.eqHigh
+    node.gain.setTargetAtTime(Math.max(-30, Math.min(10, db)), this.ctx.currentTime, 0.04)
+  }
+
+  /** The colour filter. x in [-1, 1]: negative sweeps a high-pass up
+   *  (track thins to air), positive rolls a low-pass down (dissolves to
+   *  murk), centre is transparent. */
+  sweep(x: number) {
+    const t = this.ctx.currentTime
+    const ax = Math.abs(x)
+    if (ax < 0.04) {
+      this.sweepF.type = 'allpass'
+      this.sweepF.Q.setTargetAtTime(0.0001, t, 0.05)
+      return
+    }
+    this.sweepF.Q.setTargetAtTime(0.9, t, 0.05)
+    if (x < 0) {
+      this.sweepF.type = 'highpass'
+      // 30Hz .. 3kHz, exponential feel
+      this.sweepF.frequency.setTargetAtTime(30 * Math.pow(100, ax), t, 0.05)
+    } else {
+      this.sweepF.type = 'lowpass'
+      // 18kHz .. 180Hz
+      this.sweepF.frequency.setTargetAtTime(18000 * Math.pow(0.01, ax), t, 0.05)
+    }
+  }
+
+  /** Echo build, 0..1: send + feedback rise together; the tail keeps
+   *  ringing after amount returns to 0 because the loop drains naturally. */
+  echo(amount: number) {
+    const t = this.ctx.currentTime
+    const a = Math.max(0, Math.min(1, amount))
+    this.echoSend.gain.setTargetAtTime(a * 0.9, t, 0.06)
+    this.echoFb.gain.setTargetAtTime(a * 0.72, t, 0.06)
+  }
+
+  /** Lock the echo to the music when the beat clock knows the tempo. */
+  setEchoTime(sec: number) {
+    this.echoDelay.delayTime.setTargetAtTime(Math.max(0.05, Math.min(1.8, sec)), this.ctx.currentTime, 0.1)
   }
 
   /** Solo one of the 24 log bands (60..12k), or null to hear everything.
