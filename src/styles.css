@@ -278,6 +278,9 @@ body {
   position: absolute;
   right: var(--edge);
   bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  /* The panel stays transparent to the pointer so it never steals a drag
+     from the stage — but the canvas itself is a control (tap to solo) and
+     opts back in below. */
   pointer-events: none;
 }
 .spec-label {
@@ -950,8 +953,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
 }
 
-/* the spectrum is playable */
-.spec-play { cursor: pointer; }
+/* the spectrum is playable: the canvas opts back into pointer events that
+   its container declines, or a real click never reaches the solo handler. */
+.spec-play {
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+}
 
 /* ===========================================================================
    AMBIENT MODE — H hides the instrumentation; the star owns the room.
