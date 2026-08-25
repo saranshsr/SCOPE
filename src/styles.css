@@ -945,3 +945,27 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   color: rgba(234, 234, 234, 0.3);
   text-transform: uppercase;
 }
+
+/* the spectrum is playable */
+.spec-play { cursor: pointer; }
+
+/* ===========================================================================
+   AMBIENT MODE — H hides the instrumentation; the star owns the room.
+   The announce stays (a track change on a TV should still say its name).
+   ------------------------------------------------------------------------ */
+.app.ambient .rail,
+.app.ambient .titleblock,
+.app.ambient .spec,
+.app.ambient .ruler-x,
+.app.ambient .ruler-y,
+.app.ambient .hazard,
+.app.ambient .frame,
+.app.ambient .x-v,
+.app.ambient .x-h,
+.app.ambient .x-tag,
+.app.ambient .reticle {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 500ms ease;
+}
+.app.ambient { cursor: none; }

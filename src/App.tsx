@@ -45,6 +45,10 @@ export default function App() {
   const [paused, setPaused] = useState(false)
   const [volume, setVolume] = useState(0.8)
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
+  const [rate, setRate] = useState(1)
+  const [solo, setSolo] = useState<number | null>(null) // band index 0..23
+  const soloRef = useRef<number | null>(null)
+  const [ambient, setAmbient] = useState(false)
   const tuningRef = useRef(tuning)
   // signal/machine stats, written imperatively at chrome rate
   const bpmRef = useRef<HTMLElement>(null)
@@ -78,6 +82,23 @@ export default function App() {
   }, [volume])
 
   useEffect(() => {
+    const e = engineRef.current
+    if (!e) return
+    e.el.playbackRate = rate
+    // Chopped-and-screwed honesty: rate bends pitch like vinyl, not like a
+    // podcast app. The analyser hears the bent audio, so the whole visual
+    // system follows for free.
+    e.el.preservesPitch = false
+  }, [rate])
+
+  useEffect(() => {
+    soloRef.current = solo
+    const e = engineRef.current
+    if (!e) return
+    e.solo(solo == null ? null : Math.round(60 * Math.pow(12000 / 60, solo / 23)))
+  }, [solo])
+
+  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -96,6 +117,7 @@ export default function App() {
       })
       .catch(() => {})
     engine.onTrackChange = (tr) => {
+      engine.el.preservesPitch = false
       setTrack(tr)
       setSource(engine.kind)
       if (startedRef.current && tr) {
@@ -284,7 +306,7 @@ export default function App() {
       if (chromeAcc > 0.16) {
         chromeAcc = 0
         drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress)
-        drawSpectrum(specRef.current, f.bands)
+        drawSpectrum(specRef.current, f.bands, soloRef.current)
         const el = engine.el
         const pct = el.duration > 0 ? (el.currentTime / el.duration) * 100 : 0
         const pctText = `${pct.toFixed(1)}%`
@@ -399,6 +421,7 @@ export default function App() {
         case 'KeyR': void eng.playRadio(); break
         case 'KeyF': fileRef.current?.click(); break
         case 'KeyM': void eng.useMic(); break
+        case 'KeyH': setAmbient((a) => !a); break
       }
     }
     window.addEventListener('keydown', onKey)
@@ -432,7 +455,7 @@ export default function App() {
       : 'NO CARRIER'
 
   return (
-    <div ref={appRef} className={`app${started ? ' live' : ''}`} onClick={started ? undefined : power}>
+    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}`} onClick={started ? undefined : power}>
       <canvas ref={canvasRef} className="stage" />
       {/* The survey grid, alive: a pulse of light travels along each line
           (the GridLines component's technique — background-position on a
@@ -583,6 +606,16 @@ export default function App() {
 
           {/* response tuning — the instrument's own dials */}
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+            <label className="dial">
+              <span>rate</span>
+              <input
+                type="range" min={0.5} max={1.5} step={0.01} value={rate}
+                onChange={(ev) => setRate(Number(ev.target.value))}
+                onDoubleClick={() => setRate(1)}
+                aria-label="playback rate"
+              />
+              <data>{Math.round(rate * 100)}</data>
+            </label>
             {([['turb', 'turbulence'], ['expo', 'exposure'], ['spin', 'spin']] as const).map(([k, label]) => (
               <label key={k} className="dial">
                 <span>{label}</span>
@@ -622,7 +655,7 @@ export default function App() {
               <data ref={cElapsedRef}>· 0</data>
               <data ref={cTotalRef}>· 0</data>
             </div>
-            <kbd className="keyline">spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src</kbd>
+            <kbd className="keyline">spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide</kbd>
           </div>
         </aside>
       )}
@@ -640,8 +673,20 @@ export default function App() {
       {/* bottom-right: spectrum */}
       {started && (
       <div className="spec">
-        <div className="spec-label"><Decode text="spectrum" duration={600} /></div>
-        <canvas ref={specRef} width={400} height={144} />
+        <div className="spec-label">
+          <Decode text={solo == null ? 'spectrum · tap a band to solo' : `solo ${(() => { const hz = Math.round(60 * Math.pow(200, solo / 23)); return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : hz })()} · tap to release`} duration={400} />
+        </div>
+        <canvas
+          ref={specRef}
+          width={400}
+          height={144}
+          className="spec-play"
+          onPointerDown={(e) => {
+            const r = e.currentTarget.getBoundingClientRect()
+            const band = Math.max(0, Math.min(23, Math.floor(((e.clientX - r.left) / r.width) * 24)))
+            setSolo((s) => (s === band ? null : band))
+          }}
+        />
         <div className="spec-hz">
           <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
         </div>
@@ -749,7 +794,7 @@ function drawWave(
  *  gauges glide. */
 const peaks = new Float32Array(24)
 const shown = new Float32Array(24)
-function drawSpectrum(cv: HTMLCanvasElement | null, bands: Float32Array) {
+function drawSpectrum(cv: HTMLCanvasElement | null, bands: Float32Array, solo: number | null = null) {
   const g = cv?.getContext('2d')
   if (!cv || !g) return
   g.clearRect(0, 0, cv.width, cv.height)
@@ -763,6 +808,8 @@ function drawSpectrum(cv: HTMLCanvasElement | null, bands: Float32Array) {
     peaks[i] = Math.max(v, peaks[i] - 0.012)
     const bh = v * (cv.height - 4)
     g.fillStyle = 'rgba(234,234,234,0.88)'
+    // The armed band burns red; its neighbours dim to show the cut.
+    if (solo != null) g.fillStyle = i === solo ? '#ff2a2a' : 'rgba(234,234,234,0.25)'
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly
     const py = cv.height - peaks[i] * (cv.height - 4)

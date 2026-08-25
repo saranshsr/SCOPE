@@ -12,6 +12,12 @@ It reads the whole track's peaks up front, so the surface tension rises a
 few seconds *before* a drop lands. Grab it and spin it; it drifts on its
 own the rest of the time.
 
+Tools: click any spectrum bar to **solo that band** (a real bandpass —
+you hear the slice, the star dances to it alone), a **rate dial**
+(0.5–1.5×, vinyl-style pitch bend), **ambient mode** (H hides every
+instrument for a TV or second monitor), and full keyboard control
+(space/N/arrows/1-3/R/F/M — legend on the console).
+
 Around it: a tactical-telemetry console. Full-track waveform scrubber with
 a red playhead, live 24-band spectrum, a survey grid whose sweep speed
 rides the bass (Web Animations `playbackRate`), a title block with real

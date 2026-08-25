@@ -29,6 +29,7 @@ export class AudioEngine {
   private elSource: MediaElementAudioSourceNode | null = null
   private micSource: MediaStreamAudioSourceNode | null = null
   private micStream: MediaStream | null = null
+  private filter!: BiquadFilterNode
 
   kind: SourceKind = 'radio'
   playlist: TrackInfo[] = []
@@ -40,6 +41,15 @@ export class AudioEngine {
     this.analyser = new Analyser(this.ctx)
     this.gain = this.ctx.createGain()
     this.gain.gain.value = 0.8
+
+    // The solo filter: every source passes through it BEFORE analysis, so
+    // soloing a band isolates what you hear AND what the star sees. Allpass
+    // = transparent bypass; bandpass = the armed slice.
+    this.filter = this.ctx.createBiquadFilter()
+    this.filter.type = 'allpass'
+    this.filter.frequency.value = 1000
+    this.filter.Q.value = 0.0001
+    this.filter.connect(this.analyser.node)
 
     this.el = new Audio()
     this.el.crossOrigin = 'anonymous'
@@ -110,7 +120,7 @@ export class AudioEngine {
     if (this.ctx.state === 'suspended') await this.ctx.resume()
     if (!this.elSource) {
       this.elSource = this.ctx.createMediaElementSource(this.el)
-      this.elSource.connect(this.analyser.node)
+      this.elSource.connect(this.filter)
     }
   }
 
@@ -198,7 +208,7 @@ export class AudioEngine {
     this.stopMic()
     this.micStream = stream
     this.micSource = this.ctx.createMediaStreamSource(stream)
-    this.micSource.connect(this.analyser.node)
+    this.micSource.connect(this.filter)
     this.kind = 'mic'
     this.onTrackChange?.({ title: 'live input', artist: 'the room', src: '' })
   }
@@ -208,6 +218,20 @@ export class AudioEngine {
     this.micSource = null
     this.micStream?.getTracks().forEach((t) => t.stop())
     this.micStream = null
+  }
+
+  /** Solo one of the 24 log bands (60..12k), or null to hear everything.
+   *  Smooth 60ms ramps — no clicks when arming or releasing. */
+  solo(centerHz: number | null) {
+    const t = this.ctx.currentTime
+    if (centerHz == null) {
+      this.filter.type = 'allpass'
+      this.filter.Q.setTargetAtTime(0.0001, t, 0.06)
+    } else {
+      this.filter.type = 'bandpass'
+      this.filter.frequency.setTargetAtTime(centerHz, t, 0.06)
+      this.filter.Q.setTargetAtTime(4.5, t, 0.06)
+    }
   }
 
   get playing() {
