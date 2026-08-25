@@ -213,8 +213,16 @@ export default function App() {
     ]
     const tierLevels = new Float32Array(6)
     const sectMuted = new Set<number>() // latched spectral-tier kills
-    const restoreEqVis = () =>
-      scene.setEqVis(sectMuted.has(0) ? 0.08 : 1, sectMuted.has(1) ? 0.08 : 1, sectMuted.has(2) ? 0.08 : 1)
+    let sectSolo = -1 // spectral tier solo (stem solo lives in the deck)
+    // One resolver for the spectral tiers' mute/solo state — a TRUE group
+    // solo through the EQ desk (the other groups die), never the old
+    // narrow bandpass pretending to be a tier.
+    const applySpectralMix = () => {
+      const eng = engineRef.current
+      const killed = (i: number) => sectMuted.has(i) || (sectSolo >= 0 && sectSolo !== i)
+      ;(['low', 'mid', 'high'] as const).forEach((b, i) => eng?.eq(b, killed(i) ? -30 : 0))
+      scene.setEqVis(killed(0) ? 0.08 : 1, killed(1) ? 0.08 : 1, killed(2) ? 0.08 : 1)
+    }
     const applySpectralTiers = () => {
       tiers = [
         { label: 'low', band: 'low' },
@@ -222,7 +230,8 @@ export default function App() {
         { label: 'high', band: 'high' },
       ]
       sectMuted.clear()
-      restoreEqVis()
+      sectSolo = -1
+      applySpectralMix()
       scene.setTierMap(Array.from({ length: 24 }, (_, i) => Math.floor(i / 8)), 3)
     }
     const applyStemTiers = (infos: StemInfo[]) => {
@@ -231,7 +240,8 @@ export default function App() {
       if (present.length < 2) return applySpectralTiers()
       tiers = present.map((r) => ({ label: r, role: r }))
       sectMuted.clear()
-      restoreEqVis()
+      sectSolo = -1
+      applySpectralMix()
       const per = 24 / present.length
       scene.setTierMap(
         Array.from({ length: 24 }, (_, i) => Math.min(present.length - 1, Math.floor(i / per))),
@@ -285,7 +295,7 @@ export default function App() {
     // no layout properties). Touch devices never see it.
     const finePointer = matchMedia('(pointer: fine)').matches
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
-    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false, dragging: false, lx: 0, ly: 0 }
+    const cur = { x: -100, y: -100, tx: -100, ty: -100, down: 0, overUi: false, dragging: false, lx: 0, ly: 0, axisHover: false }
     const onCurMove = (e: PointerEvent) => {
       cur.tx = e.clientX
       cur.ty = e.clientY
@@ -376,6 +386,26 @@ export default function App() {
           }
         }
       }
+      // The seam affordance: an invisible gesture is a missing feature.
+      // When the idle hand crosses the orb's axis, the machine shows its
+      // split line and the reticle names the move.
+      const idle = !mix.on && !sect.axis && !sect.drag && !cur.dragging
+      if (idle && startedRef.current) {
+        const c3 = centerPx()
+        cur.axisHover =
+          !cur.overUi &&
+          scene.dissect < 0.5 &&
+          Math.abs(e.clientX - c3.x) < 30 &&
+          Math.abs(e.clientY - c3.y) < h * 0.38
+        if (retLabelRef.current) {
+          const cue = cur.axisHover ? 'dissect ↕' : ''
+          // never clobber a live gesture readout — only own the hint
+          if (cur.axisHover || retLabelRef.current.textContent === 'dissect ↕')
+            retLabelRef.current.textContent = cue
+        }
+      } else {
+        cur.axisHover = false
+      }
       cur.lx = e.clientX
       cur.ly = e.clientY
     }
@@ -431,8 +461,7 @@ export default function App() {
           const tr = tiers[tier]
           if (tr.band && sectMuted.has(tier)) {
             sectMuted.delete(tier)
-            engineRef.current?.eq(tr.band, 0)
-            restoreEqVis()
+            applySpectralMix()
           }
           return
         }
@@ -482,8 +511,8 @@ export default function App() {
           // tap = solo toggle
           if (tr.role && deck) deck.solo(deck.soloRole === tr.role ? null : tr.role)
           else if (tr.band) {
-            const b = [3, 11, 19][d.tier]
-            setSolo((s) => (s === b ? null : b))
+            sectSolo = sectSolo === d.tier ? -1 : d.tier
+            applySpectralMix()
           }
         } else if (d.lvl <= 0.07) {
           // pushed all the way to the axis = a latched mute
@@ -499,7 +528,7 @@ export default function App() {
           if (tr.role && deck) deck.setStemGain(tr.role, 1)
           else if (tr.band) eng2?.eq(tr.band, 0)
         }
-        restoreEqVis()
+        applySpectralMix()
         if (retLabelRef.current) retLabelRef.current.textContent = ''
       }
       if (mix.on) {
@@ -513,7 +542,7 @@ export default function App() {
         eng2?.eq(mix.band, 0)
         eng2?.echo(0)
         scene.setGrab(null, 0)
-        restoreEqVis()
+        applySpectralMix()
         mixState.eq = 0
         if (retLabelRef.current) retLabelRef.current.textContent = ''
       }
@@ -613,7 +642,8 @@ export default function App() {
       // The survey drawing rides every frame while the stack is open —
       // markers, drop-lines and labels are projected from the SAME cluster
       // transform the particles just rendered with.
-      if (scene.dissect > 0.004) {
+      const seamWant = cur.axisHover || sect.axis
+      if (scene.dissect > 0.004 || seamWant) {
         surveyDirty = true
         for (let i = 0; i < tiers.length; i++) {
           const tr = tiers[i]
@@ -636,11 +666,14 @@ export default function App() {
             if (deckNow?.soloRole === tr.role) marks.solo = i
           } else {
             marks.muted[i] = sectMuted.has(i)
-            const sb = soloRef.current
-            if (sb != null && (sb < 8 ? 0 : sb < 16 ? 1 : 2) === i) marks.solo = i
+            if (sectSolo === i) marks.solo = i
+            else {
+              const sb = soloRef.current
+              if (sb != null && (sb < 8 ? 0 : sb < 16 ? 1 : 2) === i) marks.solo = i
+            }
           }
         }
-        drawSurvey(surveyRef.current, scene, tiers, tierLevels, marks, beatPulse, f.rms)
+        drawSurvey(surveyRef.current, scene, tiers, tierLevels, marks, beatPulse, f.rms, seamWant)
       } else if (surveyDirty) {
         surveyDirty = false
         const g = surveyRef.current?.getContext('2d')
@@ -1336,6 +1369,7 @@ function drawSurvey(
   marks: { solo: number; muted: boolean[] },
   beat: number,
   rms: number,
+  seam = false,
 ) {
   const g = cv?.getContext('2d')
   if (!cv || !g) return
@@ -1345,6 +1379,37 @@ function drawSurvey(
   g.setTransform(dp, 0, 0, dp, 0, 0)
   g.clearRect(0, 0, W, H)
   const dis = scene.dissect
+
+  // The seam — the machine's split line, shown while the hand is on the
+  // axis and the star is still whole. Rides the cluster's tilt, so it
+  // reads as part of the object, not a cursor decoration.
+  if (seam && dis < 0.5) {
+    const sa = 0.55 * (1 - dis * 2)
+    const t = scene.projectLocal(0, 0.78, 0)
+    const b = scene.projectLocal(0, -0.78, 0)
+    g.strokeStyle = `rgba(234,234,234,${sa})`
+    g.lineWidth = 1
+    g.setLineDash([3, 6])
+    g.beginPath()
+    g.moveTo(t.x, t.y)
+    g.lineTo(b.x, b.y)
+    g.stroke()
+    g.setLineDash([])
+    g.fillStyle = `rgba(255,42,42,${Math.min(1, sa + 0.25)})`
+    g.beginPath()
+    g.moveTo(t.x - 4, t.y - 6)
+    g.lineTo(t.x + 4, t.y - 6)
+    g.lineTo(t.x, t.y - 13)
+    g.closePath()
+    g.fill()
+    g.beginPath()
+    g.moveTo(b.x - 4, b.y + 6)
+    g.lineTo(b.x + 4, b.y + 6)
+    g.lineTo(b.x, b.y + 13)
+    g.closePath()
+    g.fill()
+  }
+
   // the chrome arrives later than the matter — rings first, then the ink
   const a = Math.max(0, Math.min(1, (dis - 0.25) / 0.55))
   if (a <= 0.01) return
