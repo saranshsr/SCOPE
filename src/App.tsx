@@ -21,10 +21,14 @@ import { Decode } from './scope/Decode'
 
 const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]', stems: '[04]' }
 
+/** A dissection tier — a stem (role) or an EQ band group, bottom-to-top. */
+type Tier = { label: string; role?: StemRole; band?: 'low' | 'mid' | 'high' }
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const waveRef = useRef<HTMLCanvasElement>(null)
   const specRef = useRef<HTMLCanvasElement>(null)
+  const surveyRef = useRef<HTMLCanvasElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Live-text chrome, written imperatively at ~6Hz from the loop.
@@ -68,6 +72,8 @@ export default function App() {
   const fltCellRef = useRef<HTMLDivElement>(null)
   const echoRef = useRef<HTMLElement>(null)
   const echoCellRef = useRef<HTMLDivElement>(null)
+  const sectRef = useRef<HTMLElement>(null)
+  const sectCellRef = useRef<HTMLDivElement>(null)
   const retLabelRef = useRef<HTMLSpanElement>(null)
   const sceneRef = useRef<Scene | null>(null)
 
@@ -138,8 +144,10 @@ export default function App() {
     engine.onTrackChange = (tr) => {
       if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
         stemDeckRef.current.pause()
+        stemDeckRef.current.solo(null)
         setStemInfo(null)
         scene.setVocal(0)
+        applySpectralTiers()
       }
       setTrack(tr)
       setSource(engine.kind)
@@ -184,10 +192,93 @@ export default function App() {
       w = canvas.clientWidth
       h = canvas.clientHeight
       scene.resize(w, h)
+      if (surveyRef.current) {
+        const dp = Math.min(2, window.devicePixelRatio || 1)
+        surveyRef.current.width = w * dp
+        surveyRef.current.height = h * dp
+      }
       focus()
     }
     measure()
     window.addEventListener('resize', measure)
+
+    // --- THE DISSECTION -----------------------------------------------------
+    // Pull the orb apart along its axis and it shears into survey rings —
+    // stems when the deck holds them, the spectral anatomy otherwise. Tiers
+    // are bottom-to-top, frequency-honest.
+    let tiers: Tier[] = [
+      { label: 'low', band: 'low' },
+      { label: 'mid', band: 'mid' },
+      { label: 'high', band: 'high' },
+    ]
+    const tierLevels = new Float32Array(6)
+    const sectMuted = new Set<number>() // latched spectral-tier kills
+    const restoreEqVis = () =>
+      scene.setEqVis(sectMuted.has(0) ? 0.08 : 1, sectMuted.has(1) ? 0.08 : 1, sectMuted.has(2) ? 0.08 : 1)
+    const applySpectralTiers = () => {
+      tiers = [
+        { label: 'low', band: 'low' },
+        { label: 'mid', band: 'mid' },
+        { label: 'high', band: 'high' },
+      ]
+      sectMuted.clear()
+      restoreEqVis()
+      scene.setTierMap(Array.from({ length: 24 }, (_, i) => Math.floor(i / 8)), 3)
+    }
+    const applyStemTiers = (infos: StemInfo[]) => {
+      const order: StemRole[] = ['bass', 'drums', 'other', 'vocals']
+      const present = order.filter((r) => infos.some((s) => s.role === r))
+      if (present.length < 2) return applySpectralTiers()
+      tiers = present.map((r) => ({ label: r, role: r }))
+      sectMuted.clear()
+      restoreEqVis()
+      const per = 24 / present.length
+      scene.setTierMap(
+        Array.from({ length: 24 }, (_, i) => Math.min(present.length - 1, Math.floor(i / per))),
+        present.length,
+        present.indexOf('vocals'),
+      )
+    }
+    // Grab state: pulling the axis shears the stack; grabbing a ring while
+    // open drives that tier (drag=level, tap=solo, push to the axis=mute).
+    const sect = {
+      t: 0,
+      latched: false,
+      axis: false,
+      sy0: 0,
+      t0: 0,
+      drag: null as null | { tier: number; dx0: number; sx: number; sy: number; downAt: number; moved: boolean; lvl: number },
+    }
+    // DEV: gesture trace for headless verification — which mode each
+    // pointer event resolved to. Costs nothing in prod builds.
+    const trace = import.meta.env.DEV
+      ? (ev: string, detail?: unknown) => {
+          const w2 = window as unknown as { __gest: unknown[] }
+          ;(w2.__gest ??= []).push([ev, detail])
+          if (w2.__gest.length > 40) w2.__gest.shift()
+        }
+      : () => {}
+    const pickTier = (px: number, py: number): number => {
+      const n = tiers.length
+      let best = -1
+      let bestD = 1e9
+      for (let i = 0; i < n; i++) {
+        const cpt = scene.surveyPoint(i, 0, 0)
+        const d = Math.abs(py - cpt.y)
+        if (d < bestD) {
+          bestD = d
+          best = i
+        }
+      }
+      const gapPx = Math.max(
+        44,
+        Math.abs(scene.surveyPoint(Math.min(1, n - 1), 0, 0).y - scene.surveyPoint(0, 0, 0).y),
+      )
+      const ctr = scene.surveyPoint(best, 0, 0)
+      const edge = scene.surveyPoint(best, 0, 1)
+      const ringPx = Math.max(60, Math.hypot(edge.x - ctr.x, edge.y - ctr.y))
+      return bestD < gapPx * 0.55 && Math.abs(px - ctr.x) < ringPx * 1.7 ? best : -1
+    }
 
     // The reticle cursor — an instrument aims, it doesn't point. Eased
     // follow via transforms inside the existing frame loop (no extra rAF,
@@ -207,7 +298,34 @@ export default function App() {
         if (cur.dragging) {
           scene.dragBy((e.clientX - cur.lx) * 0.006, (e.clientY - cur.ly) * 0.004)
         }
-        if (mix.on) {
+        if (sect.axis) {
+          // The shear rides the hand, 1:1 — no easing here; the scene's
+          // spring supplies the mechanism feel.
+          sect.t = Math.max(0, Math.min(1, sect.t0 + (sect.sy0 - e.clientY) / 240))
+          trace('axis-move', +sect.t.toFixed(2))
+          scene.setDissect(sect.t)
+          if (retLabelRef.current) retLabelRef.current.textContent = `dissect ${Math.round(sect.t * 100)}%`
+        } else if (sect.drag) {
+          const d = sect.drag
+          if (Math.hypot(e.clientX - d.sx, e.clientY - d.sy) > 7) d.moved = true
+          if (d.moved) {
+            const c = centerPx()
+            // Distance from the AXIS is the fader: out = boost, in = kill.
+            const lvl = Math.max(0, Math.min(2, 1 + (Math.abs(e.clientX - c.x) - d.dx0) / 150))
+            d.lvl = lvl
+            const tr = tiers[d.tier]
+            const eng2 = engineRef.current
+            if (tr.role && stemDeckRef.current) {
+              stemDeckRef.current.setStemGain(tr.role, lvl)
+            } else if (tr.band) {
+              eng2?.eq(tr.band, lvl < 1 ? (lvl - 1) * 30 : (lvl - 1) * 9)
+              const vis = lvl < 1 ? Math.max(0.05, lvl) : 1 + (lvl - 1) * 0.5
+              scene.setEqVis(tr.band === 'low' ? vis : 1, tr.band === 'mid' ? vis : 1, tr.band === 'high' ? vis : 1)
+            }
+            if (retLabelRef.current) retLabelRef.current.textContent = `${tr.label} ${Math.round(lvl * 100)}%`
+            trace('tier-move', { tier: d.tier, lvl: +lvl.toFixed(2) })
+          }
+        } else if (mix.on) {
           const eng2 = engineRef.current
           const c = centerPx()
           const rNow = Math.hypot(e.clientX - c.x, e.clientY - c.y)
@@ -280,6 +398,48 @@ export default function App() {
       const overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
       if (overUi || !startedRef.current) return
       const hit = scene.bodyHit((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1)
+      const dis = scene.dissect
+      const c0 = centerPx()
+      // The axis grab: down the spine of the orb (or SHIFT anywhere) —
+      // pull up to dissect, down to close. Narrow on purpose: the centre
+      // column is the machine's seam.
+      trace('down', { x: Math.round(e.clientX), y: Math.round(e.clientY), dis: +dis.toFixed(2), pts: pts.size })
+      if (pts.size < 2 && (e.shiftKey || (Math.abs(e.clientX - c0.x) < 30 && (dis > 0.3 || hit)))) {
+        trace('axis-grab')
+        sect.axis = true
+        sect.sy0 = e.clientY
+        sect.t0 = sect.t
+        appRef.current?.classList.add('grabbing')
+        return
+      }
+      // Open stack: grabs land on TIERS, not on the mix gesture.
+      if (dis > 0.5 && pts.size < 2) {
+        const tier = pickTier(e.clientX, e.clientY)
+        trace('tier-pick', tier)
+        if (tier >= 0) {
+          sect.drag = {
+            tier,
+            dx0: Math.max(30, Math.abs(e.clientX - c0.x)),
+            sx: e.clientX,
+            sy: e.clientY,
+            downAt: performance.now(),
+            moved: false,
+            lvl: 1,
+          }
+          appRef.current?.classList.add('mixing')
+          // grabbing a muted spectral tier revives it
+          const tr = tiers[tier]
+          if (tr.band && sectMuted.has(tier)) {
+            sectMuted.delete(tier)
+            engineRef.current?.eq(tr.band, 0)
+            restoreEqVis()
+          }
+          return
+        }
+        cur.dragging = true
+        appRef.current?.classList.add('grabbing')
+        return
+      }
       if (hit && pts.size < 2) {
         mix.on = true
         mix.sx = e.clientX
@@ -301,6 +461,47 @@ export default function App() {
     const onCurUp = () => {
       cur.dragging = false
       appRef.current?.classList.remove('grabbing')
+      if (sect.axis) {
+        sect.axis = false
+        // Past the threshold it latches open; short of it, the spring slams
+        // the star back into one body.
+        sect.latched = sect.t > 0.85
+        sect.t = sect.latched ? 1 : 0
+        scene.setDissect(sect.t)
+        if (retLabelRef.current) retLabelRef.current.textContent = ''
+      }
+      if (sect.drag) {
+        const d = sect.drag
+        sect.drag = null
+        appRef.current?.classList.remove('mixing')
+        const tr = tiers[d.tier]
+        const eng2 = engineRef.current
+        const deck = stemDeckRef.current
+        const quick = !d.moved && performance.now() - d.downAt < 350
+        if (quick) {
+          // tap = solo toggle
+          if (tr.role && deck) deck.solo(deck.soloRole === tr.role ? null : tr.role)
+          else if (tr.band) {
+            const b = [3, 11, 19][d.tier]
+            setSolo((s) => (s === b ? null : b))
+          }
+        } else if (d.lvl <= 0.07) {
+          // pushed all the way to the axis = a latched mute
+          if (tr.role && deck) {
+            deck.toggleMuteRole(tr.role)
+            deck.setStemGain(tr.role, 1)
+          } else if (tr.band) {
+            sectMuted.add(d.tier)
+            eng2?.eq(tr.band, -30)
+          }
+        } else {
+          // momentary: the fader springs home
+          if (tr.role && deck) deck.setStemGain(tr.role, 1)
+          else if (tr.band) eng2?.eq(tr.band, 0)
+        }
+        restoreEqVis()
+        if (retLabelRef.current) retLabelRef.current.textContent = ''
+      }
       if (mix.on) {
         mix.on = false
         appRef.current?.classList.remove('mixing')
@@ -312,7 +513,7 @@ export default function App() {
         eng2?.eq(mix.band, 0)
         eng2?.echo(0)
         scene.setGrab(null, 0)
-        scene.setEqVis(1, 1, 1)
+        restoreEqVis()
         mixState.eq = 0
         if (retLabelRef.current) retLabelRef.current.textContent = ''
       }
@@ -343,6 +544,8 @@ export default function App() {
     // ~150ms decay. Deliberately NOT a spring — snap must not be smoothed.
     let snapEnv = 0
     let drumPrev = 0
+    let lastInfos: StemInfo[] | null = null
+    let surveyDirty = false
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
@@ -376,6 +579,7 @@ export default function App() {
       const deckNow = stemDeckRef.current
       if (engine.kind === 'stems' && deckNow?.playing) {
         const infos = deckNow.info()
+        lastInfos = infos
         let vocal = 0, drums = 0
         for (const s of infos) {
           if (s.role === 'vocals') vocal = Math.max(vocal, s.level)
@@ -405,6 +609,43 @@ export default function App() {
       // Idle (pre-start) the instrument still breathes, barely — a machine
       // on standby, not a screenshot.
       scene.render(dt, f.low, f.mid, f.high, beatPulse, ahead, snapEnv)
+
+      // The survey drawing rides every frame while the stack is open —
+      // markers, drop-lines and labels are projected from the SAME cluster
+      // transform the particles just rendered with.
+      if (scene.dissect > 0.004) {
+        surveyDirty = true
+        for (let i = 0; i < tiers.length; i++) {
+          const tr = tiers[i]
+          if (tr.role) {
+            let lv = 0
+            if (lastInfos) for (const s of lastInfos) if (s.role === tr.role) lv = Math.max(lv, s.level)
+            tierLevels[i] = Math.min(1, lv * 3)
+          } else {
+            const [a, b] = tr.band === 'low' ? [0, 8] : tr.band === 'mid' ? [8, 16] : [16, 24]
+            let m = 0
+            for (let k = a; k < b; k++) m += f.bands[k]
+            tierLevels[i] = Math.min(1, (m / (b - a)) * 1.6)
+          }
+        }
+        const marks = { solo: -1, muted: [] as boolean[] }
+        for (let i = 0; i < tiers.length; i++) {
+          const tr = tiers[i]
+          if (tr.role) {
+            marks.muted[i] = !!lastInfos?.some((s) => s.role === tr.role && s.muted)
+            if (deckNow?.soloRole === tr.role) marks.solo = i
+          } else {
+            marks.muted[i] = sectMuted.has(i)
+            const sb = soloRef.current
+            if (sb != null && (sb < 8 ? 0 : sb < 16 ? 1 : 2) === i) marks.solo = i
+          }
+        }
+        drawSurvey(surveyRef.current, scene, tiers, tierLevels, marks, beatPulse, f.rms)
+      } else if (surveyDirty) {
+        surveyDirty = false
+        const g = surveyRef.current?.getContext('2d')
+        if (g && surveyRef.current) g.clearRect(0, 0, surveyRef.current.width, surveyRef.current.height)
+      }
 
       wave[waveHead] = f.rms
       waveHead = (waveHead + 1) % wave.length
@@ -488,6 +729,11 @@ export default function App() {
           echoRef.current.textContent = `${Math.round(mix.echo * 100)}%`
           echoCellRef.current.classList.toggle('armed', mix.echo > 0.02)
         }
+        if (sectRef.current && sectCellRef.current) {
+          const dv = scene.dissect
+          sectRef.current.textContent = dv > 0.02 ? `${Math.round(dv * 100)}%` : '——'
+          sectCellRef.current.classList.toggle('armed', dv > 0.02)
+        }
         if (bufRef.current) {
           const c = canvas as HTMLCanvasElement
           bufRef.current.textContent = `${c.width}×${c.height}`
@@ -533,7 +779,10 @@ export default function App() {
           const p = deck.peaks()
           peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
           setDecoding(false)
-          setStemInfo(deck.info())
+          const infos = deck.info()
+          setStemInfo(infos)
+          // The dissection speaks stems now: one tier per separated part.
+          applyStemTiers(infos)
         })
         return
       }
@@ -599,6 +848,12 @@ export default function App() {
         case 'KeyF': fileRef.current?.click(); break
         case 'KeyM': void eng.useMic(); break
         case 'KeyH': setAmbient((a) => !a); break
+        case 'KeyD':
+          // keyboard dissect: full open / full shut
+          sect.latched = !sect.latched
+          sect.t = sect.latched ? 1 : 0
+          sceneRef.current?.setDissect(sect.t)
+          break
         case 'Equal':
         case 'NumpadAdd': sceneRef.current?.zoomBy(1.25); break
         case 'Minus':
@@ -681,6 +936,10 @@ export default function App() {
   return (
     <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}`} onClick={started ? undefined : power}>
       <canvas ref={canvasRef} className="stage" />
+      {/* The survey drawing — numbered markers, dashed drop-lines, tier
+          labels — projected over the dissected stack. Exists only while
+          the orb is pulled apart. */}
+      <canvas ref={surveyRef} className="survey" aria-hidden="true" />
       {/* The survey grid, alive: a pulse of light travels along each line
           (the GridLines component's technique — background-position on a
           long gradient, staggered per line, compositor-only). */}
@@ -784,6 +1043,7 @@ export default function App() {
             <div><dt>zoom</dt><dd ref={zoomRef}>1.0×</dd></div>
             <div ref={fltCellRef}><dt>flt</dt><dd ref={fltRef}>——</dd></div>
             <div ref={echoCellRef}><dt>echo</dt><dd ref={echoRef}>0%</dd></div>
+            <div ref={sectCellRef}><dt>sect</dt><dd ref={sectRef}>——</dd></div>
           </dl>
           <div className="level rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
             <span className="level-tag">level</span>
@@ -924,7 +1184,7 @@ export default function App() {
             {source !== 'stems' && (
               <span className="stemhint">have stems? drop them together (vocals·drums·bass) — split any track locally with stemdeck</span>
             )}
-            <kbd className="keyline">grab the orb: pull=eq · across=filter · far=echo · spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
+            <kbd className="keyline">grab the orb: pull=eq · across=filter · far=echo · pull the axis (or d) = dissect · open: drag ring=level · tap=solo · push in=mute · spc pause · n skip · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
           </div>
         </aside>
       )}
@@ -1058,6 +1318,134 @@ function drawWave(
     else g.lineTo(x, y)
   }
   g.stroke()
+}
+
+/**
+ * The survey drawing. While the orb is dissected, each tier is annotated in
+ * the language of an exploded engineering plot: the true projected ellipse
+ * of the ring, numbered vertex markers riding the spin, dashed drop-lines
+ * tying the tiers to each other, a label with the tier's live level, and a
+ * master compass at the base of the stack. All alpha rides the shear, so
+ * the drawing assembles as the star comes apart.
+ */
+function drawSurvey(
+  cv: HTMLCanvasElement | null,
+  scene: Scene,
+  tiers: { label: string }[],
+  levels: Float32Array,
+  marks: { solo: number; muted: boolean[] },
+  beat: number,
+  rms: number,
+) {
+  const g = cv?.getContext('2d')
+  if (!cv || !g) return
+  const dp = Math.min(2, window.devicePixelRatio || 1)
+  const W = cv.width / dp
+  const H = cv.height / dp
+  g.setTransform(dp, 0, 0, dp, 0, 0)
+  g.clearRect(0, 0, W, H)
+  const dis = scene.dissect
+  // the chrome arrives later than the matter — rings first, then the ink
+  const a = Math.max(0, Math.min(1, (dis - 0.25) / 0.55))
+  if (a <= 0.01) return
+  const n = tiers.length
+  const ink = (al: number) => `rgba(234,234,234,${al * a})`
+  const red = (al: number) => `rgba(255,42,42,${al * a})`
+  g.textBaseline = 'middle'
+  g.lineWidth = 1
+
+  // the spine
+  const top = scene.surveyPoint(n - 1, 0, 0)
+  const bot = scene.surveyPoint(0, 0, 0)
+  g.strokeStyle = ink(0.5)
+  g.beginPath()
+  g.moveTo(bot.x, bot.y + 30)
+  g.lineTo(top.x, top.y - 30)
+  g.stroke()
+
+  const M = 8
+  let num = 0
+  for (let i = 0; i < n; i++) {
+    const soloed = marks.solo === i
+    const muted = !!marks.muted[i]
+
+    // the ring's true projected ellipse
+    g.strokeStyle = soloed ? red(0.8) : ink(muted ? 0.14 : 0.38)
+    g.beginPath()
+    for (let k = 0; k <= 48; k++) {
+      const p = scene.surveyPoint(i, (k / 48) * Math.PI * 2)
+      if (k === 0) g.moveTo(p.x, p.y)
+      else g.lineTo(p.x, p.y)
+    }
+    g.stroke()
+
+    // dashed drops to the tier below — the drawing's vertical logic
+    if (i > 0) {
+      g.strokeStyle = ink(0.16)
+      g.setLineDash([2, 5])
+      for (let k = 0; k < M; k += 2) {
+        const th = (k / M) * Math.PI * 2
+        const p0 = scene.surveyPoint(i - 1, th)
+        const p1 = scene.surveyPoint(i, th)
+        g.beginPath()
+        g.moveTo(p0.x, p0.y)
+        g.lineTo(p1.x, p1.y)
+        g.stroke()
+      }
+      g.setLineDash([])
+    }
+
+    // numbered survey markers, orbiting with the body
+    g.font = '9px "JetBrains Mono", ui-monospace, monospace'
+    g.fillStyle = ink(muted ? 0.22 : 0.7)
+    for (let k = 0; k < M; k++) {
+      const p = scene.surveyPoint(i, (k / M) * Math.PI * 2)
+      num++
+      g.fillRect(p.x - 1.5, p.y - 1.5, 3, 3)
+      g.fillText(String(num), p.x + 5, p.y - 5)
+    }
+
+    // the tier's data plate, right of the ring
+    const ctr = scene.surveyPoint(i, 0, 0)
+    const edge = scene.surveyPoint(i, 0, 1)
+    const rPx = Math.hypot(edge.x - ctr.x, edge.y - ctr.y)
+    const lx = Math.min(W - 130, ctr.x + rPx + 18)
+    g.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace'
+    g.fillStyle = soloed ? red(0.95) : muted ? red(0.75) : ink(0.9)
+    g.fillText(`0${i + 1} · ${tiers[i].label.toUpperCase()}`, lx, ctr.y - 7)
+    g.font = '9px "JetBrains Mono", ui-monospace, monospace'
+    g.fillStyle = muted ? red(0.6) : soloed ? red(0.7) : ink(0.55)
+    g.fillText(
+      muted ? 'MUTED' : soloed ? 'SOLO' : `LVL ${String(Math.round(levels[i] * 99)).padStart(2, '0')}`,
+      lx,
+      ctr.y + 6,
+    )
+    g.fillStyle = soloed ? red(0.8) : ink(0.8)
+    g.fillRect(lx, ctr.y + 13, Math.max(1, levels[i] * 46), 2)
+  }
+
+  // the base compass — the master's small ellipse, like the reference's
+  // bottom ring: a beat dot sweeps it, the sum level sits beside it.
+  const gapL = n > 1 ? scene.tierYFull(1) - scene.tierYFull(0) : 0.7
+  const yB = scene.tierYNow(0) - gapL * 0.75 * dis
+  const rB = 0.88 * 0.56 * 0.34
+  g.strokeStyle = ink(0.42)
+  g.beginPath()
+  for (let k = 0; k <= 32; k++) {
+    const th = (k / 32) * Math.PI * 2
+    const p = scene.projectLocal(Math.cos(th) * rB, yB, Math.sin(th) * rB)
+    if (k === 0) g.moveTo(p.x, p.y)
+    else g.lineTo(p.x, p.y)
+  }
+  g.stroke()
+  const bth = performance.now() * 0.0011
+  const bp = scene.projectLocal(Math.cos(bth) * rB, yB, Math.sin(bth) * rB)
+  g.fillStyle = red(0.55 + Math.min(0.45, beat))
+  g.fillRect(bp.x - 2, bp.y - 2, 4, 4)
+  const cB = scene.projectLocal(0, yB, 0)
+  g.font = '9px "JetBrains Mono", ui-monospace, monospace'
+  g.fillStyle = ink(0.6)
+  g.fillText(`SUM ${String(Math.round(Math.min(1, rms * 2.4) * 99)).padStart(2, '0')}`, cB.x + 12, cB.y)
 }
 
 /** 24 log-band bars with hanging peak caps, like the reference analyzer.

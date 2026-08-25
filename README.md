@@ -23,6 +23,15 @@ organ: drums gate the eruptions, bass drives the photosphere, vocals
 light a corona ring that dies when the voice does. Everything stays in
 your browser — stems are never uploaded.
 
+**Dissection.** Pull the orb apart along its axis (or press D) and the
+star shears into an exploded survey drawing — stacked rings on a spine,
+numbered vertex markers, dashed drop-lines, live level plates, a master
+compass at the base. Each ring is one tier of the sound: bass / drums /
+vocals when stems are loaded, low / mid / high for any other source.
+While open, the rings are faders — drag one away from the axis to boost
+it, push it in to kill it, tap to solo. Release and the stack slams
+shut.
+
 **The orb is the mixer.** Grab its body and pull: outward boosts the EQ
 band you're holding, pushing through the core kills it (momentary, like
 holding a kill through a phrase). Drag across for the colour filter

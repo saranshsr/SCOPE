@@ -128,7 +128,7 @@ export class StemDeck {
     for (const s of this.stems) {
       if (s.role !== role) continue
       s.userGain = Math.max(0, Math.min(2, g))
-      s.gain.gain.setTargetAtTime(s.muted ? 0 : s.userGain, this.ctx.currentTime, 0.03)
+      this.apply(s)
     }
   }
 
@@ -136,7 +136,31 @@ export class StemDeck {
     const s = this.stems[idx]
     if (!s) return
     s.muted = !s.muted
-    s.gain.gain.setTargetAtTime(s.muted ? 0 : s.userGain, this.ctx.currentTime, 0.03)
+    this.apply(s)
+  }
+
+  toggleMuteRole(role: StemRole) {
+    let muted = false
+    for (const s of this.stems) if (s.role === role) muted = muted || !s.muted
+    for (const s of this.stems) {
+      if (s.role !== role) continue
+      s.muted = muted
+      this.apply(s)
+    }
+  }
+
+  /** Solo one stem — everything else drops out until released. */
+  solo(role: StemRole | null) {
+    this.soloRole = role
+    for (const s of this.stems) this.apply(s)
+  }
+
+  soloRole: StemRole | null = null
+
+  /** One resolver for the three mute-ish states, so they can't fight. */
+  private apply(s: StemNode) {
+    const g = s.muted || (this.soloRole && s.role !== this.soloRole) ? 0 : s.userGain
+    s.gain.gain.setTargetAtTime(g, this.ctx.currentTime, 0.03)
   }
 
   /** Live per-stem levels for the visuals' voices. */

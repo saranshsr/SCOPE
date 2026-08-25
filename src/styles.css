@@ -1038,3 +1038,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: rgba(234, 234, 234, 0.28);
 }
+
+/* ── the dissection ─────────────────────────────────────────────────── */
+/* The survey drawing floats between the matter and the console: it
+   annotates the stage but never intercepts the hand. */
+.survey {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}

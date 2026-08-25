@@ -95,6 +95,10 @@ const SHELL_VERT = /* glsl */ `
   uniform float uGrabBand;
   uniform vec3 uEqVis;
   uniform float uBands[24];
+  uniform float uDissect;
+  uniform float uTiers;
+  uniform float uGap;
+  uniform float uTierOf[24];
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -136,6 +140,28 @@ const SHELL_VERT = /* glsl */ `
     float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth * eqBody;
     vec3 p = aDir * r;
 
+    // THE DISSECTION. Pulled apart, the star shears into stacked survey
+    // rings — one per tier, frequency-honest (this particle's band decides
+    // its tier), each ring still breathing with its own bands' energy.
+    // Lower tiers leave first: an exploded engineering drawing, not a fade.
+    float dl = 0.0;
+    if (uDissect > 0.001) {
+      float tier = uTierOf[si];
+      dl = clamp(uDissect * 1.15 - tier * 0.05, 0.0, 1.0);
+      dl = dl * dl * (3.0 - 2.0 * dl);
+      float ty = (tier - (uTiers - 1.0) * 0.5) * uGap;
+      // A tier owns only its slice of the sphere's azimuth — kept as-is the
+      // ring would be a crescent. Respread the slice around the FULL circle:
+      // each ring becomes its own complete spectrum wheel, its 8 bands laid
+      // out as angular segments that breathe independently.
+      float tierW = 24.0 / uTiers;
+      float th2 = ((sector - tier * tierW) / tierW) * 6.28318;
+      vec2 az = vec2(cos(th2), sin(th2));
+      float ringR = uR * (0.50 + bandE * 0.20 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.22);
+      vec3 tp = vec3(az.x * ringR, ty + n3 * 0.035 + (h2 - 0.5) * 0.06, az.y * ringR);
+      p = mix(p, tp, dl);
+    }
+
     // The hand in the matter. Band-selective: you grab the BASS and the
     // bass sectors' particles stream to your hand — everything else barely
     // stirs. Wider falloff + stronger pull than v1: the tendril must READ.
@@ -155,7 +181,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) + pullHeat;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.18) + pullHeat;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -195,6 +221,7 @@ const EJECTA_VERT = /* glsl */ `
   uniform float uR;
   uniform float uDensity;
   uniform float uZoom;
+  uniform float uDissect;
   attribute vec3 aDir;
   attribute float aBirth;  // scene-time of launch; large negative = dead slot
   attribute float aSpd;
@@ -213,7 +240,7 @@ const EJECTA_VERT = /* glsl */ `
     float dist = aSpd * (1.0 - exp(-k * age)) / k;
     vec3 p = aDir * (uR * 0.60 + dist);
 
-    vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25);
+    vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25) * (1.0 - uDissect * 0.6);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (2.1 - a01 * 1.5) * alive * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
@@ -247,6 +274,7 @@ const LINK_VERT = /* glsl */ `
   uniform float uTurb;
   uniform float uSnap;
   uniform float uOnsetN;
+  uniform float uDissect;
   attribute vec3 aDir;
   attribute float aHash;  // shared per segment
   varying float vA;
@@ -264,7 +292,8 @@ const LINK_VERT = /* glsl */ `
     // same frame the sound happens.
     float gate = step(0.8, fract(aHash * 17.31 + uOnsetN * 0.618));
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
-    vA = (0.028 + gate * max(uPulse * 0.3, uSnap * 0.5)) * on;
+    // A chord between two tiers is a lie once the tiers separate.
+    vA = (0.028 + gate * max(uPulse * 0.3, uSnap * 0.5)) * on * (1.0 - uDissect);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `
@@ -287,6 +316,7 @@ const CORE_VERT = /* glsl */ `
   uniform float uReveal;
   uniform float uDensity;
   uniform float uZoom;
+  uniform float uDissect;
   attribute float aHash;
   attribute vec3 aSeed;
   varying float vHeat;
@@ -302,7 +332,8 @@ const CORE_VERT = /* glsl */ `
     vec3 p = aSeed * coreR + wob;
     float dist = length(p) / max(coreR * 2.2, 1e-4);
     float clump = 0.45 + 0.55 * sin(aHash * 43.7 + uTime * 0.9);
-    vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18) * (0.5 + clump));
+    // Dissected, there is no centre for a furnace to live in.
+    vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18) * (0.5 + clump)) * (1.0 - uDissect * 0.9);
     float on = step(fract(aHash * 613.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
@@ -330,6 +361,8 @@ const CORONA_VERT = /* glsl */ `
   uniform float uVocal;
   uniform float uR;
   uniform float uZoom;
+  uniform float uDissect;
+  uniform float uCoronaY;
   attribute float aTheta;
   attribute float aHash;
   varying float vA;
@@ -340,6 +373,10 @@ const CORONA_VERT = /* glsl */ `
     float r = uR * (0.86 + uVocal * 0.16 + 0.03 * snoise(vec3(cos(th), sin(th), uTime * 0.3) * 2.0 + aHash * 7.0));
     // a ring tilted out of the body's plane so it reads as its own object
     vec3 p = vec3(cos(th) * r, sin(th) * r * 0.42, sin(th) * r * 0.5);
+    // Dissected, the corona is no longer a halo — it settles flat onto the
+    // vocals' own tier and becomes that ring's fire.
+    vec3 pd = vec3(cos(th) * r * 0.70, uCoronaY + sin(th * 3.0 + uTime) * 0.02, sin(th) * r * 0.70);
+    p = mix(p, pd, uDissect);
     vA = uVocal * (0.25 + 0.75 * fract(aHash * 91.7)) * smoothstep(0.02, 0.2, uVocal);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
@@ -386,6 +423,11 @@ export class Scene {
   private highE = new Env()
   private pulseE = new Env()
   private aheadE = new Env()
+  private dissectE = new Env()
+  private dissectTarget = 0
+  private tierCount = 3
+  private lastDis = 0
+  private _v = new THREE.Vector3()
   private ejecta!: { dir: THREE.BufferAttribute; birth: THREE.BufferAttribute; spd: THREE.BufferAttribute; cursor: number }
   private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
   private drag = { x: 0, y: 0, tx: 0, ty: 0 }
@@ -440,6 +482,16 @@ export class Scene {
       uGrabBand: { value: -1 }, // 0 low / 1 mid / 2 high / -1 all
       // The vocal voice: 0 = no corona; rises with vocal-stem presence.
       uVocal: { value: 0 },
+      // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
+      // damped here; the app only sets the target.
+      uDissect: { value: 0 },
+      uTiers: { value: 3 },
+      uGap: { value: 1.55 / 2 },
+      // band index -> tier index. Default: the spectral anatomy itself
+      // (low/mid/high), so dissection works on ANY source, stems or not.
+      uTierOf: { value: new Float32Array(24).map((_, i) => Math.floor(i / 8)) },
+      // where the vocals tier sits (cluster-local y), for the corona.
+      uCoronaY: { value: 0 },
       uEqVis: { value: new THREE.Vector3(1, 1, 1) },
       // The full analyser: 24 log bands, mapped to angular sectors of the
       // body — the star's spectral anatomy.
@@ -681,6 +733,57 @@ export class Scene {
     this.uniforms.uVocal.value = Math.max(0, Math.min(1.4, v))
   }
 
+  /** Target for the pull-apart, 0..1. The spring does the rest. */
+  setDissect(t: number) {
+    this.dissectTarget = Math.max(0, Math.min(1, t))
+  }
+
+  /** Where the shear actually is right now (sprung). */
+  get dissect(): number {
+    return this.uniforms.uDissect.value as number
+  }
+
+  /** Re-plumb the anatomy: which band belongs to which tier. Spectral
+   *  fallback is 3 tiers of 8; stems get one tier per separated part. */
+  setTierMap(tierOf: number[], count: number, vocalTier = -1) {
+    const u = this.uniforms.uTierOf.value as Float32Array
+    for (let i = 0; i < 24; i++) u[i] = tierOf[i] ?? 0
+    this.tierCount = count
+    this.uniforms.uTiers.value = count
+    this.uniforms.uGap.value = 1.55 / Math.max(1, count - 1)
+    this.uniforms.uCoronaY.value = vocalTier >= 0 ? this.tierYFull(vocalTier) : 0
+  }
+
+  get tiers(): number {
+    return this.tierCount
+  }
+
+  /** A tier's resting altitude at full dissection (cluster-local y). */
+  tierYFull(tier: number): number {
+    return (tier - (this.tierCount - 1) * 0.5) * (this.uniforms.uGap.value as number)
+  }
+
+  /** Where the tier is NOW — mirrors the shader's per-tier shear stagger
+   *  exactly, so the survey chrome rides the same motion as the matter. */
+  tierYNow(tier: number): number {
+    const d = this.uniforms.uDissect.value as number
+    const x = Math.max(0, Math.min(1, d * 1.15 - tier * 0.05))
+    return this.tierYFull(tier) * x * x * (3 - 2 * x)
+  }
+
+  /** Cluster-local point -> CSS pixels. Valid right after render(). */
+  projectLocal(x: number, y: number, z: number): { x: number; y: number } {
+    this._v.set(x, y, z).applyMatrix4(this.cluster.matrixWorld).project(this.camera)
+    return { x: (this._v.x * 0.5 + 0.5) * this.lastW, y: (-this._v.y * 0.5 + 0.5) * this.lastH }
+  }
+
+  /** A point on a tier's survey ring (rs scales the ring radius; 0 = the
+   *  tier's centre on the axis). */
+  surveyPoint(tier: number, theta: number, rs = 1): { x: number; y: number } {
+    const r = 0.88 * 0.56 * rs
+    return this.projectLocal(Math.cos(theta) * r, this.tierYNow(tier), Math.sin(theta) * r)
+  }
+
   /** Cursor ray -> the body's depth plane. ALWAYS returns a point, so the
    *  tendril follows the hand even after it leaves the silhouette — that
    *  was the broken first link of the feedback chain. */
@@ -767,20 +870,26 @@ export class Scene {
     this.renderer.setPixelRatio(dpr)
     this.renderer.setSize(w, h, false)
     this.composer.setSize(w, h)
-    const aspect = w / Math.max(1, h)
-    this.camera.aspect = aspect
-    // Camera at x looking at (x,0,0) shows world-x at screen centre, so to
-    // place world 0 RIGHT of centre the camera itself moves LEFT.
-    // Closer camera = magnification; the pan offset shrinks with it so the
-    // subject stays where the chrome expects it.
+    this.camera.aspect = w / Math.max(1, h)
+    this.placeCamera()
+    // The subject dominates the stage, like the reference.
+    this.uniforms.uR.value = 0.88
+  }
+
+  /** Camera at x looking at (x,0,0) shows world-x at screen centre, so to
+   *  place world 0 RIGHT of centre the camera itself moves LEFT.
+   *  Closer camera = magnification; the pan offset shrinks with it so the
+   *  subject stays where the chrome expects it. Dissection dollies back —
+   *  the exploded stack is taller than the star it came from. */
+  private placeCamera() {
+    const aspect = this.camera.aspect
+    const dis = this.uniforms.uDissect.value as number
     const baseZ = 1 / Math.tan((40 / 2) * (Math.PI / 180))
-    this.camera.position.z = baseZ / this.zoom
+    this.camera.position.z = (baseZ / this.zoom) * (1 + dis * 0.5)
     const off = (-(this.focusFrac - 0.5) * 2 * aspect) / this.zoom
     this.camera.position.x = off
     this.camera.lookAt(off, 0, 0)
     this.camera.updateProjectionMatrix()
-    // The subject dominates the stage, like the reference.
-    this.uniforms.uR.value = 0.88
   }
 
   render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0, snap = 0) {
@@ -798,6 +907,15 @@ export class Scene {
     this.uniforms.uAhead.value = this.aheadE.update(ahead, dt, 1.6)
     this.uniforms.uReveal.value = Math.min(1, (performance.now() - this.born) / 1700)
 
+    // The shear itself is sprung: release your grip mid-pull and the stack
+    // slams shut like a real mechanism, not a UI transition.
+    const dis = this.dissectE.update(this.dissectTarget, dt, 7)
+    this.uniforms.uDissect.value = dis
+    if (Math.abs(dis - this.lastDis) > 1e-3) {
+      this.lastDis = dis
+      this.placeCamera()
+    }
+
     // Damped zoom: the dolly glides, and spending the reserve is gradual.
     if (Math.abs(this.zoom - this.zoomTarget) > 1e-4) {
       this.zoom += (this.zoomTarget - this.zoom) * Math.min(1, dt * 6)
@@ -814,8 +932,11 @@ export class Scene {
     this.drag.y += (this.drag.ty - this.drag.y) * ease
     if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial * (0.75 + warp * 0.25)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
-    this.cluster.rotation.x =
-      Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y
+    // Dissected, the view settles into the surveyor's tilt — looking
+    // slightly down the axis so the rings read as the drawing's ellipses.
+    // The y-spin stays: numbered markers orbiting is the drawing, alive.
+    const baseRx = Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y
+    this.cluster.rotation.x = baseRx * (1 - dis) + 0.42 * dis
 
     this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value
     // Persistence leans with the bass: quiet = crisp, heavy = long exposure.
