@@ -773,6 +773,19 @@ body {
   .ruler-x { left: 0; }
   .ruler-y { display: none; }
   .titleblock { grid-template-columns: repeat(2, auto); }
+  /* Priorities invert on the phone sheet: identity, then what's playing
+     and its scrubber, then sources and transport — stats and tuning live
+     below the fold for the curious thumb. Desktop keeps the pinned foot. */
+  .rail { display: flex; }
+  .rail-brand { order: 0; }
+  .rail-foot { order: 1; margin-top: 14px; }
+  .rail-src { order: 2; }
+  .transport { order: 3; }
+  .statgrid { order: 4; }
+  .level { order: 5; }
+  .readout { order: 6; }
+  .tuning { order: 7; }
+
   /* The spectrum was absolutely positioned onto the bottom console,
      covering the readout. On phones it docks top-right under the title
      block, smaller — every gauge visible, nothing stacked. */

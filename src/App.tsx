@@ -309,6 +309,7 @@ export default function App() {
         if (fpsRef.current) fpsRef.current.textContent = `${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))}`
         if (ptsRef.current) ptsRef.current.textContent = `${Math.round((58000 + 2600 + 3600) * perf.q / 1000)}k`
         if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
+        setPaused(engineRef.current?.el.paused ?? false)
         if (bufRef.current) {
           const c = canvas as HTMLCanvasElement
           bufRef.current.textContent = `${c.width}×${c.height}`
@@ -498,30 +499,41 @@ export default function App() {
             </button>
           </nav>
 
-          {/* transport + volume */}
-          <div className="transport rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
-            <button
-              onClick={() => {
-                const e = engineRef.current
-                if (!e || e.kind === 'mic') return
-                if (e.el.paused) { void e.el.play(); setPaused(false) }
-                else { e.el.pause(); setPaused(true) }
-              }}
-            >
-              <Decode text={paused ? 'play' : 'pause'} duration={300} replayOnHover />
-            </button>
-            <button onClick={() => void engineRef.current?.next()}>
-              <Decode text="skip" duration={300} replayOnHover />
-            </button>
-            <div className="vol">
-              <span>vol</span>
-              <input
-                type="range" min={0} max={1} step={0.01} value={volume}
-                onChange={(ev) => setVolume(Number(ev.target.value))}
-                aria-label="volume"
-              />
+          {/* transport + volume — never a dead control: mic has no element
+              to pause or fade, so the row yields to the source switch; a
+              file's 'skip' can only mean back to the radio, so it says so. */}
+          {source !== 'mic' && (
+            <div className="transport rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
+              <button
+                onClick={() => {
+                  const e = engineRef.current
+                  if (!e) return
+                  if (e.el.paused) void e.el.play()
+                  else e.el.pause()
+                }}
+              >
+                <Decode text={paused ? 'play' : 'pause'} duration={300} replayOnHover />
+              </button>
+              <button
+                onClick={() => {
+                  const e = engineRef.current
+                  if (!e) return
+                  if (e.kind === 'radio') void e.next()
+                  else void e.playRadio()
+                }}
+              >
+                <Decode text={source === 'file' ? 'radio' : 'skip'} duration={300} replayOnHover />
+              </button>
+              <div className="vol">
+                <span>vol</span>
+                <input
+                  type="range" min={0} max={1} step={0.01} value={volume}
+                  onChange={(ev) => setVolume(Number(ev.target.value))}
+                  aria-label="volume"
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* response tuning — the instrument's own dials */}
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
