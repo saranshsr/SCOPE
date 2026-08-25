@@ -61,6 +61,17 @@ export default function App() {
     const engine = new AudioEngine()
     engineRef.current = engine
     engine.setPlaylist(playlist)
+    // The owner's own library outranks the shipped CC0 set — purely by
+    // presence. The manifest lives in a gitignored dir that never reaches
+    // the repo or the deploy, so production falls back silently.
+    void fetch('/tracks-local/manifest.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((local: TrackInfo[] | null) => {
+        if (local?.length && engine.kind === 'radio' && !startedRef.current) {
+          engine.setPlaylist(local)
+        }
+      })
+      .catch(() => {})
     engine.onTrackChange = (tr) => {
       setTrack(tr)
       setSource(engine.kind)
