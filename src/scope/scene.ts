@@ -99,6 +99,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uTiers;
   uniform float uGap;
   uniform float uTierOf[24];
+  uniform float uTierLvl[6];
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -145,8 +146,14 @@ const SHELL_VERT = /* glsl */ `
     // its tier), each ring still breathing with its own bands' energy.
     // Lower tiers leave first: an exploded engineering drawing, not a fade.
     float dl = 0.0;
+    float tl = 1.0;
     if (uDissect > 0.001) {
       float tier = uTierOf[si];
+      // The tier's OWN voice — for stems this is the stem's real post-gain
+      // level, so killing a stem collapses and darkens its ring directly,
+      // not via the shared spectrum. The band mapping alone can't promise
+      // that: a muted vocal's energy was smeared across every tier's bands.
+      tl = uTierLvl[int(min(tier, 5.0))];
       dl = clamp(uDissect * 1.15 - tier * 0.05, 0.0, 1.0);
       dl = dl * dl * (3.0 - 2.0 * dl);
       float ty = (tier - (uTiers - 1.0) * 0.5) * uGap;
@@ -157,7 +164,8 @@ const SHELL_VERT = /* glsl */ `
       float tierW = 24.0 / uTiers;
       float th2 = ((sector - tier * tierW) / tierW) * 6.28318;
       vec2 az = vec2(cos(th2), sin(th2));
-      float ringR = uR * (0.50 + bandE * 0.20 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.22);
+      float ringR = uR * (0.50 + bandE * 0.20 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.22)
+        * (0.45 + 0.55 * min(tl, 1.4));
       vec3 tp = vec3(az.x * ringR, ty + n3 * 0.035 + (h2 - 0.5) * 0.06, az.y * ringR);
       p = mix(p, tp, dl);
     }
@@ -181,7 +189,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.18) + pullHeat;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.18) * mix(1.0, 0.22 + 0.78 * min(tl, 1.3), dl) + pullHeat;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -490,6 +498,9 @@ export class Scene {
       // band index -> tier index. Default: the spectral anatomy itself
       // (low/mid/high), so dissection works on ANY source, stems or not.
       uTierOf: { value: new Float32Array(24).map((_, i) => Math.floor(i / 8)) },
+      // each tier's live voice (stems: real post-gain rms; spectral: kill
+      // state) — the caller smooths, the shader only reads.
+      uTierLvl: { value: new Float32Array(6).fill(1) },
       // where the vocals tier sits (cluster-local y), for the corona.
       uCoronaY: { value: 0 },
       uEqVis: { value: new THREE.Vector3(1, 1, 1) },
@@ -756,6 +767,12 @@ export class Scene {
 
   get tiers(): number {
     return this.tierCount
+  }
+
+  /** Per-tier voices for the dissected rings — pre-smoothed by the caller. */
+  setTierLevels(lvls: ArrayLike<number>) {
+    const u = this.uniforms.uTierLvl.value as Float32Array
+    for (let i = 0; i < 6; i++) u[i] = lvls[i] ?? 1
   }
 
   /** A tier's resting altitude at full dissection (cluster-local y). */

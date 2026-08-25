@@ -577,6 +577,7 @@ export default function App() {
     let surveyDirty = false
     let seamFlashUntil = 0
     let wasStarted = false
+    const tierVoice = new Float32Array(6).fill(1)
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
@@ -666,6 +667,21 @@ export default function App() {
             tierLevels[i] = Math.min(1, (m / (b - a)) * 1.6)
           }
         }
+        // each ring's voice: stems ride their REAL post-gain rms (a muted
+        // stem's tap reads silence, so its ring collapses dark); spectral
+        // tiers ride their kill state. Smoothed here, read by the shader.
+        for (let i = 0; i < 6; i++) {
+          const tr = tiers[i]
+          const target = !tr
+            ? 1
+            : tr.role
+              ? Math.min(1.4, tierLevels[i] * 1.5)
+              : sectMuted.has(i) || (sectSolo >= 0 && sectSolo !== i)
+                ? 0.08
+                : 1
+          tierVoice[i] += (target - tierVoice[i]) * Math.min(1, dt * 9)
+        }
+        scene.setTierLevels(tierVoice)
         const marks = { solo: -1, muted: [] as boolean[] }
         for (let i = 0; i < tiers.length; i++) {
           const tr = tiers[i]
