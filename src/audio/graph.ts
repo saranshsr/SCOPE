@@ -34,6 +34,7 @@ export class AudioEngine {
   private eqMid!: BiquadFilterNode
   private eqHigh!: BiquadFilterNode
   private sweepF!: BiquadFilterNode
+  private tierFs: BiquadFilterNode[] = []
   private echoSend!: GainNode
   private echoDelay!: DelayNode
   private echoFb!: GainNode
@@ -84,9 +85,24 @@ export class AudioEngine {
     this.echoFb = this.ctx.createGain()
     this.echoFb.gain.value = 0
 
+    // The tier EQ: one peaking filter per dissection ring (up to 6), so
+    // altering a RING alters the MUSIC — six independent hands on the
+    // spectrum, not three shared shelves. Flat (0dB) filters are
+    // transparent; centers/Q are retuned whenever the tier map changes.
+    let prev: AudioNode = this.eqHigh
+    for (let i = 0; i < 6; i++) {
+      const f = this.ctx.createBiquadFilter()
+      f.type = 'peaking'
+      f.frequency.value = 60 * Math.pow(200, (i * 4 + 2) / 23)
+      f.Q.value = 1.1
+      f.gain.value = 0
+      prev.connect(f)
+      prev = f
+      this.tierFs.push(f)
+    }
     this.eqLow.connect(this.eqMid)
     this.eqMid.connect(this.eqHigh)
-    this.eqHigh.connect(this.sweepF)
+    prev.connect(this.sweepF)
     this.sweepF.connect(this.filter)
     this.filter.connect(this.analyser.node)          // dry
     this.filter.connect(this.echoSend)               // send
@@ -303,6 +319,32 @@ export class AudioEngine {
   eq(band: 'low' | 'mid' | 'high', db: number) {
     const node = band === 'low' ? this.eqLow : band === 'mid' ? this.eqMid : this.eqHigh
     node.gain.setTargetAtTime(Math.max(-30, Math.min(10, db)), this.ctx.currentTime, 0.04)
+  }
+
+  /** One ring, one filter: dB on the i-th tier's peaking band. */
+  tierEq(i: number, db: number) {
+    const f = this.tierFs[i]
+    if (f) f.gain.setTargetAtTime(Math.max(-30, Math.min(10, db)), this.ctx.currentTime, 0.04)
+  }
+
+  /** Retune the tier filters to the current tier map: each covers its
+   *  slice of the 24-band ladder (60Hz..12kHz, geometric). Unused tiers
+   *  go transparent. */
+  setTierBands(count: number) {
+    const per = 24 / count
+    for (let i = 0; i < 6; i++) {
+      const f = this.tierFs[i]
+      if (!f) continue
+      if (i >= count) {
+        f.gain.setTargetAtTime(0, this.ctx.currentTime, 0.02)
+        continue
+      }
+      const centerBand = i * per + per / 2
+      f.frequency.value = 60 * Math.pow(200, centerBand / 23)
+      // Q spans the tier's slice: bandwidth factor = 200^(per/24)
+      const bw = Math.pow(200, per / 24)
+      f.Q.value = 1 / (Math.sqrt(bw) - 1 / Math.sqrt(bw))
+    }
   }
 
   /** The colour filter. x in [-1, 1]: negative sweeps a high-pass up

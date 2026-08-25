@@ -55,8 +55,17 @@ export default function App() {
   const [solo, setSolo] = useState<number | null>(null) // band index 0..23
   const soloRef = useRef<number | null>(null)
   const [ambient, setAmbient] = useState(false)
-  const [stemInfo, setStemInfo] = useState<StemInfo[] | null>(null)
   const stemDeckRef = useRef<StemDeck | null>(null)
+  // THE LAYER ROWS — every ring's visible twin: name, live meter, level
+  // slider, solo/mute. Nothing about the stack requires a hidden gesture.
+  type LayerRow = { i: number; label: string; level: number; gain: number; muted: boolean; solo: boolean; hot: boolean }
+  const [layerUi, setLayerUi] = useState<LayerRow[] | null>(null)
+  const tierCtlRef = useRef<{
+    gain: (i: number, g: number) => void
+    solo: (i: number) => void
+    mute: (i: number) => void
+    hover: (i: number) => void
+  } | null>(null)
   const tuningRef = useRef(tuning)
   // signal/machine stats, written imperatively at chrome rate
   const bpmRef = useRef<HTMLElement>(null)
@@ -145,7 +154,6 @@ export default function App() {
       if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
         stemDeckRef.current.pause()
         stemDeckRef.current.solo(null)
-        setStemInfo(null)
         scene.setVocal(0)
         applySpectralTiers()
       }
@@ -206,33 +214,47 @@ export default function App() {
     // Pull the orb apart along its axis and it shears into survey rings —
     // stems when the deck holds them, the spectral anatomy otherwise. Tiers
     // are bottom-to-top, frequency-honest.
-    let tiers: Tier[] = [
-      { label: 'low', band: 'low' },
-      { label: 'mid', band: 'mid' },
-      { label: 'high', band: 'high' },
-    ]
+    let tiers: Tier[] = [] // set by applySpectralTiers() below, before first use
     const tierLevels = new Float32Array(6)
-    const sectMuted = new Set<number>() // latched spectral-tier kills
+    const sectMuted = new Set<number>() // latched tier kills
     let sectSolo = -1 // spectral tier solo (stem solo lives in the deck)
-    // One resolver for the spectral tiers' mute/solo state — a TRUE group
-    // solo through the EQ desk (the other groups die), never the old
-    // narrow bandpass pretending to be a tier.
+    // Latched row levels, 0..2 — the mixing desk the layer rows drive.
+    // Gestures are momentary performance moves that return here.
+    const rowGain = new Float32Array(6).fill(1)
+    const dbOf = (g: number) => (g < 1 ? (g - 1) * 30 : (g - 1) * 9)
+    // One resolver for the spectral tiers' whole mix state: each ring owns
+    // a REAL peaking filter in the desk (altering the ring alters the
+    // music), and mute/solo/level can never fight each other.
     const applySpectralMix = () => {
       const eng = engineRef.current
+      if (!eng) return
       const killed = (i: number) => sectMuted.has(i) || (sectSolo >= 0 && sectSolo !== i)
-      ;(['low', 'mid', 'high'] as const).forEach((b, i) => eng?.eq(b, killed(i) ? -30 : 0))
-      scene.setEqVis(killed(0) ? 0.08 : 1, killed(1) ? 0.08 : 1, killed(2) ? 0.08 : 1)
+      for (let i = 0; i < 6; i++) {
+        const tr = tiers[i]
+        eng.tierEq(i, tr && tr.band ? (killed(i) ? -30 : dbOf(rowGain[i])) : 0)
+      }
+      // closed-orb sector shading: a group collapses when all its tiers die
+      const gVis = (b: 'low' | 'mid' | 'high') => {
+        const idxs = tiers.map((t2, i) => (t2.band === b ? i : -1)).filter((i) => i >= 0)
+        return idxs.length && idxs.every((i) => killed(i)) ? 0.08 : 1
+      }
+      scene.setEqVis(gVis('low'), gVis('mid'), gVis('high'))
     }
     const applySpectralTiers = () => {
       tiers = [
-        { label: 'low', band: 'low' },
+        { label: 'sub', band: 'low' },
+        { label: 'bass', band: 'low' },
+        { label: 'lowmid', band: 'mid' },
         { label: 'mid', band: 'mid' },
-        { label: 'high', band: 'high' },
+        { label: 'himid', band: 'high' },
+        { label: 'air', band: 'high' },
       ]
       sectMuted.clear()
       sectSolo = -1
+      rowGain.fill(1)
       applySpectralMix()
-      scene.setTierMap(Array.from({ length: 24 }, (_, i) => Math.floor(i / 8)), 3)
+      scene.setTierMap(Array.from({ length: 24 }, (_, i) => Math.floor(i / 4)), 6)
+      engineRef.current?.setTierBands(6)
     }
     const applyStemTiers = (infos: StemInfo[]) => {
       const order: StemRole[] = ['bass', 'drums', 'other', 'vocals']
@@ -241,6 +263,7 @@ export default function App() {
       tiers = present.map((r) => ({ label: r, role: r }))
       sectMuted.clear()
       sectSolo = -1
+      rowGain.fill(1)
       applySpectralMix()
       const per = 24 / present.length
       scene.setTierMap(
@@ -257,7 +280,43 @@ export default function App() {
       axis: false,
       sy0: 0,
       t0: 0,
-      drag: null as null | { tier: number; dx0: number; sx: number; sy: number; downAt: number; moved: boolean; lvl: number },
+      drag: null as null | { tier: number; dx0: number; sx: number; sy: number; downAt: number; moved: boolean; lvl: number; g0: number },
+    }
+    applySpectralTiers()
+    // The rows and the rings drive the SAME state through one door each.
+    tierCtlRef.current = {
+      gain(i, g) {
+        const tr = tiers[i]
+        if (!tr) return
+        if (tr.role) stemDeckRef.current?.setStemGain(tr.role, g)
+        else {
+          rowGain[i] = Math.max(0, Math.min(2, g))
+          applySpectralMix()
+        }
+      },
+      solo(i) {
+        const tr = tiers[i]
+        if (!tr) return
+        if (tr.role) {
+          const d = stemDeckRef.current
+          d?.solo(d.soloRole === tr.role ? null : tr.role)
+        } else {
+          sectSolo = sectSolo === i ? -1 : i
+          applySpectralMix()
+        }
+      },
+      mute(i) {
+        const tr = tiers[i]
+        if (!tr) return
+        if (tr.role) stemDeckRef.current?.toggleMuteRole(tr.role)
+        else {
+          sectMuted.has(i) ? sectMuted.delete(i) : sectMuted.add(i)
+          applySpectralMix()
+        }
+      },
+      hover(i) {
+        scene.setHiTier(i)
+      },
     }
     // DEV: gesture trace for headless verification — which mode each
     // pointer event resolved to. Costs nothing in prod builds.
@@ -281,13 +340,22 @@ export default function App() {
         }
       }
       const gapPx = Math.max(
-        44,
+        36,
         Math.abs(scene.surveyPoint(Math.min(1, n - 1), 0, 0).y - scene.surveyPoint(0, 0, 0).y),
       )
       const ctr = scene.surveyPoint(best, 0, 0)
-      const edge = scene.surveyPoint(best, 0, 1)
-      const ringPx = Math.max(60, Math.hypot(edge.x - ctr.x, edge.y - ctr.y))
-      return bestD < gapPx * 0.55 && Math.abs(px - ctr.x) < ringPx * 1.7 ? best : -1
+      // the ring's projected radius must not depend on where the spin has
+      // carried any single vertex — measure two orthogonal azimuths
+      const e1 = scene.surveyPoint(best, 0, 1)
+      const e2 = scene.surveyPoint(best, Math.PI / 2, 1)
+      const ringPx = Math.max(
+        70,
+        Math.hypot(e1.x - ctr.x, e1.y - ctr.y),
+        Math.hypot(e2.x - ctr.x, e2.y - ctr.y),
+      )
+      const ok = bestD < gapPx * 0.55 && Math.abs(px - ctr.x) < ringPx * 1.8
+      if (!ok) trace('pick-dbg', { best, bestD: Math.round(bestD), gapPx: Math.round(gapPx), dxAxis: Math.round(Math.abs(px - ctr.x)), ringPx: Math.round(ringPx), cy: Math.round(ctr.y), py: Math.round(py) })
+      return ok ? best : -1
     }
 
     // The reticle cursor — an instrument aims, it doesn't point. Eased
@@ -299,6 +367,7 @@ export default function App() {
     // what the idle reticle currently says — so hints never clobber a
     // live gesture readout, and gesture readouts never leave stale hints
     let hintShown = ''
+    let hoverTierIdx = -1
     const onCurMove = (e: PointerEvent) => {
       cur.tx = e.clientX
       cur.ty = e.clientY
@@ -331,9 +400,8 @@ export default function App() {
             if (tr.role && stemDeckRef.current) {
               stemDeckRef.current.setStemGain(tr.role, lvl)
             } else if (tr.band) {
-              eng2?.eq(tr.band, lvl < 1 ? (lvl - 1) * 30 : (lvl - 1) * 9)
-              const vis = lvl < 1 ? Math.max(0.05, lvl) : 1 + (lvl - 1) * 0.5
-              scene.setEqVis(tr.band === 'low' ? vis : 1, tr.band === 'mid' ? vis : 1, tr.band === 'high' ? vis : 1)
+              // the ring IS the filter: this tier's own peaking band bends
+              eng2?.tierEq(d.tier, dbOf(lvl))
             }
             if (retLabelRef.current) retLabelRef.current.textContent = `${tr.label} ${Math.round(lvl * 100)}%`
             trace('tier-move', { tier: d.tier, lvl: +lvl.toFixed(2) })
@@ -403,10 +471,18 @@ export default function App() {
         // The idle reticle names what the hand is over: the seam when the
         // star is whole, the tier when the stack is open.
         let cue = ''
+        let hov = -1
         if (cur.axisHover) cue = 'dissect ↕'
         else if (scene.dissect > 0.5 && !cur.overUi) {
           const ti = pickTier(e.clientX, e.clientY)
-          if (ti >= 0) cue = `${tiers[ti].label} · grab`
+          if (ti >= 0) {
+            cue = `${tiers[ti].label} · grab`
+            hov = ti
+          }
+        }
+        if (hov !== hoverTierIdx) {
+          hoverTierIdx = hov
+          scene.setHiTier(hov)
         }
         if (retLabelRef.current && (cue || retLabelRef.current.textContent === hintShown))
           retLabelRef.current.textContent = cue
@@ -455,6 +531,10 @@ export default function App() {
         const tier = pickTier(e.clientX, e.clientY)
         trace('tier-pick', tier)
         if (tier >= 0) {
+          const trD = tiers[tier]
+          const g0 = trD?.role
+            ? stemDeckRef.current?.info().find((s2) => s2.role === trD.role)?.gain ?? 1
+            : rowGain[tier]
           sect.drag = {
             tier,
             dx0: Math.max(30, Math.abs(e.clientX - c0.x)),
@@ -463,6 +543,7 @@ export default function App() {
             downAt: performance.now(),
             moved: false,
             lvl: 1,
+            g0,
           }
           appRef.current?.classList.add('mixing')
           // grabbing a muted spectral tier revives it
@@ -512,7 +593,6 @@ export default function App() {
         sect.drag = null
         appRef.current?.classList.remove('mixing')
         const tr = tiers[d.tier]
-        const eng2 = engineRef.current
         const deck = stemDeckRef.current
         const quick = !d.moved && performance.now() - d.downAt < 350
         if (quick) {
@@ -526,15 +606,13 @@ export default function App() {
           // pushed all the way to the axis = a latched mute
           if (tr.role && deck) {
             deck.toggleMuteRole(tr.role)
-            deck.setStemGain(tr.role, 1)
+            deck.setStemGain(tr.role, d.g0)
           } else if (tr.band) {
             sectMuted.add(d.tier)
-            eng2?.eq(tr.band, -30)
           }
         } else {
-          // momentary: the fader springs home
-          if (tr.role && deck) deck.setStemGain(tr.role, 1)
-          else if (tr.band) eng2?.eq(tr.band, 0)
+          // momentary: the fader springs home to the ROW's latched value
+          if (tr.role && deck) deck.setStemGain(tr.role, d.g0)
         }
         applySpectralMix()
         if (retLabelRef.current) retLabelRef.current.textContent = ''
@@ -675,10 +753,12 @@ export default function App() {
             if (lastInfos) for (const s of lastInfos) if (s.role === tr.role) lv = Math.max(lv, s.level)
             tierLevels[i] = Math.min(1, lv * 3)
           } else {
-            const [a, b] = tr.band === 'low' ? [0, 8] : tr.band === 'mid' ? [8, 16] : [16, 24]
+            const per = 24 / tiers.length
+            const a = Math.round(i * per)
+            const b = Math.round((i + 1) * per)
             let m = 0
             for (let k = a; k < b; k++) m += f.bands[k]
-            tierLevels[i] = Math.min(1, (m / (b - a)) * 1.6)
+            tierLevels[i] = Math.min(1, (m / Math.max(1, b - a)) * 1.6)
           }
         }
         // each ring's voice: stems ride their REAL post-gain rms (a muted
@@ -692,7 +772,7 @@ export default function App() {
               ? Math.min(1.4, tierLevels[i] * 1.5)
               : sectMuted.has(i) || (sectSolo >= 0 && sectSolo !== i)
                 ? 0.08
-                : 1
+                : Math.min(1.4, rowGain[i])
           tierVoice[i] += (target - tierVoice[i]) * Math.min(1, dt * 9)
         }
         scene.setTierLevels(tierVoice)
@@ -789,7 +869,45 @@ export default function App() {
           ptsRef.current.textContent = `${Math.round((108000 * (scene.densityNow) + 2600 + 3600) / 1000)}k`
         if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
         setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : (engineRef.current?.el.paused ?? false))
-        if (engine.kind === 'stems' && stemDeckRef.current) setStemInfo(stemDeckRef.current.info())
+        // the layer rows: visible whenever stems are loaded or the stack
+        // is open — top ring first, mirroring the drawing
+        if (engine.kind === 'stems' || scene.dissect > 0.25) {
+          const infos = engine.kind === 'stems' ? stemDeckRef.current?.info() ?? null : null
+          const rows: LayerRow[] = []
+          for (let i = tiers.length - 1; i >= 0; i--) {
+            const tr = tiers[i]
+            if (tr.role && infos) {
+              let lv = 0
+              let gn = 1
+              let mu = false
+              for (const s2 of infos)
+                if (s2.role === tr.role) {
+                  lv = Math.max(lv, s2.level)
+                  gn = s2.gain
+                  mu = mu || s2.muted
+                }
+              rows.push({ i, label: tr.label, level: lv, gain: gn, muted: mu, solo: stemDeckRef.current?.soloRole === tr.role, hot: hoverTierIdx === i })
+            } else {
+              const per = 24 / tiers.length
+              const a = Math.round(i * per)
+              const b = Math.round((i + 1) * per)
+              let m = 0
+              for (let k = a; k < b; k++) m += f.bands[k]
+              rows.push({
+                i,
+                label: tr.label,
+                level: Math.min(1, (m / Math.max(1, b - a)) * 1.6),
+                gain: rowGain[i],
+                muted: sectMuted.has(i),
+                solo: sectSolo === i,
+                hot: hoverTierIdx === i,
+              })
+            }
+          }
+          setLayerUi(rows)
+        } else {
+          setLayerUi(null)
+        }
         if (zoomRef.current) zoomRef.current.textContent = `${scene.zoomLevel.toFixed(1)}×`
         if (fltRef.current && fltCellRef.current) {
           const sv = mixState.sweep
@@ -853,10 +971,8 @@ export default function App() {
           const p = deck.peaks()
           peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
           setDecoding(false)
-          const infos = deck.info()
-          setStemInfo(infos)
           // The dissection speaks stems now: one tier per separated part.
-          applyStemTiers(infos)
+          applyStemTiers(deck.info())
         })
         return
       }
@@ -1186,6 +1302,37 @@ export default function App() {
             </div>
           )}
 
+          {/* THE LAYER ROWS — every ring's visible twin. Name + live meter,
+              a level slider that IS the ring's fader (real stem gain or the
+              tier's own peaking filter), solo and mute. Hover a row and its
+              ring burns brighter; hover a ring and its row heats up. */}
+          {layerUi && (
+            <div className="layers rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+              <span className="layers-tag">layers · each row is a ring</span>
+              {layerUi.map((L) => (
+                <div
+                  key={L.i}
+                  className={`layer${L.muted ? ' layer-muted' : ''}${L.solo ? ' layer-solo' : ''}${L.hot ? ' layer-hot' : ''}`}
+                  onMouseEnter={() => tierCtlRef.current?.hover(L.i)}
+                  onMouseLeave={() => tierCtlRef.current?.hover(-1)}
+                >
+                  <span className="layer-name">
+                    {String(L.i + 1).padStart(2, '0')} {L.label}
+                    <i className="layer-meter"><b style={{ width: `${Math.min(100, L.level * 260)}%` }} /></i>
+                  </span>
+                  <input
+                    type="range" min={0} max={2} step={0.01} value={L.gain}
+                    onChange={(ev) => tierCtlRef.current?.gain(L.i, Number(ev.target.value))}
+                    onDoubleClick={() => tierCtlRef.current?.gain(L.i, 1)}
+                    aria-label={`${L.label} level`}
+                  />
+                  <button className={`layer-btn${L.solo ? ' on' : ''}`} onClick={() => tierCtlRef.current?.solo(L.i)}>s</button>
+                  <button className={`layer-btn layer-btn-m${L.muted ? ' on' : ''}`} onClick={() => tierCtlRef.current?.mute(L.i)}>m</button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* response tuning — the instrument's own dials */}
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             <label className="dial">
@@ -1217,27 +1364,6 @@ export default function App() {
               ))}
             </div>
           </div>
-
-          {/* the stem strips — each separated part, its live level, one-tap
-              mute. Only exists while the deck holds stems. */}
-          {source === 'stems' && stemInfo && (
-            <div className="stemstrip rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
-              {stemInfo.map((s, i) => (
-                <button
-                  key={i}
-                  className={`stem${s.muted ? ' stem-muted' : ''}`}
-                  onClick={() => {
-                    stemDeckRef.current?.toggleMute(i)
-                    setStemInfo(stemDeckRef.current?.info() ?? null)
-                  }}
-                >
-                  <span className="stem-role">{s.role}</span>
-                  <span className="stem-bar"><i style={{ width: `${Math.min(100, s.level * 260)}%` }} /></span>
-                  <span className="stem-ms">{s.muted ? 'muted' : 'live'}</span>
-                </button>
-              ))}
-            </div>
-          )}
 
           <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <samp className="deck-name"><Decode text={name} duration={700} /></samp>
@@ -1495,6 +1621,16 @@ function drawSurvey(
     }
     g.stroke()
 
+    // the nested inner ring — the drawing's concentric vocabulary
+    g.strokeStyle = soloed ? red(0.4) : ink(muted ? 0.08 : 0.2)
+    g.beginPath()
+    for (let k = 0; k <= 36; k++) {
+      const p = scene.surveyPoint(i, (k / 36) * Math.PI * 2, 0.46)
+      if (k === 0) g.moveTo(p.x, p.y)
+      else g.lineTo(p.x, p.y)
+    }
+    g.stroke()
+
     // dashed drops to the tier below — the drawing's vertical logic
     if (i > 0) {
       g.strokeStyle = ink(0.16)
@@ -1523,8 +1659,9 @@ function drawSurvey(
 
     // the tier's data plate, right of the ring
     const ctr = scene.surveyPoint(i, 0, 0)
-    const edge = scene.surveyPoint(i, 0, 1)
-    const rPx = Math.hypot(edge.x - ctr.x, edge.y - ctr.y)
+    const e1 = scene.surveyPoint(i, 0, 1)
+    const e2 = scene.surveyPoint(i, Math.PI / 2, 1)
+    const rPx = Math.max(Math.hypot(e1.x - ctr.x, e1.y - ctr.y), Math.hypot(e2.x - ctr.x, e2.y - ctr.y))
     const lx = Math.min(W - 130, ctr.x + rPx + 18)
     g.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace'
     g.fillStyle = soloed ? red(0.95) : muted ? red(0.75) : ink(0.9)

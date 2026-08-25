@@ -1066,3 +1066,72 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .keyline-open { display: none; }
 .app.dissected .keyline-open { display: block; }
 .app.dissected .keyline-closed { display: none; }
+
+/* ── the layer rows: every ring's visible twin ──────────────────────── */
+.layers {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  padding-top: 8px;
+}
+.layers-tag {
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.34;
+}
+.layer {
+  display: grid;
+  grid-template-columns: 74px 1fr 18px 18px;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid rgba(234, 234, 234, 0.12);
+  padding: 4px 6px;
+  transition: border-color 0.15s;
+}
+.layer-hot { border-color: rgba(234, 234, 234, 0.55); }
+.layer-name {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: grid;
+  gap: 3px;
+}
+.layer-meter {
+  display: block;
+  height: 2px;
+  background: rgba(234, 234, 234, 0.12);
+}
+.layer-meter b {
+  display: block;
+  height: 100%;
+  background: rgba(234, 234, 234, 0.8);
+  transition: width 0.12s linear;
+}
+.layer input[type='range'] {
+  width: 100%;
+  margin: 0;
+}
+.layer-btn {
+  font: inherit;
+  font-size: 9px;
+  text-transform: uppercase;
+  color: rgba(234, 234, 234, 0.5);
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.2);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.layer-btn.on {
+  color: #0a0a0a;
+  background: #eaeaea;
+  border-color: #eaeaea;
+}
+.layer-btn-m.on {
+  color: #fff;
+  background: #ff2a2a;
+  border-color: #ff2a2a;
+}
+.layer-muted .layer-name { color: #ff2a2a; }
+.layer-muted .layer-meter b { background: #ff2a2a; }
+.layer-solo { border-color: rgba(234, 234, 234, 0.5); }

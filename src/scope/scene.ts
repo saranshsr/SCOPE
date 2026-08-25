@@ -100,6 +100,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uGap;
   uniform float uTierOf[24];
   uniform float uTierLvl[6];
+  uniform float uHiTier;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -147,6 +148,8 @@ const SHELL_VERT = /* glsl */ `
     // Lower tiers leave first: an exploded engineering drawing, not a fade.
     float dl = 0.0;
     float tl = 1.0;
+    float dustG = 0.0;
+    float hiB = 1.0;
     if (uDissect > 0.001) {
       float tier = uTierOf[si];
       // The tier's OWN voice — for stems this is the stem's real post-gain
@@ -166,7 +169,18 @@ const SHELL_VERT = /* glsl */ `
       vec2 az = vec2(cos(th2), sin(th2));
       float ringR = uR * (0.50 + bandE * 0.20 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.22)
         * (0.45 + 0.55 * min(tl, 1.4));
-      vec3 tp = vec3(az.x * ringR, ty + n3 * 0.035 + (h2 - 0.5) * 0.06, az.y * ringR);
+      // The drawing's vocabulary: a quarter of each tier forms a nested
+      // inner ring; a fraction loosens into scattered survey dust.
+      float h3 = fract(aHash * 7.777);
+      float nest = step(h3, 0.24);
+      dustG = step(0.82, h3);
+      ringR *= mix(1.0, 0.46, nest);
+      ringR *= 1.0 + dustG * (0.15 + 0.55 * fract(aHash * 3.117));
+      hiB = 1.0 + step(abs(tier - uHiTier), 0.5) * 0.6;
+      vec3 tp = vec3(
+        az.x * ringR,
+        ty + n3 * (0.035 + dustG * 0.07) + (h2 - 0.5) * (0.06 + dustG * 0.26),
+        az.y * ringR);
       p = mix(p, tp, dl);
     }
 
@@ -189,7 +203,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.18) * mix(1.0, 0.22 + 0.78 * min(tl, 1.3), dl) + pullHeat;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.18) * mix(1.0, (0.22 + 0.78 * min(tl, 1.3)) * (1.0 - dustG * 0.45) * hiB, dl) + pullHeat;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -434,7 +448,7 @@ export class Scene {
   private aheadE = new Env()
   private dissectE = new Env()
   private dissectTarget = 0
-  private tierCount = 3
+  private tierCount = 6
   private lastDis = 0
   private _v = new THREE.Vector3()
   private ejecta!: { dir: THREE.BufferAttribute; org: THREE.BufferAttribute; birth: THREE.BufferAttribute; spd: THREE.BufferAttribute; cursor: number }
@@ -494,11 +508,13 @@ export class Scene {
       // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
       // damped here; the app only sets the target.
       uDissect: { value: 0 },
-      uTiers: { value: 3 },
-      uGap: { value: 1.55 / 2 },
+      uTiers: { value: 6 },
+      uGap: { value: 1.55 / 5 },
       // band index -> tier index. Default: the spectral anatomy itself
       // (low/mid/high), so dissection works on ANY source, stems or not.
-      uTierOf: { value: new Float32Array(24).map((_, i) => Math.floor(i / 8)) },
+      uTierOf: { value: new Float32Array(24).map((_, i) => Math.floor(i / 4)) },
+      // row<->ring linkage: the highlighted tier burns brighter (-1 none).
+      uHiTier: { value: -1 },
       // each tier's live voice (stems: real post-gain rms; spectral: kill
       // state) — the caller smooths, the shader only reads.
       uTierLvl: { value: new Float32Array(6).fill(1) },
@@ -771,6 +787,11 @@ export class Scene {
 
   get tiers(): number {
     return this.tierCount
+  }
+
+  /** Row<->ring linkage: which tier the UI is touching (-1 none). */
+  setHiTier(i: number) {
+    this.uniforms.uHiTier.value = i
   }
 
   /** Per-tier voices for the dissected rings — pre-smoothed by the caller. */
