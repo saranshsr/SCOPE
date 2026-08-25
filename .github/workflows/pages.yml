@@ -1,6 +1,7 @@
-# Deploys every push on main to GitHub Pages via the gh-pages branch —
-# the branch method auto-provisions Pages on public repos and needs no
-# settings API (configure-pages' enablement was refused for this token).
+# Deploys every push on main to GitHub Pages. Two delivery paths so either
+# Pages source setting works: the gh-pages branch (source: deploy-from-branch)
+# and the official artifact path (source: GitHub Actions). Whichever source
+# the repo settings select, one of these serves; the other is harmless.
 name: pages
 on:
   push:
@@ -8,11 +9,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  pages: write
+  id-token: write
 concurrency:
   group: pages
   cancel-in-progress: true
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +27,7 @@ jobs:
       - run: npx vite build --base=/SCOPE/
         env:
           VITE_SITE_URL: https://saranshsr.github.io/SCOPE
-      - name: push dist to gh-pages
+      - name: push dist to gh-pages (branch source)
         run: |
           cd dist
           touch .nojekyll
@@ -32,3 +35,16 @@ jobs:
           git add -A
           git -c user.name=github-actions -c user.email=actions@github.com commit -m "deploy ${GITHUB_SHA::7}"
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy-artifact:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
