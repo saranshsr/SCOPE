@@ -1061,3 +1061,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
     transition: opacity 0.3s;
   }
 }
+
+/* One mode, one manual: the keyline teaches only the state you're in. */
+.keyline-open { display: none; }
+.app.dissected .keyline-open { display: block; }
+.app.dissected .keyline-closed { display: none; }

@@ -1075,7 +1075,7 @@ export default function App() {
           <h1 className="macro-name">
             scope<span className="macro-reg">®</span>
           </h1>
-          <p className="macro-sub"><Decode text="polar audio instrument /// drop a track anywhere" duration={1100} /></p>
+          <p className="macro-sub"><Decode text="polar audio instrument /// drop a track · pull it apart" duration={1100} /></p>
         </header>
       )}
 
@@ -1249,7 +1249,8 @@ export default function App() {
             {source !== 'stems' && (
               <span className="stemhint">have stems? drop them together (vocals·drums·bass) — split any track locally with stemdeck</span>
             )}
-            <kbd className="keyline">grab the orb: pull=eq · across=filter · far=echo · pull the axis (or d) = dissect · open: drag ring=level · tap=solo · push in=mute · spc pause · n skip · 1-3 preset · r/f/m src · h hide · +/-/0 zoom</kbd>
+            <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · r/f/m src · +/-/0 zoom · h hide</kbd>
+            <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
           </div>
         </aside>
       )}
