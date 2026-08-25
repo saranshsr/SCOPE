@@ -92,12 +92,29 @@ export class StemDeck {
     this.disposeSources()
     const t0 = this.ctx.currentTime + 0.06
     this.offset = Math.max(0, Math.min(this.duration - 0.05, offset))
+    let longest: AudioBufferSourceNode | null = null
+    let longestDur = -1
     for (const s of this.stems) {
       const src = this.ctx.createBufferSource()
       src.buffer = s.buffer
       src.connect(s.gain)
       src.start(t0, Math.min(this.offset, s.buffer.duration - 0.05))
       s.source = src
+      if (s.buffer.duration > longestDur) {
+        longestDur = s.buffer.duration
+        longest = src
+      }
+    }
+    // The material has an end: when the longest stem finishes, the deck is
+    // paused at the tail — not stuck claiming 'playing' forever.
+    if (longest) {
+      const mySources = this.stems.map((s) => s.source)
+      longest.onended = () => {
+        if (this._playing && this.stems.some((s) => mySources.includes(s.source))) {
+          this.offset = this.duration
+          this._playing = false
+        }
+      }
     }
     this.startAt = t0
     this._playing = true

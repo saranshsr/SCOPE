@@ -845,6 +845,7 @@ export default function App() {
         engine.unlock()
         const deck = stemDeckRef.current ?? new StemDeck(engine.ctx, engine.busHead)
         stemDeckRef.current = deck
+        if (import.meta.env.DEV) (window as unknown as { __deck: StemDeck }).__deck = deck
         setDecoding(true)
         void deck.load(all).then(() => {
           engine.enterStems(`stem deck · ${all.length} stems`)
@@ -892,21 +893,30 @@ export default function App() {
       }
       const eng = engineRef.current
       if (!eng) return
+      // The deck, not the dormant radio element, owns transport in stems
+      // mode — Space on the old path would start the radio UNDER the stems.
+      const deck = eng.kind === 'stems' ? stemDeckRef.current : null
       switch (e.code) {
         case 'Space':
           e.preventDefault()
-          if (eng.kind !== 'mic') (eng.el.paused ? void eng.el.play() : eng.el.pause())
+          if (deck) deck.playing ? deck.pause() : deck.play()
+          else if (eng.kind !== 'mic') (eng.el.paused ? void eng.el.play() : eng.el.pause())
           break
         case 'KeyN':
           if (eng.kind === 'radio') void eng.next()
-          else if (eng.kind === 'file') void eng.playRadio()
+          else void eng.playRadio() // file AND stems: back to the radio
           break
         case 'ArrowRight':
         case 'ArrowLeft': {
           e.preventDefault()
+          const dt5 = e.code === 'ArrowRight' ? 5 : -5
+          if (deck) {
+            deck.seek(Math.max(0, Math.min(deck.duration, deck.currentTime() + dt5)))
+            break
+          }
           const el = eng.el
           if (isFinite(el.duration) && el.duration > 0)
-            el.currentTime = Math.max(0, Math.min(el.duration, el.currentTime + (e.code === 'ArrowRight' ? 5 : -5)))
+            el.currentTime = Math.max(0, Math.min(el.duration, el.currentTime + dt5))
           break
         }
         case 'ArrowUp':
