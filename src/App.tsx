@@ -358,11 +358,57 @@ export default function App() {
     window.addEventListener('dragover', onDragOver)
     window.addEventListener('drop', onDrop)
 
+    // The console is playable: every control has a key. Never hijacks a
+    // focused input (sliders keep their native arrow behavior).
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as Element)?.tagName === 'INPUT') return
+      if (!startedRef.current) {
+        if (e.code === 'Space' || e.code === 'Enter') {
+          e.preventDefault()
+          ;(document.querySelector('.power') as HTMLButtonElement | null)?.click()
+        }
+        return
+      }
+      const eng = engineRef.current
+      if (!eng) return
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault()
+          if (eng.kind !== 'mic') (eng.el.paused ? void eng.el.play() : eng.el.pause())
+          break
+        case 'KeyN':
+          if (eng.kind === 'radio') void eng.next()
+          else if (eng.kind === 'file') void eng.playRadio()
+          break
+        case 'ArrowRight':
+        case 'ArrowLeft': {
+          e.preventDefault()
+          const el = eng.el
+          if (isFinite(el.duration) && el.duration > 0)
+            el.currentTime = Math.max(0, Math.min(el.duration, el.currentTime + (e.code === 'ArrowRight' ? 5 : -5)))
+          break
+        }
+        case 'ArrowUp':
+        case 'ArrowDown':
+          e.preventDefault()
+          setVolume((v) => Math.max(0, Math.min(1, v + (e.code === 'ArrowUp' ? 0.05 : -0.05))))
+          break
+        case 'Digit1': setTuning({ turb: 0.6, expo: 0.8, spin: 0.5 }); break
+        case 'Digit2': setTuning({ turb: 1, expo: 1, spin: 1 }); break
+        case 'Digit3': setTuning({ turb: 1.6, expo: 1.3, spin: 1.8 }); break
+        case 'KeyR': void eng.playRadio(); break
+        case 'KeyF': fileRef.current?.click(); break
+        case 'KeyM': void eng.useMic(); break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', measure)
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
+      window.removeEventListener('keydown', onKey)
       window.removeEventListener('pointermove', onCurMove)
       window.removeEventListener('pointerdown', onCurDown)
       window.removeEventListener('pointerup', onCurUp)
@@ -576,6 +622,7 @@ export default function App() {
               <data ref={cElapsedRef}>· 0</data>
               <data ref={cTotalRef}>· 0</data>
             </div>
+            <kbd className="keyline">spc pause · n skip · ←→ seek · ↑↓ vol · 1-3 preset · r/f/m src</kbd>
           </div>
         </aside>
       )}

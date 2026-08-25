@@ -934,3 +934,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* the fuller rail scrolls on short screens rather than clipping */
 .rail { overflow-y: auto; scrollbar-width: none; }
 .rail::-webkit-scrollbar { display: none; }
+
+/* the key legend — the quietest line on the console */
+.keyline {
+  display: block;
+  margin-top: 10px;
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: rgba(234, 234, 234, 0.3);
+  text-transform: uppercase;
+}
