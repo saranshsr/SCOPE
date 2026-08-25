@@ -64,7 +64,7 @@ export default function App() {
     // The owner's own library outranks the shipped CC0 set — purely by
     // presence. The manifest lives in a gitignored dir that never reaches
     // the repo or the deploy, so production falls back silently.
-    void fetch('/tracks-local/manifest.json')
+    void fetch(`${import.meta.env.BASE_URL}tracks-local/manifest.json`)
       .then((r) => (r.ok ? r.json() : null))
       .then((local: TrackInfo[] | null) => {
         if (local?.length && engine.kind === 'radio' && !startedRef.current) {

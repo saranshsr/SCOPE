@@ -29,7 +29,8 @@ export async function loadPeaks(src: string): Promise<TrackPeaks | null> {
   const m = src.match(/\/(tracks|tracks-local)\/(.+)\.[^.]+$/)
   if (!m) return null
   try {
-    const r = await fetch(`/${m[1] === 'tracks-local' ? 'peaks-local' : 'peaks'}/${m[2]}.json`)
+    const base = import.meta.env.BASE_URL
+    const r = await fetch(`${base}${m[1] === 'tracks-local' ? 'peaks-local' : 'peaks'}/${m[2]}.json`)
     if (!r.ok) return null
     const j = (await r.json()) as AWFJson
     const n = j.length
