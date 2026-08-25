@@ -1050,3 +1050,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   z-index: 1;
   pointer-events: none;
 }
+
+/* Portrait phones: the spectrum panel sits exactly where the HIGH ring
+   lands once the stack opens — it yields while dissected. */
+@media (max-width: 720px) {
+  .app.dissected .spec,
+  .app.dissected .titleblock {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+}

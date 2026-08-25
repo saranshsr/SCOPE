@@ -926,10 +926,16 @@ export class Scene {
     const aspect = this.camera.aspect
     const dis = this.uniforms.uDissect.value as number
     const baseZ = 1 / Math.tan((40 / 2) * (Math.PI / 180))
-    this.camera.position.z = (baseZ / this.zoom) * (1 + dis * 0.5)
+    // Portrait: the rail is a bottom sheet covering nearly half the glass,
+    // so the dissected stack must live in the top half — dolly back harder
+    // and aim below the stack's centre to raise it into the visible stage.
+    const portrait = aspect < 0.85
+    this.camera.position.z = (baseZ / this.zoom) * (1 + dis * (portrait ? 1.0 : 0.5))
     const off = (-(this.focusFrac - 0.5) * 2 * aspect) / this.zoom
+    const ly = portrait ? -0.8 * dis : 0
     this.camera.position.x = off
-    this.camera.lookAt(off, 0, 0)
+    this.camera.position.y = ly
+    this.camera.lookAt(off, ly, 0)
     this.camera.updateProjectionMatrix()
   }
 

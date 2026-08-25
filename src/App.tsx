@@ -796,6 +796,8 @@ export default function App() {
           const dv = scene.dissect
           sectRef.current.textContent = dv > 0.02 ? `${Math.round(dv * 100)}%` : '——'
           sectCellRef.current.classList.toggle('armed', dv > 0.02)
+          // chrome that collides with the open stack ducks (mobile CSS)
+          appRef.current?.classList.toggle('dissected', dv > 0.25)
         }
         if (bufRef.current) {
           const c = canvas as HTMLCanvasElement
