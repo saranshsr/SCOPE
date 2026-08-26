@@ -128,6 +128,21 @@ live star is dollied into it by `scene.setFocus(x, y, dolly)` measured
 from the cell's own rect, so it frames the real instrument rather than a
 picture of one, and glides back out to full size on power-on.
 
+**Idle life (law 10 in practice).** A machine on standby is not a
+screenshot, but it is also not a screensaver. Only chrome that represents
+SIGNAL breathes — the morse carrier, leader terminals, armed pills, the
+image-cell keyline, a slow self-check scan — all on ONE shared 5.4s
+period, staggered so the sheet reads as a single organism. Type and data
+hold still: animating a value implies it changed. The star breathes on
+that same 5.4s period, fed in under a `max()` so real audio takes over
+without a switch. Powering on collapses every period to ~0.4s and
+multiplies the star's breath 2.6x: that contrast IS the wake-up.
+
+**Controls beat diagrams.** The turb/expo/spin dials on the landing page
+are turnable (drag, arrows, Home/double-click to reset) and drive the
+real tuning state. A drawn control that cannot be operated is decoration
+wearing a control's clothes — the same failure as the floating diagram.
+
 **The power-on flight.** POWER ON is the sheet's only control and the only
 way in — a stray click anywhere else must never start the instrument. It
 runs three beats over ~2.2s: REV (spin ramps, a scan line runs the data
