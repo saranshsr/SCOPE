@@ -1239,11 +1239,12 @@ export default function App() {
     try {
       saved = localStorage.getItem('scope-vibe')
     } catch { /* private mode */ }
+    // sound first, vibe second: the sweep starts instantly while the
+    // saved vibe's playlist fetches, then the swap happens mid-listen
+    void engineRef.current?.playRadio()
     if (saved) {
       setQuery(saved)
       void setVibe(saved)
-    } else {
-      void engineRef.current?.playRadio()
     }
   }
 
@@ -1328,7 +1329,7 @@ export default function App() {
           <h1 className="macro-name">
             scope<span className="macro-reg">®</span>
           </h1>
-          <p className="macro-sub"><Decode text="polar audio instrument /// drop a track · pull it apart" duration={1100} /></p>
+          <p className="macro-sub"><Decode text="polar audio instrument /// set a vibe · split any track · pull it apart" duration={1100} /></p>
         </header>
       )}
 
