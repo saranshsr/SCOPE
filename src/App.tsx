@@ -836,9 +836,28 @@ export default function App() {
             : 0
       const ahead = peaksRef.current ? energyAhead(peaksRef.current, progress, 8) : 0
 
-      // Idle (pre-start) the instrument still breathes, barely — a machine
-      // on standby, not a screenshot.
-      scene.render(dt, f.low, f.mid, f.high, beatPulse, ahead, snapEnv)
+      // Idle: the instrument breathes, barely — a machine on standby, not a
+      // screenshot. Two detuned sines so the swell never lands on a count.
+      // max() rather than a switch, so the moment real audio outgrows the
+      // breath it simply takes over: a bit alive becomes fully alive.
+      let lo = f.low
+      let mi = f.mid
+      let hi = f.high
+      if (!startedRef.current) {
+        const b = performance.now() / 1000
+        // the wake-up surge: the machine strains before it lets you in
+        const amt = bootRef.current ? 2.6 : 1
+        // 1.1636 rad/s = a 5.4s cycle, the SAME period the sheet's chrome
+        // breathes on (styles.css, idle life). Star and plate inhale
+        // together, so the screen reads as one organism, not as parts.
+        const swell = 0.5 + 0.5 * Math.sin(b * 1.1636)
+        // a slow detune underneath, so the cycle never lands twice the same
+        const sub = 0.5 + 0.5 * Math.sin(b * 0.31 + 1.7)
+        lo = Math.max(lo, 0.2 * amt * swell * (0.7 + 0.3 * sub))
+        mi = Math.max(mi, 0.07 * amt * swell * sub)
+        hi = Math.max(hi, 0.03 * amt * (0.5 + 0.5 * Math.sin(b * 1.43)))
+      }
+      scene.render(dt, lo, mi, hi, beatPulse, ahead, snapEnv)
 
       // The survey drawing rides every frame while the stack is open —
       // markers, drop-lines and labels are projected from the SAME cluster
@@ -1108,6 +1127,8 @@ export default function App() {
     // focused input (sliders keep their native arrow behavior).
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as Element)?.tagName === 'INPUT') return
+      // a focused dial owns its keys: Space must not power on from inside one
+      if ((e.target as Element)?.closest?.('[role="slider"]')) return
       if (!startedRef.current) {
         if (e.code === 'Space' || e.code === 'Enter') {
           e.preventDefault()
@@ -1460,6 +1481,7 @@ export default function App() {
             <div className="pl-l">
               <div className="pl-morse">
                 <span className="lbl">sig</span>
+                <span className="pl-sig">
                 <svg
                   width="100%"
                   height="7"
@@ -1473,6 +1495,8 @@ export default function App() {
                     ))}
                   </g>
                 </svg>
+                <i className="pl-carrier" aria-hidden="true" />
+                </span>
                 <span className="lbl">tx</span>
               </div>
 
@@ -1528,9 +1552,9 @@ export default function App() {
               <div className="pl-row"><span className="k">//density_</span><Meter /></div>
 
               <div className="pl-dials">
-                <Dial v={tuning.turb} cap="turb" />
-                <Dial v={tuning.expo} cap="expo" />
-                <Dial v={tuning.spin} cap="spin" />
+                <Dial v={tuning.turb} cap="turb" onChange={(f) => setTuning((t) => ({ ...t, turb: f(t.turb) }))} />
+                <Dial v={tuning.expo} cap="expo" onChange={(f) => setTuning((t) => ({ ...t, expo: f(t.expo) }))} />
+                <Dial v={tuning.spin} cap="spin" onChange={(f) => setTuning((t) => ({ ...t, spin: f(t.spin) }))} />
               </div>
 
               {/* the scale is drawn; the needle stays parked until there is
@@ -1939,11 +1963,61 @@ function Meter() {
   )
 }
 
-/** Dial face at the knob's real value (range 0.25..2, 270° sweep). */
-function Dial({ v, cap }: { v: number; cap: string }) {
-  const a = ((-135 + ((v - 0.25) / 1.75) * 270) * Math.PI) / 180
+const DIAL_MIN = 0.25
+const DIAL_MAX = 2
+
+/**
+ * A dial you can actually turn, on the landing page. Drag it vertically or
+ * use the arrows: the star reshapes under the frame while the instrument is
+ * still on standby, which is the whole point of showing it there.
+ */
+function Dial({
+  v,
+  cap,
+  onChange,
+}: {
+  v: number
+  cap: string
+  /** takes an updater, so held arrow keys accumulate instead of racing renders */
+  onChange: (next: (prev: number) => number) => void
+}) {
+  const drag = useRef<{ y: number; v: number } | null>(null)
+  const clamp = (n: number) => Math.max(DIAL_MIN, Math.min(DIAL_MAX, n))
+  const a = ((-135 + ((v - DIAL_MIN) / (DIAL_MAX - DIAL_MIN)) * 270) * Math.PI) / 180
+  const nudge = (d: number) => onChange((p) => clamp(Number((p + d).toFixed(2))))
   return (
-    <div>
+    <div
+      className="pl-dial"
+      role="slider"
+      tabIndex={0}
+      aria-label={cap}
+      aria-valuemin={DIAL_MIN}
+      aria-valuemax={DIAL_MAX}
+      aria-valuenow={Number(v.toFixed(2))}
+      aria-valuetext={`${cap} ${Math.round(v * 100)}`}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId)
+        drag.current = { y: e.clientY, v }
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current
+        if (!d) return
+        // ~200px for the full sweep: a slam of the wrist should not max it
+        const next = clamp(d.v + ((d.y - e.clientY) / 200) * (DIAL_MAX - DIAL_MIN))
+        onChange(() => next)
+      }}
+      onPointerUp={(e) => {
+        drag.current = null
+        e.currentTarget.releasePointerCapture(e.pointerId)
+      }}
+      onDoubleClick={() => onChange(() => 1)}
+      onKeyDown={(e) => {
+        const s = e.shiftKey ? 0.25 : 0.05
+        if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); nudge(s) }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); nudge(-s) }
+        else if (e.key === 'Home') { e.preventDefault(); onChange(() => 1) }
+      }}
+    >
       <svg width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
         <rect x=".5" y=".5" width="41" height="41" fill="none" stroke="currentColor" opacity=".5" />
         <circle cx="21" cy="21" r="13" fill="none" stroke="currentColor" />
@@ -1955,7 +2029,7 @@ function Dial({ v, cap }: { v: number; cap: string }) {
         />
         <circle cx="21" cy="21" r="1.6" fill="var(--red)" />
       </svg>
-      <span className="cap">{cap}</span>
+      <span className="cap">{cap} <b>{Math.round(v * 100)}</b></span>
     </div>
   )
 }
