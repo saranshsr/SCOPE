@@ -521,6 +521,9 @@ export class Scene {
   private focusTy = 0.5
   private dolly = 1
   private dollyT = 1
+  /** power-on spin-up, and the previous aim the motion readout differences */
+  private bootRev = 0
+  private mPrev = { x: 0, y: 0, gx: 0, gy: 0 }
   private quality = 1
   /** Camera zoom, 1..5. Damped toward zoomTarget every frame. */
   private zoom = 1
@@ -965,6 +968,31 @@ export class Scene {
     this.burst(1)
   }
 
+  /** Spin-up multiplier for the power-on rev. 0 = at rest. */
+  setRev(v: number) {
+    this.bootRev = Math.max(0, v)
+  }
+
+  /**
+   * How much the body is actually moving right now, 0..1: your sway over
+   * it, whatever you are dragging, and its own idle breath. The standby
+   * strip reads THIS — so it is a real readout of the instrument before
+   * there is any audio to read, rather than a decorative squiggle.
+   */
+  readMotion(): number {
+    const dx = this.ptr.x - this.mPrev.x
+    const dy = this.ptr.y - this.mPrev.y
+    const gx = this.drag.x - this.mPrev.gx
+    const gy = this.drag.y - this.mPrev.gy
+    this.mPrev.x = this.ptr.x
+    this.mPrev.y = this.ptr.y
+    this.mPrev.gx = this.drag.x
+    this.mPrev.gy = this.drag.y
+    const sway = Math.hypot(dx, dy) * 11 + Math.hypot(gx, gy) * 7
+    const breath = 0.2 + 0.13 * Math.sin(this.t * 0.9) * Math.sin(this.t * 0.37 + 1.1)
+    return Math.min(1, breath + sway + this.uniforms.uPulse.value * 0.5)
+  }
+
   /**
    * Aim the body at a point on the glass, and optionally shrink it to sit
    * inside a frame. Standby parks the star inside the poster's image cell;
@@ -1126,7 +1154,7 @@ export class Scene {
     this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
     this.drag.x += (this.drag.tx - this.drag.x) * ease
     this.drag.y += (this.drag.ty - this.drag.y) * ease
-    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial * (0.75 + warp * 0.25)
+    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial * (0.75 + warp * 0.25) * (1 + this.bootRev * 5)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     // Dissected, the view settles into the surveyor's tilt — looking
     // slightly down the axis so the rings read as the drawing's ellipses.

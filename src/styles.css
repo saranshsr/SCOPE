@@ -1690,6 +1690,45 @@ a:focus-visible {
 .pl-ftr > * + * { border-left: 1px solid var(--pl-line); }
 .pl-ftr > *:nth-child(2) { text-align: center; }
 
+/* ── THE POWER-ON FLIGHT ────────────────────────────────────────────────
+   Beat 1 REV: a scan line runs the data column, every state pill arms, the
+   wordmark flickers under load. Beat 2 DIVE: the sheet rushes past the
+   camera as it accelerates into the star. */
+.pl-r { position: relative; }
+.plate.rev .pl-r::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 2px;
+  background: var(--red);
+  animation: rev-scan 900ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes rev-scan { from { top: 0; } to { top: 100%; } }
+
+.plate.rev .pl-pills .pill { border-color: var(--red); color: var(--red); }
+.plate.rev .pl-mark h1 { animation: rev-load 300ms steps(2) 3; }
+@keyframes rev-load { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
+.plate.rev .pl-act .power { background: #f04a37; }
+.plate.rev .pl-fig { border-color: var(--red); }
+
+/* the sheet flies past you, it does not politely fade */
+.plate.dive {
+  animation: plate-dive 1000ms cubic-bezier(0.5, 0, 0.9, 0.4) forwards;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+@keyframes plate-dive {
+  from { opacity: 1; transform: scale(1); }
+  55% { opacity: 0.55; }
+  to { opacity: 0; transform: scale(1.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plate.rev .pl-r::after,
+  .plate.rev .pl-mark h1 { animation: none; }
+  .plate.dive { animation: none; opacity: 0; }
+}
+
 @media (max-width: 820px) {
   /* a poster does not cram into a phone: it scrolls */
   .plate { position: absolute; inset: var(--edge); overflow: auto; display: block; }

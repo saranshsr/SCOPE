@@ -128,6 +128,17 @@ live star is dollied into it by `scene.setFocus(x, y, dolly)` measured
 from the cell's own rect, so it frames the real instrument rather than a
 picture of one, and glides back out to full size on power-on.
 
+**The power-on flight.** POWER ON is the sheet's only control and the only
+way in — a stray click anywhere else must never start the instrument. It
+runs three beats over ~2.2s: REV (spin ramps, a scan line runs the data
+column, every pill arms), DIVE (the camera accelerates through the
+particle shell while the sheet rushes past), then arrival, where the
+console fades up and the star eases back to full size. Any input skips
+it; reduced-motion never sees it. The standby strip reads the star's real
+motion, which is why it is labelled MOTION and not SPECTRA: before the
+click there is no audio, and a strip that implied otherwise would be
+texture pretending to be a reading (law 3).
+
 Round 1 failed and is worth remembering: it decorated the existing sparse
 layout instead of recomposing it (laws 8 and 9 were written from that
 failure). A later pass added a real signal-flow diagram that was correct

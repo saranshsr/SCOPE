@@ -59,9 +59,13 @@ export default function App() {
   const [muted, setMuted] = useState(false)
   const [diag, setDiag] = useState(false)
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
-  /** standby plate: the chain row being read, and its texture strip */
+  /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
+  /** the power-on flight: 'rev' while the machine spins up, 'dive' going in */
+  const [boot, setBoot] = useState<'rev' | 'dive' | null>(null)
+  const bootRef = useRef<'rev' | 'dive' | null>(null)
+  const bootRaf = useRef(0)
   const [rate, setRate] = useState(1)
   const [ambient, setAmbient] = useState(false)
   // THE VIBE: a prompt in, a playlist out — plus the instrument's honest
@@ -119,20 +123,44 @@ export default function App() {
     sceneRef.current?.setTuning(tuning.turb, tuning.expo, tuning.spin)
   }, [tuning])
 
+  // any input during the flight skips straight to the console: a cinematic
+  // you cannot interrupt is a cinematic people learn to resent
+  useEffect(() => {
+    if (!boot) return
+    const skip = () => endBoot()
+    window.addEventListener('pointerdown', skip)
+    window.addEventListener('keydown', skip)
+    return () => {
+      window.removeEventListener('pointerdown', skip)
+      window.removeEventListener('keydown', skip)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boot])
+
   // the standby plate's texture strip, and the star's aim into its image
   // cell — both depend on the plate's measured layout, so they re-run on
   // resize and are torn down the moment the instrument powers on.
   useEffect(() => {
     if (started) return
-    const paint = () => {
-      drawPosterWave(posterWaveRef.current)
+    const hist = new Float32Array(240)
+    let head = 0
+    let raf = 0
+    const tick = () => {
+      const sc = sceneRef.current
+      hist[head % hist.length] = sc ? sc.readMotion() : 0
+      head++
+      drawMotionStrip(posterWaveRef.current, hist, head)
+      raf = requestAnimationFrame(tick)
+    }
+    const aim = () => {
       ;(window as unknown as { __focus?: (snap?: boolean) => void }).__focus?.(true)
     }
-    const raf = requestAnimationFrame(paint)
-    window.addEventListener('resize', paint)
+    aim()
+    raf = requestAnimationFrame(tick)
+    window.addEventListener('resize', aim)
     return () => {
       cancelAnimationFrame(raf)
-      window.removeEventListener('resize', paint)
+      window.removeEventListener('resize', aim)
     }
   }, [started])
 
@@ -1215,7 +1243,7 @@ export default function App() {
       localStorage.setItem('scope-vibe', prompt.trim())
     } catch { /* private mode */ }
     eng.setPlaylist(tracks)
-    if (!startedRef.current) {
+    if (!startedRef.current && !bootRef.current) {
       startedRef.current = true
       setStarted(true)
       ;(window as unknown as { __focus: () => void }).__focus()
@@ -1257,11 +1285,87 @@ export default function App() {
     }
   }
 
+  /**
+   * POWER ON is a flight, not a switch. Three beats over ~2.2s: the machine
+   * REVS (spin ramps, the data column scans, the sheet arms), then you DIVE
+   * — the camera accelerates in and passes through the particle shell — and
+   * you arrive inside, where the console fades up and the star eases back
+   * out to full size. Any input skips it; reduced-motion never sees it.
+   */
+  const runBoot = () => {
+    const scene = sceneRef.current
+    const w = window.innerWidth
+    const h = window.innerHeight
+    const cell = document.querySelector('.pl-fig')?.getBoundingClientRect()
+    if (!scene || !cell || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      endBoot()
+      return
+    }
+    const REV = 1050
+    const DIVE = 1000
+    const from = {
+      x: (cell.left + cell.width / 2) / w,
+      y: (cell.top + cell.height / 2) / h,
+      d: Math.max(1, (h / cell.height) * 0.92),
+    }
+    const toX = w > 720 ? (272 + (w - 272) / 2) / w : 0.5
+    const t0 = performance.now()
+    const step = () => {
+      if (!bootRef.current) return
+      const e = performance.now() - t0
+      if (e < REV) {
+        scene.setRev(Math.min(1, e / REV))
+        bootRaf.current = requestAnimationFrame(step)
+        return
+      }
+      if (bootRef.current !== 'dive') {
+        bootRef.current = 'dive'
+        setBoot('dive')
+      }
+      // cubic ease-in: the lunge accelerates the whole way in
+      const p = Math.min(1, (e - REV) / DIVE)
+      const k = p * p * p
+      scene.setRev(1 + k * 2.5)
+      scene.setFocus(
+        from.x + (toX - from.x) * k,
+        from.y + (0.5 - from.y) * k,
+        from.d + (0.16 - from.d) * k,
+        true,
+      )
+      // past the shell: hand the screen over while still travelling
+      if (p > 0.8 && !startedRef.current) {
+        startedRef.current = true
+        setStarted(true)
+      }
+      if (p < 1) {
+        bootRaf.current = requestAnimationFrame(step)
+        return
+      }
+      endBoot()
+    }
+    bootRaf.current = requestAnimationFrame(step)
+  }
+
+  /** Land: console up, star eased back out to full size by the damper. */
+  const endBoot = () => {
+    if (bootRaf.current) cancelAnimationFrame(bootRaf.current)
+    bootRaf.current = 0
+    bootRef.current = null
+    setBoot(null)
+    sceneRef.current?.setRev(0)
+    if (!startedRef.current) {
+      startedRef.current = true
+      setStarted(true)
+    }
+    ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus(false)
+  }
+
   const power = () => {
-    if (startedRef.current) return
-    startedRef.current = true
-    setStarted(true)
-    ;(window as unknown as { __focus: () => void }).__focus()
+    if (startedRef.current || bootRef.current) return
+    // sound first: the machine revs WITH audio, not after it
+    bootRef.current = 'rev'
+    setBoot('rev')
+    runBoot()
     sceneRef.current?.powerOn()
     // a returning listener gets their last vibe back, not the generic sweep
     let saved: string | null = null
@@ -1286,7 +1390,7 @@ export default function App() {
       : 'NO CARRIER'
 
   return (
-    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}`} onClick={started ? undefined : power}>
+    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}`}>
       <canvas ref={canvasRef} className="stage" />
       {/* The survey drawing — numbered markers, dashed drop-lines, tier
           labels — projected over the dissected stack. Exists only while
@@ -1344,7 +1448,7 @@ export default function App() {
           sharing edges with its neighbours; the image cell is a hole in the
           sheet, so the live star burns through it, framed and fitted. */}
       {!started && (
-        <div className="plate">
+        <div className={`plate${boot ? ` ${boot}` : ''}`}>
           <header className="pl-hdr">
             <div><b>[scope-01]</b> polar audio instrument</div>
             <div className="k">//unit_ <span>d-01</span></div>
@@ -1387,7 +1491,7 @@ export default function App() {
 
               <div className="pl-wave">
                 <canvas ref={posterWaveRef} />
-                <span className="wlbl">spectra</span>
+                <span className="wlbl">motion</span>
               </div>
 
               <ul className="pl-leads">
@@ -1873,31 +1977,36 @@ function Scale() {
 }
 
 /**
- * The poster's waveform strip: layered vertical hairlines with a dithered
- * falloff (DESIGN.md primitive 11). Standby has no audio, so this is
- * declared texture on the poster, where law 3 permits it.
+ * The standby strip: layered vertical hairlines with a dithered falloff
+ * (DESIGN.md primitive 11), scrolling right to left over a rolling history
+ * of the star's REAL motion. Sway the pointer over the body and the trace
+ * spikes — it is an instrument readout before there is any audio to read,
+ * which is why it is labelled MOTION and not SPECTRA.
  */
-function drawPosterWave(cv: HTMLCanvasElement | null) {
+function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head: number) {
   if (!cv) return
   const g = cv.getContext('2d')
   const w = cv.clientWidth
   const h = cv.clientHeight
   if (!g || w < 2 || h < 2) return
   const d = Math.min(2, window.devicePixelRatio || 1)
-  cv.width = w * d
-  cv.height = h * d
+  if (cv.width !== w * d || cv.height !== h * d) {
+    cv.width = w * d
+    cv.height = h * d
+  }
   g.setTransform(d, 0, 0, d, 0, 0)
   g.clearRect(0, 0, w, h)
   const mid = h / 2
+  const n = hist.length
   for (let i = 0; i < w; i++) {
-    const t = i / w
-    const env = Math.abs(Math.sin(t * Math.PI * 3.1)) * Math.abs(Math.cos(t * Math.PI * 7.3)) * 0.75 + 0.08
-    const jag = 0.55 + 0.45 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
-    const a = env * jag * (h * 0.46)
-    const lit = 0.25 + 0.75 * Math.pow(env, 0.6)
-    g.fillStyle = `rgba(234,234,239,${(lit * (0.35 + Math.random() * 0.65)).toFixed(3)})`
+    // oldest sample at the left edge, newest at the right: the trace scrolls
+    const v = hist[(head + Math.floor((i / w) * n)) % n]
+    const jag = 0.62 + 0.38 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
+    const a = Math.max(0.5, v * jag * (h * 0.46))
+    const lit = 0.28 + 0.72 * Math.pow(v, 0.6)
+    g.fillStyle = `rgba(234,234,239,${(lit * (0.4 + Math.random() * 0.6)).toFixed(3)})`
     g.fillRect(i, mid - a, 1, a * 2)
-    if (Math.random() < env * 0.55) {
+    if (Math.random() < v * 0.5) {
       g.fillStyle = `rgba(234,234,239,${(lit * 0.5).toFixed(3)})`
       g.fillRect(i, mid - a * 1.5, 1, a * 0.4)
     }
