@@ -847,7 +847,9 @@ export default function App() {
         cur.down *= Math.exp(-dt * 7)
         const sc = 1 + cur.down * 0.5
         reticleRef.current.style.transform = `translate(${cur.x}px, ${cur.y}px) translate(-50%, -50%) scale(${sc})`
-        reticleRef.current.style.opacity = cur.overUi ? '0' : '1'
+        // visible over the console as well as the stage: one pointer,
+        // everywhere, or the hand gets lost the moment it leaves the star
+        reticleRef.current.style.opacity = '1'
       }
 
       // Self-profiler: a slow EMA of real frame time. Two seconds of
@@ -1270,10 +1272,10 @@ export default function App() {
       <div className="ruler-y" aria-hidden="true" />
       <div className="hazard" aria-hidden="true" />
 
-      {/* The reticle is no longer the cursor (the native crosshair is) —
-          it marks the grab point and carries the live gesture readout. */}
+      {/* THE POINTER. One shape for the whole page: it never becomes an
+          arrow, a hand or an I-beam, so the eye never re-finds it. */}
       <div ref={reticleRef} className="reticle" aria-hidden="true">
-        <i className="ret-dot" />
+        <i className="ret-h" /><i className="ret-v" /><i className="ret-dot" />
         <span ref={retLabelRef} className="ret-label" />
       </div>
 

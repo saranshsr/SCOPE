@@ -639,34 +639,49 @@ body {
   width: 26px;
   height: 26px;
   pointer-events: none;
-  z-index: 30;
+  /* the pointer outranks everything it points at, tour card included */
+  z-index: 70;
   opacity: 0;
   will-change: transform;
 }
 
-/* The grab point: red core inside a dark ring so it survives both the
-   black field and the white blowouts of a loud drop. */
+/* The hairline crosshair — the instrument's own pointer. Each line is a
+   white hair wrapped in a dark one, so it reads on the black field AND
+   on the white blowouts of a loud drop. That contrast is what the
+   original was missing; the shape is unchanged. */
+.ret-h, .ret-v {
+  position: absolute;
+  background: rgba(234, 234, 234, 0.92);
+  box-shadow: 0 0 0 1px rgba(10, 10, 10, 0.8);
+}
+.ret-h { left: 0; right: 0; top: 50%; height: 1px; }
+.ret-v { top: 0; bottom: 0; left: 50%; width: 1px; }
+
+/* the gap: hairlines stop short of the center dot */
+.ret-h { clip-path: polygon(0 0, 34% 0, 34% 100%, 0 100%, 0 0, 100% 0, 100% 100%, 66% 100%, 66% 0); }
+.ret-v { clip-path: polygon(0 0, 100% 0, 100% 34%, 0 34%, 0 0, 0 100%, 100% 100%, 100% 66%, 0 66%); }
+
+/* The grab point: red core inside a dark ring, same reason. */
 .ret-dot {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   transform: translate(-50%, -50%);
   background: var(--red);
   box-shadow: 0 0 0 1.5px rgba(10, 10, 10, 0.85);
 }
 
-/* Honest system cursors everywhere. The stage aims with a NATIVE
-   crosshair rather than a drawn one: a 1px hairline vanishes against a
-   white particle field, and hiding the OS cursor loses users who rely on
-   its size/contrast settings. The reticle now only carries the live
-   gesture readout, never the job of being the pointer. */
+/* ONE cursor for the whole instrument. The reticle IS the pointer, over
+   the stage and over the console alike — no morphing into an arrow on the
+   rail, a hand on a button or an I-beam in a field. A single shape, so
+   the eye never has to re-find it. (Native cursors return wholesale under
+   reduced-motion and on touch, below.) */
 @media (pointer: fine) {
-  .app { cursor: crosshair; }
-  .rail, .spec, .ctl-row, button, a, input { cursor: auto; }
-  button, a { cursor: pointer; }
-  .deck-wave { cursor: crosshair; }
+  /* !important is the point: a dozen component rules set their own
+     pointer/text cursors — this policy deliberately outranks them all */
+  .app, .app * { cursor: none !important; }
 }
 
 @media (pointer: coarse) {
@@ -679,8 +694,11 @@ body {
 .power, .deck-wave { transition: transform 90ms ease; }
 
 @media (prefers-reduced-motion: reduce) {
+  /* no drawn cursor to follow the hand: hand the OS its pointer back */
   .reticle { display: none; }
-  .app { cursor: auto; }
+  .app, .app * { cursor: auto !important; }
+  .app button, .app a { cursor: pointer !important; }
+  .app input { cursor: text !important; }
 }
 
 /* Grabbing the instrument: the reticle's dot swells while spinning. */
