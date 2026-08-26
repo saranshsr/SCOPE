@@ -1233,7 +1233,9 @@ export default function App() {
     void engineRef.current?.playRadio()
   }
 
-  const name = decoding
+  const name = splitState
+    ? splitState.toUpperCase()
+    : decoding
     ? 'DECODING ///'
     : track
       ? `${track.title.toUpperCase().slice(0, 26)}${source === 'file' ? '.MP3' : ''}`

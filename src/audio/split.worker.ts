@@ -533,56 +533,73 @@ function dspSplit(
   const voLo = Math.round(180 / binHz)
   const voHi = Math.round(10000 / binHz)
 
-  const mk = (): Spec => ({ re: new Float32Array(frames * BINS), im: new Float32Array(frames * BINS), frames })
-  const stems = { drums: [mk(), mk()], bass: [mk(), mk()], vocals: [mk(), mk()], other: [mk(), mk()] }
+  // MEMORY DISCIPLINE: no stem spectrogram planes. One streaming pass over
+  // frames computes the masks on the fly and overlap-adds all eight output
+  // channels directly — a 3-minute track needs its outputs, not a gigabyte
+  // of intermediates. Weak machines split the same tracks this way.
+  const order = ['vocals', 'drums', 'bass', 'other'] as const
+  const channels: Float32Array[] = []
+  for (let i = 0; i < 8; i++) channels.push(new Float32Array(len))
+  const fr = new Float32Array(N)
+  const fi = new Float32Array(N)
+  const specRe = new Float32Array(BINS)
+  const specIm = new Float32Array(BINS)
+
+  const synth = (t: number, out: Float32Array) => {
+    fr[0] = specRe[0]; fi[0] = specIm[0]
+    for (let k = 1; k < BINS; k++) {
+      fr[k] = specRe[k]
+      fi[k] = specIm[k]
+      fr[N - k] = specRe[k]
+      fi[N - k] = -specIm[k]
+    }
+    fi[N / 2] = 0
+    fft(fr, fi, true)
+    const off = t * HOP
+    for (let i = 0; i < N; i++) {
+      const o = off + i
+      if (o < len) out[o] += (fr[i] * WIN[i]) / COLA
+    }
+  }
 
   for (let t = 0; t < frames; t++) {
     const base = t * BINS
-    for (let f = 0; f < BINS; f++) {
-      const i = base + f
-      const h = H[i]
-      const p = P[i]
-      const d = h * h + p * p + 1e-12
-      const mP = (p * p) / d
-      const mH = 1 - mP
-      const lr = SL.re[i]; const li = SL.im[i]
-      const rr = SR.re[i]; const ri = SR.im[i]
-      stems.drums[0].re[i] = lr * mP; stems.drums[0].im[i] = li * mP
-      stems.drums[1].re[i] = rr * mP; stems.drums[1].im[i] = ri * mP
-      const hlr = lr * mH; const hli = li * mH
-      const hrr = rr * mH; const hri = ri * mH
-      if (f <= bassTop) {
-        stems.bass[0].re[i] = hlr; stems.bass[0].im[i] = hli
-        stems.bass[1].re[i] = hrr; stems.bass[1].im[i] = hri
-        continue
+    for (let sIdx = 0; sIdx < 4; sIdx++) {
+      for (let ch = 0; ch < 2; ch++) {
+        const CRe = ch === 0 ? SL.re : SR.re
+        const CIm = ch === 0 ? SL.im : SR.im
+        for (let f = 0; f < BINS; f++) {
+          const i = base + f
+          const h = H[i]
+          const p = P[i]
+          const d = h * h + p * p + 1e-12
+          const mP = (p * p) / d
+          const mH = 1 - mP
+          let g = 0
+          if (sIdx === 1) g = mP // drums
+          else if (f <= bassTop) g = sIdx === 2 ? mH : 0 // bass owns the low harmonics
+          else {
+            let mV = 0
+            if (extractVocals && f >= voLo && f <= voHi) {
+              const hlr = SL.re[i] * mH
+              const hli = SL.im[i] * mH
+              const hrr = SR.re[i] * mH
+              const hri = SR.im[i] * mH
+              const mm = Math.hypot((hlr + hrr) * 0.5, (hli + hri) * 0.5)
+              const ss = Math.hypot((hlr - hrr) * 0.5, (hli - hri) * 0.5)
+              mV = Math.max(0, Math.min(1, (mm - ss * 1.2) / (mm + 1e-9)))
+              mV *= mV
+            }
+            if (sIdx === 0) g = mH * mV // vocals
+            else if (sIdx === 3) g = mH * (1 - mV) // other
+          }
+          specRe[f] = CRe[i] * g
+          specIm[f] = CIm[i] * g
+        }
+        synth(t, channels[sIdx * 2 + ch])
       }
-      let mV = 0
-      if (extractVocals && f >= voLo && f <= voHi) {
-        const mr = (hlr + hrr) * 0.5
-        const mi = (hli + hri) * 0.5
-        const sr2 = (hlr - hrr) * 0.5
-        const si2 = (hli - hri) * 0.5
-        const mm = Math.hypot(mr, mi)
-        const ss = Math.hypot(sr2, si2)
-        mV = Math.max(0, Math.min(1, (mm - ss * 1.2) / (mm + 1e-9)))
-        mV *= mV
-      }
-      stems.vocals[0].re[i] = hlr * mV; stems.vocals[0].im[i] = hli * mV
-      stems.vocals[1].re[i] = hrr * mV; stems.vocals[1].im[i] = hri * mV
-      const mO = 1 - mV
-      stems.other[0].re[i] = hlr * mO; stems.other[0].im[i] = hli * mO
-      stems.other[1].re[i] = hrr * mO; stems.other[1].im[i] = hri * mO
     }
-    if (t % 400 === 0) post('separate', 55 + (t / frames) * 25)
-  }
-  post('render', 80)
-
-  const order = ['vocals', 'drums', 'bass', 'other'] as const
-  const channels: Float32Array[] = []
-  for (let s2 = 0; s2 < order.length; s2++) {
-    const key = order[s2] as keyof typeof stems
-    channels.push(istft(stems[key][0], len), istft(stems[key][1], len))
-    post('render', 80 + ((s2 + 1) / 4) * 20)
+    if (t % 100 === 0) post('render', 55 + (t / frames) * 45)
   }
   return { order, channels }
 }
