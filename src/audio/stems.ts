@@ -66,6 +66,29 @@ export class StemDeck {
     this.out.connect(desk)
   }
 
+  /** Load pre-decoded stems (the in-browser splitter's output) — same
+   *  node graph as file loads, no re-decode. */
+  loadBuffers(stems: { role: StemRole; name: string; buffer: AudioBuffer }[]) {
+    this.disposeSources()
+    this.stems = []
+    this.soloRole = null
+    for (const s of stems) {
+      const gain = this.ctx.createGain()
+      const tap = this.ctx.createAnalyser()
+      tap.fftSize = 256
+      gain.connect(this.out)
+      gain.connect(tap)
+      this.stems.push({
+        role: s.role,
+        name: s.name.slice(0, 22),
+        buffer: s.buffer, gain, tap,
+        source: null, userGain: 1, muted: false, level: 0,
+        bin: new Float32Array(256),
+      })
+    }
+    this.duration = Math.max(...this.stems.map((s) => s.buffer.duration))
+  }
+
   async load(files: File[]) {
     this.disposeSources()
     this.stems = []

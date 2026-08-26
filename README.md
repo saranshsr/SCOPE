@@ -24,14 +24,41 @@ organ: drums gate the eruptions, bass drives the photosphere, vocals
 light a corona ring that dies when the voice does. Everything stays in
 your browser — stems are never uploaded.
 
+**The tuner.** The radio is a dial: genre chips retune the trending
+sweep (house, techno, dnb, dubstep, trap, hip-hop, lo-fi and more) and
+a search box finds any artist or track on Audius, ranked by real play
+counts. Every track carries the artist's own declared bpm and key
+(printed beside scope's measured values) and a link back to its page.
+
+**Split any track.** Press SPLIT INTO STEMS and the playing track
+separates into vocals / drums / bass / other in about fifteen seconds,
+entirely in your browser: STFT, harmonic/percussive separation, bass
+crossover and center-channel vocal extraction in a Web Worker. Nothing
+is uploaded. The stems land in the same deck as a stem-file drop:
+named rings, rows, real per-stem gains.
+
+**First contact.** A guided tour points at each control where it
+lives (it opens the stack itself to show you the rings), fires once on
+first power-on, and reopens anytime from the [?] in the rail.
+
 **Dissection.** Pull the orb apart along its axis (or press D) and the
-star shears into an exploded survey drawing — stacked rings on a spine,
-numbered vertex markers, dashed drop-lines, live level plates, a master
-compass at the base. Each ring is one tier of the sound: bass / drums /
-vocals when stems are loaded, low / mid / high for any other source.
-While open, the rings are faders — drag one away from the axis to boost
-it, push it in to kill it, tap to solo. Release and the stack slams
-shut.
+star shears into an exploded survey drawing: six stacked rings on a
+spine (sub / bass / lowmid / mid / himid / air, or one ring per stem
+when stems are loaded), each with a nested inner ring and scattered
+dust, numbered vertex markers, plumb lines dropping to an illuminated
+ground, aligned level plates, and a master compass at the base. The
+rings shear with real ring-system physics: inner rings rotate faster,
+dust streams counter-rotate, and beats spin the mechanism up.
+
+**Every ring is a fader you can see.** Each ring owns a real peaking
+filter in the audio desk, and the LAYERS panel gives every ring a
+visible row: name, live meter, level slider, solo and mute. Hover a
+row and its ring burns brighter; hover a ring and its row heats up.
+Gestures remain as shortcuts: drag a ring from the axis for level,
+tap to solo, push it into the axis to mute. Ring size and glow track
+each layer's true post-gain level with VU ballistics, so the drawing
+never lies about what you're hearing. Dropping stems opens the stack
+by itself: stems ARE layers.
 
 **The orb is the mixer.** Grab its body and pull: outward boosts the EQ
 band you're holding, pushing through the core kills it (momentary, like
@@ -64,9 +91,10 @@ Built with Vite + React + TypeScript + Three.js. No backend.
 | body | drag across | colour filter sweep (latches) |
 | body | pull far + hold | echo builds, rings out on release |
 | axis | pull up / `D` | dissect into the survey stack |
-| ring (open) | drag from axis | tier level — real stem gain with stems |
-| ring (open) | tap | tier solo |
-| ring (open) | push to the axis | tier mute (latches) |
+| ring (open) | drag from axis | ring level — its own filter, or real stem gain |
+| ring (open) | tap | ring solo |
+| ring (open) | push to the axis | ring mute (latches) |
+| layer row | slider / S / M | the same ring, as a visible fader |
 | empty space | drag | spin |
 | anywhere | wheel / pinch | zoom 1–5× (spends the particle reserve) |
 | spectrum | tap a bar | bandpass solo |

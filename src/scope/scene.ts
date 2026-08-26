@@ -28,6 +28,7 @@ const CORE_N = 2600
 const EJECTA_N = 3600
 const LINK_N = 2200 // constellation segments
 const CORONA_N = 2600 // the vocal ring
+const GROUND_N = 4200 // the illuminated ground under the dissected stack
 
 /** Ashima 3D simplex noise — the standard GLSL implementation. */
 const SNOISE = /* glsl */ `
@@ -166,20 +167,37 @@ const SHELL_VERT = /* glsl */ `
       // out as angular segments that breathe independently.
       float tierW = 24.0 / uTiers;
       float th2 = ((sector - tier * tierW) / tierW) * 6.28318;
-      vec2 az = vec2(cos(th2), sin(th2));
-      float ringR = uR * (0.50 + bandE * 0.20 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.22)
-        * (0.45 + 0.55 * min(tl, 1.4));
-      // The drawing's vocabulary: a quarter of each tier forms a nested
-      // inner ring; a fraction loosens into scattered survey dust.
+      // Differential rotation — the ring-system physics: the nested inner
+      // ring shears faster than the outer (Keplerian), and dust streams
+      // counter-rotate around the rim. Beats spin the whole mechanism up.
       float h3 = fract(aHash * 7.777);
       float nest = step(h3, 0.24);
-      dustG = step(0.82, h3);
+      float dustG0 = step(0.78, h3);
+      float spinDir = fract(aHash * 5.51) > 0.5 ? 1.0 : -1.0;
+      th2 += uTime * (1.0 + uPulse * 1.5) * (
+        0.02 + nest * 0.03 + dustG0 * (0.05 + 0.1 * fract(aHash * 13.31)) * spinDir);
+      vec2 az = vec2(cos(th2), sin(th2));
+      // The reference's silhouette: small crown, wide middle tiers, small
+      // base — a sine profile over the stack, not six equal donuts.
+      float prof = 0.72 + 0.48 * sin(3.14159 * (tier + 0.5) / uTiers);
+      // Reality vs the survey: the CHROME stays an ideal ellipse while the
+      // MATTER warps — slow angular noise bends each ring out of round,
+      // band energy spikes its own arc, and hits kick the whole rim.
+      float rwarp = snoise(vec3(cos(th2) * 1.7, sin(th2) * 1.7, tier * 3.7 + uTime * 0.2));
+      float ringR = uR * (0.50 + bandE * 0.26 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.10)
+        * prof * (0.45 + 0.55 * min(tl, 1.4))
+        * (1.0 + rwarp * (0.05 + uPulse * 0.08) + uSnap * 0.06);
+      // The drawing's vocabulary: a quarter of each tier forms a nested
+      // inner ring; a fraction loosens into scattered survey dust.
+      dustG = dustG0;
+      // the ring plane itself undulates with its layer's voice
+      float undul = sin(th2 * 2.0 + uTime * 0.5 + tier * 2.1) * 0.03 * min(tl, 1.2);
       ringR *= mix(1.0, 0.46, nest);
       ringR *= 1.0 + dustG * (0.15 + 0.55 * fract(aHash * 3.117));
       hiB = 1.0 + step(abs(tier - uHiTier), 0.5) * 0.6;
       vec3 tp = vec3(
         az.x * ringR,
-        ty + n3 * (0.035 + dustG * 0.07) + (h2 - 0.5) * (0.06 + dustG * 0.26),
+        ty + undul + n3 * (0.022 + dustG * 0.09) + (h2 - 0.5) * (0.035 + dustG * 0.34),
         az.y * ringR);
       p = mix(p, tp, dl);
     }
@@ -203,7 +221,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.18) * mix(1.0, (0.22 + 0.78 * min(tl, 1.3)) * (1.0 - dustG * 0.45) * hiB, dl) + pullHeat;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) + pullHeat;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -212,7 +230,7 @@ const SHELL_VERT = /* glsl */ `
     // Perspective would balloon every point as the camera closes in; the
     // zoom divisor keeps them near-crisp so detail comes from COUNT, not
     // from fatter dots.
-    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9) * on
+    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9 + dl * 0.7) * on
       * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
@@ -417,6 +435,44 @@ const CORONA_FRAG = /* glsl */ `
   }
 `
 
+/** The ground — the reference's illuminated terrain under the stack. A
+ *  flat dust annulus at the base plane that only exists while dissected,
+ *  glowing with the low end: the drawing sits ON something. */
+const GROUND_VERT = /* glsl */ `
+  uniform float uTime;
+  uniform float uDissect;
+  uniform float uR;
+  uniform float uLow;
+  uniform float uZoom;
+  uniform float uGroundY;
+  attribute vec3 aSeed; // r01, theta, hash
+  varying float vA;
+  __SNOISE__
+
+  void main() {
+    float r = uR * (0.2 + 1.15 * pow(aSeed.x, 0.62));
+    float th = aSeed.y + uTime * 0.015;
+    float n = snoise(vec3(cos(th) * r * 2.0, sin(th) * r * 2.0, uTime * 0.1) + aSeed.z * 9.0);
+    vec3 p = vec3(cos(th) * r, uGroundY * uDissect + n * 0.018, sin(th) * r);
+    float tw = 0.6 + 0.4 * sin(uTime * (1.0 + aSeed.z * 3.0) + aSeed.z * 40.0);
+    // brightest under the stack, thinning outward — terrain lit from above
+    vA = uDissect * (0.05 + uLow * 0.4) * (1.0 - aSeed.x * 0.75) * tw;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.0 + aSeed.z * 0.8) * step(0.02, uDissect) * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
+  }
+`
+
+const GROUND_FRAG = /* glsl */ `
+  precision mediump float;
+  varying float vA;
+  void main() {
+    vec2 uv = gl_PointCoord - 0.5;
+    float m = smoothstep(0.5, 0.15, length(uv));
+    gl_FragColor = vec4(vec3(0.85) * vA * m, 1.0);
+  }
+`
+
 /** Critically-damped smoother — fast attack, settle without overshoot. */
 class Env {
   v = 0
@@ -509,7 +565,7 @@ export class Scene {
       // damped here; the app only sets the target.
       uDissect: { value: 0 },
       uTiers: { value: 6 },
-      uGap: { value: 1.55 / 5 },
+      uGap: { value: 1.95 / 5 },
       // band index -> tier index. Default: the spectral anatomy itself
       // (low/mid/high), so dissection works on ANY source, stems or not.
       uTierOf: { value: new Float32Array(24).map((_, i) => Math.floor(i / 4)) },
@@ -520,6 +576,8 @@ export class Scene {
       uTierLvl: { value: new Float32Array(6).fill(1) },
       // where the vocals tier sits (cluster-local y), for the corona.
       uCoronaY: { value: 0 },
+      // the ground plane's altitude (cluster-local y at full dissection).
+      uGroundY: { value: -1.15 },
       uEqVis: { value: new THREE.Vector3(1, 1, 1) },
       // The full analyser: 24 log bands, mapped to angular sectors of the
       // body — the star's spectral anatomy.
@@ -686,6 +744,29 @@ export class Scene {
       this.cluster.add(new THREE.Points(geo, mat))
     }
 
+    // --- the ground ---------------------------------------------------------
+    {
+      const seed = new Float32Array(GROUND_N * 3)
+      const pos = new Float32Array(GROUND_N * 3)
+      for (let i = 0; i < GROUND_N; i++) {
+        seed[i * 3] = Math.random()
+        seed[i * 3 + 1] = Math.random() * Math.PI * 2
+        seed[i * 3 + 2] = Math.random()
+      }
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 3))
+      const mat = new THREE.ShaderMaterial({
+        uniforms: this.uniforms,
+        vertexShader: GROUND_VERT.replace('__SNOISE__', SNOISE),
+        fragmentShader: GROUND_FRAG,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      })
+      this.cluster.add(new THREE.Points(geo, mat))
+    }
+
     this.composer = new EffectComposer(this.renderer)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     // Phosphor persistence: the frame smears into itself like a slow CRT,
@@ -781,8 +862,9 @@ export class Scene {
     for (let i = 0; i < 24; i++) u[i] = tierOf[i] ?? 0
     this.tierCount = count
     this.uniforms.uTiers.value = count
-    this.uniforms.uGap.value = 1.55 / Math.max(1, count - 1)
+    this.uniforms.uGap.value = 1.95 / Math.max(1, count - 1)
     this.uniforms.uCoronaY.value = vocalTier >= 0 ? this.tierYFull(vocalTier) : 0
+    this.uniforms.uGroundY.value = this.tierYFull(0) - (this.uniforms.uGap.value as number) * 0.9
   }
 
   get tiers(): number {
@@ -792,6 +874,10 @@ export class Scene {
   /** Row<->ring linkage: which tier the UI is touching (-1 none). */
   setHiTier(i: number) {
     this.uniforms.uHiTier.value = i
+  }
+
+  get hiTier(): number {
+    return this.uniforms.uHiTier.value as number
   }
 
   /** Per-tier voices for the dissected rings — pre-smoothed by the caller. */
@@ -819,10 +905,15 @@ export class Scene {
     return { x: (this._v.x * 0.5 + 0.5) * this.lastW, y: (-this._v.y * 0.5 + 0.5) * this.lastH }
   }
 
+  /** The stack's silhouette — mirrors the shader's ring-radius profile. */
+  ringProfile(tier: number): number {
+    return 0.72 + 0.48 * Math.sin((Math.PI * (tier + 0.5)) / this.tierCount)
+  }
+
   /** A point on a tier's survey ring (rs scales the ring radius; 0 = the
    *  tier's centre on the axis). */
   surveyPoint(tier: number, theta: number, rs = 1): { x: number; y: number } {
-    const r = 0.88 * 0.56 * rs
+    const r = 0.88 * 0.56 * this.ringProfile(tier) * rs
     return this.projectLocal(Math.cos(theta) * r, this.tierYNow(tier), Math.sin(theta) * r)
   }
 
@@ -951,9 +1042,9 @@ export class Scene {
     // so the dissected stack must live in the top half — dolly back harder
     // and aim below the stack's centre to raise it into the visible stage.
     const portrait = aspect < 0.85
-    this.camera.position.z = (baseZ / this.zoom) * (1 + dis * (portrait ? 1.0 : 0.5))
+    this.camera.position.z = (baseZ / this.zoom) * (1 + dis * (portrait ? 1.38 : 0.62))
     const off = (-(this.focusFrac - 0.5) * 2 * aspect) / this.zoom
-    const ly = portrait ? -0.8 * dis : 0
+    const ly = portrait ? -1.0 * dis : 0
     this.camera.position.x = off
     this.camera.position.y = ly
     this.camera.lookAt(off, ly, 0)
@@ -1006,7 +1097,7 @@ export class Scene {
     const baseRx = Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y
     this.cluster.rotation.x = baseRx * (1 - dis) + 0.42 * dis
 
-    this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value
+    this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value * (1 - dis * 0.28)
     // Persistence leans with the bass: quiet = crisp, heavy = long exposure.
     ;(this.after.uniforms as { damp: { value: number } }).damp.value = 0.76 + this.uniforms.uLow.value * 0.15
     this.composer.render()

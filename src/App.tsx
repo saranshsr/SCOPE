@@ -5,9 +5,11 @@ import { BeatClock } from './audio/beat'
 import { Scene } from './scope/scene'
 import { playlist } from './data/tracks'
 import { loadPeaks, peaksFromFile, energyAhead, type TrackPeaks } from './scope/peaks'
-import { fetchAudiusRadio } from './audio/audius'
+import { fetchAudiusRadio, searchAudius, AUDIUS_GENRES } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
+import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
+import { splitTrack, splitSelfTest } from './audio/split'
 
 /**
  * scope — a polar oscilloscope made of type.
@@ -52,14 +54,25 @@ export default function App() {
   const [volume, setVolume] = useState(0.8)
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
   const [rate, setRate] = useState(1)
-  const [solo, setSolo] = useState<number | null>(null) // band index 0..23
-  const soloRef = useRef<number | null>(null)
   const [ambient, setAmbient] = useState(false)
+  // THE TUNER: which Audius genre the radio is tuned to, and the search box.
+  const [tuneIdx, setTuneIdx] = useState(0)
+  const [query, setQuery] = useState('')
+  const [tuning2, setTuning2] = useState<'idle' | 'loading' | 'empty'>('idle')
+  const [onboard, setOnboard] = useState(false)
+  // SPLIT: the playing track being separated into stems, in-browser.
+  const [splitState, setSplitState] = useState<string | null>(null)
+  const splitGen = useRef(0)
   const stemDeckRef = useRef<StemDeck | null>(null)
   // THE LAYER ROWS — every ring's visible twin: name, live meter, level
   // slider, solo/mute. Nothing about the stack requires a hidden gesture.
   type LayerRow = { i: number; label: string; level: number; gain: number; muted: boolean; solo: boolean; hot: boolean }
   const [layerUi, setLayerUi] = useState<LayerRow[] | null>(null)
+  const lastLayersRef = useRef<LayerRow[] | null>(null)
+  // the effect owns tier state; split (component-level) arms it through here
+  const stemsUiRef = useRef<{ arm: (infos: StemInfo[]) => void } | null>(null)
+  // the tour drives the stack open/closed to point at features where they live
+  const tourOpsRef = useRef<TourOps | null>(null)
   const tierCtlRef = useRef<{
     gain: (i: number, g: number) => void
     solo: (i: number) => void
@@ -85,6 +98,9 @@ export default function App() {
   const sectCellRef = useRef<HTMLDivElement>(null)
   const retLabelRef = useRef<HTMLSpanElement>(null)
   const sceneRef = useRef<Scene | null>(null)
+  // the frame loop closes over mount-time state, so the current track is
+  // mirrored into a ref for the telemetry that needs it
+  const trackRef = useRef<TrackInfo | null>(null)
 
   const engineRef = useRef<AudioEngine | null>(null)
   const startedRef = useRef(false)
@@ -117,13 +133,6 @@ export default function App() {
   }, [rate])
 
   useEffect(() => {
-    soloRef.current = solo
-    const e = engineRef.current
-    if (!e) return
-    e.solo(solo == null ? null : Math.round(60 * Math.pow(12000 / 60, solo / 23)))
-  }, [solo])
-
-  useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
@@ -135,7 +144,7 @@ export default function App() {
     // stream and analyse), then the shipped permissive set as the offline
     // floor. Whichever resolves best before power-on wins.
     let radioTier = 0 // 0 shipped, 1 audius, 2 local
-    void fetchAudiusRadio().then((list) => {
+    void fetchAudiusRadio(null).then((list) => {
       if (list.length >= 8 && radioTier < 1 && engine.kind === 'radio' && !startedRef.current) {
         radioTier = 1
         engine.setPlaylist(list)
@@ -158,6 +167,7 @@ export default function App() {
         applySpectralTiers()
       }
       setTrack(tr)
+      trackRef.current = tr
       setSource(engine.kind)
       if (startedRef.current && tr) {
         setAnnounce({ text: tr.title, key: Date.now() })
@@ -176,7 +186,10 @@ export default function App() {
         })
       }
     }
-    if (import.meta.env.DEV) (window as unknown as { __eng: AudioEngine }).__eng = engine
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __eng: AudioEngine }).__eng = engine
+      ;(window as unknown as { __splitTest: () => Promise<number> }).__splitTest = splitSelfTest
+    }
 
     const scene = new Scene(canvas)
     sceneRef.current = scene
@@ -283,6 +296,27 @@ export default function App() {
       drag: null as null | { tier: number; dx0: number; sx: number; sy: number; downAt: number; moved: boolean; lvl: number; g0: number },
     }
     applySpectralTiers()
+    tourOpsRef.current = {
+      openStack() {
+        sect.latched = true
+        sect.t = 1
+        scene.setDissect(1)
+      },
+      closeStack() {
+        sect.latched = false
+        sect.t = 0
+        scene.setDissect(0)
+      },
+    }
+    stemsUiRef.current = {
+      arm(infos) {
+        applyStemTiers(infos)
+        // stems ARE layers: the stack presents itself opened
+        sect.latched = true
+        sect.t = 1
+        scene.setDissect(1)
+      },
+    }
     // The rows and the rings drive the SAME state through one door each.
     tierCtlRef.current = {
       gain(i, g) {
@@ -433,8 +467,8 @@ export default function App() {
             mix.band === 'mid' ? vis : 1,
             mix.band === 'high' ? vis : 1,
           )
-          // horizontal: the colour filter, latching
-          mixState.sweep = Math.max(-1, Math.min(1, mix.sweep0 + (e.clientX - mix.sx) / (w * 0.3)))
+          // horizontal: the colour filter — momentary, like every gesture
+          mixState.sweep = Math.max(-1, Math.min(1, (e.clientX - mix.sx) / (w * 0.3)))
           eng2?.sweep(mixState.sweep)
           // far pull: echo builds
           mix.echo = Math.max(0, Math.min(1, radial - 0.8))
@@ -499,7 +533,7 @@ export default function App() {
     //   radial pull out / push in -> boost / kill (momentary)
     //   horizontal travel         -> the colour filter sweep (latches)
     //   pulling FAR out           -> echo builds while held, rings out after
-    const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', stemRole: null as StemRole | null, sx: 0, sy: 0, r0: 1, sweep0: 0, echo: 0 }
+    const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', stemRole: null as StemRole | null, sx: 0, sy: 0, r0: 1, echo: 0 }
     const mixState = { sweep: 0, eq: 0 }
     const centerPx = () => {
       const fracX = startedRef.current && w > 720 ? (272 + (w - 272) / 2) / w : 0.5
@@ -562,7 +596,6 @@ export default function App() {
         mix.on = true
         mix.sx = e.clientX
         mix.sy = e.clientY
-        mix.sweep0 = mixState.sweep
         const c = centerPx()
         mix.r0 = Math.max(40, Math.hypot(e.clientX - c.x, e.clientY - c.y))
         // Mixer truth: highs at the top of the column, lows at the bottom.
@@ -595,6 +628,7 @@ export default function App() {
         const tr = tiers[d.tier]
         const deck = stemDeckRef.current
         const quick = !d.moved && performance.now() - d.downAt < 350
+        trace('tier-up', { tier: d.tier, quick, moved: d.moved, lvl: +d.lvl.toFixed(2) })
         if (quick) {
           // tap = solo toggle
           if (tr.role && deck) deck.solo(deck.soloRole === tr.role ? null : tr.role)
@@ -621,12 +655,16 @@ export default function App() {
         mix.on = false
         appRef.current?.classList.remove('mixing')
         const eng2 = engineRef.current
-        // Momentary: the EQ springs back flat; the echo loop drains itself;
-        // the sweep LATCHES like the knob it is. A held stem returns home.
+        // Momentary, all of it: EQ springs flat, the echo loop drains, the
+        // filter sweeps home. Anything worth KEEPING lives on a visible
+        // control that shows its state — nothing invisible ever sticks.
         if (mix.stemRole && stemDeckRef.current) stemDeckRef.current.setStemGain(mix.stemRole, 1)
         mix.stemRole = null
         eng2?.eq(mix.band, 0)
         eng2?.echo(0)
+        mixState.sweep = 0
+        eng2?.sweep(0)
+        mix.echo = 0
         scene.setGrab(null, 0)
         applySpectralMix()
         mixState.eq = 0
@@ -742,6 +780,7 @@ export default function App() {
       if (startedRef.current && !wasStarted) {
         wasStarted = true
         seamFlashUntil = now + 4500
+        if (shouldOnboard()) setTimeout(() => setOnboard(true), 900)
       }
       const seamWant = cur.axisHover || sect.axis || now < seamFlashUntil
       if (scene.dissect > 0.004 || seamWant) {
@@ -773,7 +812,10 @@ export default function App() {
               : sectMuted.has(i) || (sectSolo >= 0 && sectSolo !== i)
                 ? 0.08
                 : Math.min(1.4, rowGain[i])
-          tierVoice[i] += (target - tierVoice[i]) * Math.min(1, dt * 9)
+          // VU ballistics: fast attack so hits register, slow release so a
+          // playing stem never strobes to a ghost between beats — only a
+          // true mute (or silence) lets the ring die.
+          tierVoice[i] += (target - tierVoice[i]) * Math.min(1, dt * (target > tierVoice[i] ? 14 : 2.2))
         }
         scene.setTierLevels(tierVoice)
         const marks = { solo: -1, muted: [] as boolean[] }
@@ -785,10 +827,6 @@ export default function App() {
           } else {
             marks.muted[i] = sectMuted.has(i)
             if (sectSolo === i) marks.solo = i
-            else {
-              const sb = soloRef.current
-              if (sb != null && (sb < 8 ? 0 : sb < 16 ? 1 : 2) === i) marks.solo = i
-            }
           }
         }
         drawSurvey(surveyRef.current, scene, tiers, tierLevels, marks, beatPulse, f.rms, seamWant)
@@ -842,7 +880,7 @@ export default function App() {
       if (chromeAcc > 0.16) {
         chromeAcc = 0
         drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress)
-        drawSpectrum(specRef.current, f.bands, soloRef.current, mix.on ? mix.band : null, mixState.eq)
+        drawSpectrum(specRef.current, f.bands, mix.on ? mix.band : null, mixState.eq)
         const el = engine.el
         const pct = el.duration > 0 ? (el.currentTime / el.duration) * 100 : 0
         const pctText = `${pct.toFixed(1)}%`
@@ -851,8 +889,13 @@ export default function App() {
         if (labelRef.current)
           labelRef.current.textContent = `tracking ${(94 + fp.tempoConfidence * 5.9).toFixed(2)}%`
         // signal block
-        if (bpmRef.current)
-          bpmRef.current.textContent = fp.tempoConfidence > 0.12 ? `${Math.round(fp.tempo)}` : '——'
+        if (bpmRef.current) {
+          // Measured beside declared: the instrument's reading, then the
+          // artist's own datum. A survey drawing cites its source.
+          const measured = fp.tempoConfidence > 0.12 ? `${Math.round(fp.tempo)}` : '--'
+          const dec = trackRef.current?.bpm
+          bpmRef.current.textContent = dec ? `${measured}/${dec}` : measured
+        }
         if (lockRef.current)
           lockRef.current.textContent = `${Math.round(Math.min(1, fp.tempoConfidence) * 100)}%`
         if (levelRef.current)
@@ -904,6 +947,7 @@ export default function App() {
               })
             }
           }
+          lastLayersRef.current = rows
           setLayerUi(rows)
         } else {
           setLayerUi(null)
@@ -911,7 +955,7 @@ export default function App() {
         if (zoomRef.current) zoomRef.current.textContent = `${scene.zoomLevel.toFixed(1)}×`
         if (fltRef.current && fltCellRef.current) {
           const sv = mixState.sweep
-          fltRef.current.textContent = Math.abs(sv) < 0.04 ? '——' : `${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)}`
+          fltRef.current.textContent = Math.abs(sv) < 0.04 ? '--' : `${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)}`
           fltCellRef.current.classList.toggle('armed', Math.abs(sv) >= 0.04)
         }
         if (echoRef.current && echoCellRef.current) {
@@ -920,7 +964,7 @@ export default function App() {
         }
         if (sectRef.current && sectCellRef.current) {
           const dv = scene.dissect
-          sectRef.current.textContent = dv > 0.02 ? `${Math.round(dv * 100)}%` : '——'
+          sectRef.current.textContent = dv > 0.02 ? `${Math.round(dv * 100)}%` : '--'
           sectCellRef.current.classList.toggle('armed', dv > 0.02)
           // chrome that collides with the open stack ducks (mobile CSS)
           appRef.current?.classList.toggle('dissected', dv > 0.25)
@@ -971,8 +1015,12 @@ export default function App() {
           const p = deck.peaks()
           peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
           setDecoding(false)
-          // The dissection speaks stems now: one tier per separated part.
+          // The dissection speaks stems now: one tier per separated part —
+          // and stems ARE layers, so the stack presents itself opened.
           applyStemTiers(deck.info())
+          sect.latched = true
+          sect.t = 1
+          scene.setDissect(1)
         })
         return
       }
@@ -1117,6 +1165,63 @@ export default function App() {
     }
   }, [])
 
+  /** Tune the radio: swap the playlist to a genre or a search, then play.
+   *  Boots the instrument if it's still on standby, so a tuner click is a
+   *  complete action rather than a setting that needs a second gesture. */
+  const tuneTo = async (idx: number, q = '') => {
+    const eng = engineRef.current
+    if (!eng) return
+    setTuning2('loading')
+    setTuneIdx(idx)
+    const list = q ? await searchAudius(q) : await fetchAudiusRadio(AUDIUS_GENRES[idx].genre)
+    if (!list.length) {
+      setTuning2('empty')
+      return
+    }
+    setTuning2('idle')
+    eng.setPlaylist(list)
+    if (!startedRef.current) {
+      startedRef.current = true
+      setStarted(true)
+      ;(window as unknown as { __focus: () => void }).__focus()
+      sceneRef.current?.powerOn()
+    }
+    await eng.playRadio()
+  }
+
+  /** SPLIT the playing track into vocals/drums/bass/other and hand the
+   *  result to the stem deck — same rings, same rows, same gestures as a
+   *  stem-file drop, but sourced from ANY track. All in-browser. */
+  const doSplit = async () => {
+    const eng = engineRef.current
+    const scene2 = sceneRef.current
+    if (!eng || !scene2 || !eng.el.src || splitState) return
+    const gen = ++splitGen.current
+    const fromTitle = track?.title ?? 'track'
+    const resumeAt = eng.el.currentTime || 0
+    try {
+      const stems = await splitTrack(eng.el.src, eng.ctx, (p) => {
+        if (splitGen.current === gen) setSplitState(`${p.stage} ${Math.round(p.pct)}%`)
+      })
+      if (splitGen.current !== gen) return
+      const deck = stemDeckRef.current ?? new StemDeck(eng.ctx, eng.busHead)
+      stemDeckRef.current = deck
+      if (import.meta.env.DEV) (window as unknown as { __deck: StemDeck }).__deck = deck
+      deck.loadBuffers(stems.map((s) => ({ role: s.role, name: `${s.role} · split`, buffer: s.buffer })))
+      eng.enterStems(`${fromTitle.slice(0, 22)} · split`)
+      deck.play(resumeAt)
+      const p = deck.peaks()
+      peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
+      stemsUiRef.current?.arm(deck.info())
+      setSplitState(null)
+    } catch {
+      if (splitGen.current === gen) {
+        setSplitState('split failed')
+        setTimeout(() => splitGen.current === gen && setSplitState(null), 2500)
+      }
+    }
+  }
+
   const power = () => {
     if (startedRef.current) return
     startedRef.current = true
@@ -1190,10 +1295,6 @@ export default function App() {
         {/* Non-default state is never silent: a forgotten rate or an armed
             solo makes the audio sound wrong, so the plate says so in red. */}
         <div className={rate !== 1 ? 'armed' : ''}><dt>rate</dt><dd>{rate.toFixed(2)}×</dd></div>
-        <div className={solo != null ? 'armed' : ''}>
-          <dt>solo</dt>
-          <dd>{solo == null ? 'off' : (() => { const hz = Math.round(60 * Math.pow(200, solo / 23)); return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${hz}` })()}</dd>
-        </div>
         <div><dt>cal</dt><dd>44.1K</dd></div>
         <div><dt>fft</dt><dd>2048</dd></div>
       </dl>
@@ -1222,6 +1323,7 @@ export default function App() {
           <div className="rail-brand" style={{ '--i': 0 } as React.CSSProperties}>
             <span className="rail-word">scope<span className="rail-reg">®</span></span>
             <span className="barcode barcode-s" aria-hidden="true" />
+            <button className="rail-help" onClick={() => setOnboard(true)} title="how to play">?</button>
           </div>
 
           <output className="readout rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
@@ -1233,16 +1335,16 @@ export default function App() {
 
           {/* SIGNAL / MACHINE — real values only, grid-gap hairlines. */}
           <dl className="statgrid rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
-            <div><dt>bpm</dt><dd ref={bpmRef}>——</dd></div>
+            <div><dt>bpm</dt><dd ref={bpmRef}>--</dd></div>
             <div><dt>lock</dt><dd ref={lockRef}>0%</dd></div>
-            <div><dt>peak</dt><dd ref={peakRef}>——</dd></div>
+            <div><dt>peak</dt><dd ref={peakRef}>--</dd></div>
             <div><dt>fps</dt><dd ref={fpsRef}>60</dd></div>
             <div><dt>pts</dt><dd ref={ptsRef}>64k</dd></div>
             <div><dt>quality</dt><dd ref={qRef}>full</dd></div>
             <div><dt>zoom</dt><dd ref={zoomRef}>1.0×</dd></div>
-            <div ref={fltCellRef}><dt>flt</dt><dd ref={fltRef}>——</dd></div>
+            <div ref={fltCellRef}><dt>flt</dt><dd ref={fltRef}>--</dd></div>
             <div ref={echoCellRef}><dt>echo</dt><dd ref={echoRef}>0%</dd></div>
-            <div ref={sectCellRef}><dt>sect</dt><dd ref={sectRef}>——</dd></div>
+            <div ref={sectCellRef}><dt>sect</dt><dd ref={sectRef}>--</dd></div>
           </dl>
           <div className="level rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
             <span className="level-tag">level</span>
@@ -1261,10 +1363,45 @@ export default function App() {
             </button>
           </nav>
 
+          {/* THE TUNER — the radio is a dial, not a slot machine. Genre chips
+              retune the trending sweep; search finds any artist on the
+              platform. Both are one click from sound. */}
+          <div className={`railfold${source === 'radio' ? ' open' : ''}`}>
+            <div className="tuner rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
+              <div className="tuner-chips">
+                {AUDIUS_GENRES.map((g, i) => (
+                  <button
+                    key={g.label}
+                    className={i === tuneIdx && !query ? 'on' : ''}
+                    onClick={() => { setQuery(''); void tuneTo(i) }}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
+              <form
+                className="tuner-find"
+                onSubmit={(e) => { e.preventDefault(); if (query.trim()) void tuneTo(tuneIdx, query) }}
+              >
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="find an artist or track"
+                  aria-label="search audius"
+                  spellCheck={false}
+                />
+                <button type="submit">go</button>
+              </form>
+              <span className="tuner-state">
+                {tuning2 === 'loading' ? 'tuning …' : tuning2 === 'empty' ? 'nothing playable found' : 'streaming from audius · artist-owned'}
+              </span>
+            </div>
+          </div>
+
           {/* transport + volume — never a dead control: mic has no element
               to pause or fade, so the row yields to the source switch; a
               file's 'skip' can only mean back to the radio, so it says so. */}
-          {source !== 'mic' && (
+          <div className={`railfold${source !== 'mic' ? ' open' : ''}`}>
             <div className="transport rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
               <button
                 onClick={() => {
@@ -1300,16 +1437,16 @@ export default function App() {
                 />
               </div>
             </div>
-          )}
+          </div>
 
           {/* THE LAYER ROWS — every ring's visible twin. Name + live meter,
               a level slider that IS the ring's fader (real stem gain or the
               tier's own peaking filter), solo and mute. Hover a row and its
               ring burns brighter; hover a ring and its row heats up. */}
-          {layerUi && (
+          <div className={`railfold${layerUi ? ' open' : ''}`}>
             <div className="layers rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
               <span className="layers-tag">layers · each row is a ring</span>
-              {layerUi.map((L) => (
+              {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
                   key={L.i}
                   className={`layer${L.muted ? ' layer-muted' : ''}${L.solo ? ' layer-solo' : ''}${L.hot ? ' layer-hot' : ''}`}
@@ -1331,7 +1468,7 @@ export default function App() {
                 </div>
               ))}
             </div>
-          )}
+          </div>
 
           {/* response tuning — the instrument's own dials */}
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
@@ -1367,6 +1504,22 @@ export default function App() {
 
           <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <samp className="deck-name"><Decode text={name} duration={700} /></samp>
+            <div className={`railfold${(source === 'radio' || source === 'file') && track ? ' open' : ''}`}>
+              <button className="deck-split" onClick={() => void doSplit()} disabled={!!splitState}>
+                {splitState ?? 'split into stems'}
+              </button>
+            </div>
+            {track && (track.musicalKey || track.genre || track.link) && (
+              <div className="deck-meta">
+                {track.musicalKey && <span>key {track.musicalKey.toLowerCase()}</span>}
+                {track.genre && <span>{track.genre.toLowerCase()}</span>}
+                {track.link && (
+                  <a href={track.link} target="_blank" rel="noopener noreferrer">
+                    {track.artist.replace(' · audius', '')} ↗
+                  </a>
+                )}
+              </div>
+            )}
             <canvas
               ref={waveRef}
               className="deck-wave"
@@ -1391,7 +1544,7 @@ export default function App() {
               <data ref={cTotalRef}>· 0</data>
             </div>
             {source !== 'stems' && (
-              <span className="stemhint">have stems? drop them together (vocals·drums·bass) — split any track locally with stemdeck</span>
+              <span className="stemhint">have stems? drop them together (vocals·drums·bass). split any track locally with stemdeck</span>
             )}
             <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · r/f/m src · +/-/0 zoom · h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
@@ -1415,19 +1568,9 @@ export default function App() {
       {started && (
       <div className="spec">
         <div className="spec-label">
-          <Decode text={solo == null ? 'spectrum · tap a band to solo' : `solo ${(() => { const hz = Math.round(60 * Math.pow(200, solo / 23)); return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : hz })()} · tap to release`} duration={400} />
+          <Decode text="spectrum" duration={400} />
         </div>
-        <canvas
-          ref={specRef}
-          width={400}
-          height={144}
-          className="spec-play"
-          onPointerDown={(e) => {
-            const r = e.currentTarget.getBoundingClientRect()
-            const band = Math.max(0, Math.min(23, Math.floor(((e.clientX - r.left) / r.width) * 24)))
-            setSolo((s) => (s === band ? null : band))
-          }}
-        />
+        <canvas ref={specRef} width={400} height={144} />
         <div className="spec-hz">
           <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
         </div>
@@ -1470,6 +1613,8 @@ export default function App() {
           e.target.value = ''
         }}
       />
+
+      {started && onboard && <Onboard ops={tourOpsRef.current} onDone={() => setOnboard(false)} />}
 
       <div className="scanlines" />
       <div className="grain" />
@@ -1606,13 +1751,23 @@ function drawSurvey(
   g.stroke()
 
   const M = 8
-  let num = 0
+  // one clean plate column right of the widest ring, like the reference's
+  // margin numbers — plates never sit on the matter
+  let plateX = 0
+  for (let i = 0; i < n; i++) {
+    const c0 = scene.surveyPoint(i, 0, 0)
+    const a1 = scene.surveyPoint(i, 0, 1)
+    const a2 = scene.surveyPoint(i, Math.PI / 2, 1)
+    plateX = Math.max(plateX, c0.x + Math.max(Math.hypot(a1.x - c0.x, a1.y - c0.y), Math.hypot(a2.x - c0.x, a2.y - c0.y)))
+  }
+  plateX = Math.min(W - 128, plateX + 16)
   for (let i = 0; i < n; i++) {
     const soloed = marks.solo === i
     const muted = !!marks.muted[i]
+    const hot = scene.hiTier === i
 
-    // the ring's true projected ellipse
-    g.strokeStyle = soloed ? red(0.8) : ink(muted ? 0.14 : 0.38)
+    // the ring's true projected ellipse — heats with its row
+    g.strokeStyle = soloed ? red(0.8) : ink(hot ? 0.85 : muted ? 0.14 : 0.38)
     g.beginPath()
     for (let k = 0; k <= 48; k++) {
       const p = scene.surveyPoint(i, (k / 48) * Math.PI * 2)
@@ -1631,40 +1786,39 @@ function drawSurvey(
     }
     g.stroke()
 
-    // dashed drops to the tier below — the drawing's vertical logic
+    // plumb lines — every other marker drops a TRUE vertical to the base
+    // plane (constant x/z), the reference's survey logic; slanted
+    // tier-to-tier connectors read as errors once radii differ
     if (i > 0) {
-      g.strokeStyle = ink(0.16)
+      const yB0 = scene.tierYNow(0) - (n > 1 ? (scene.tierYFull(1) - scene.tierYFull(0)) * 0.5 : 0.3)
+      const rW = 0.88 * 0.56 * scene.ringProfile(i)
+      g.strokeStyle = ink(0.22)
       g.setLineDash([2, 5])
       for (let k = 0; k < M; k += 2) {
         const th = (k / M) * Math.PI * 2
-        const p0 = scene.surveyPoint(i - 1, th)
-        const p1 = scene.surveyPoint(i, th)
+        const p0 = scene.surveyPoint(i, th)
+        const pB = scene.projectLocal(Math.cos(th) * rW, yB0, Math.sin(th) * rW)
         g.beginPath()
         g.moveTo(p0.x, p0.y)
-        g.lineTo(p1.x, p1.y)
+        g.lineTo(pB.x, pB.y)
         g.stroke()
       }
       g.setLineDash([])
     }
 
-    // numbered survey markers, orbiting with the body
-    g.font = '9px "JetBrains Mono", ui-monospace, monospace'
+    // survey vertex markers, orbiting with the body — unlabeled: a number
+    // that indexes nothing shouldn't be printed
     g.fillStyle = ink(muted ? 0.22 : 0.7)
     for (let k = 0; k < M; k++) {
       const p = scene.surveyPoint(i, (k / M) * Math.PI * 2)
-      num++
       g.fillRect(p.x - 1.5, p.y - 1.5, 3, 3)
-      g.fillText(String(num), p.x + 5, p.y - 5)
     }
 
-    // the tier's data plate, right of the ring
+    // the tier's data plate, in the aligned margin column
     const ctr = scene.surveyPoint(i, 0, 0)
-    const e1 = scene.surveyPoint(i, 0, 1)
-    const e2 = scene.surveyPoint(i, Math.PI / 2, 1)
-    const rPx = Math.max(Math.hypot(e1.x - ctr.x, e1.y - ctr.y), Math.hypot(e2.x - ctr.x, e2.y - ctr.y))
-    const lx = Math.min(W - 130, ctr.x + rPx + 18)
+    const lx = plateX
     g.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace'
-    g.fillStyle = soloed ? red(0.95) : muted ? red(0.75) : ink(0.9)
+    g.fillStyle = soloed ? red(0.95) : muted ? red(0.75) : ink(hot ? 1 : 0.9)
     g.fillText(`0${i + 1} · ${tiers[i].label.toUpperCase()}`, lx, ctr.y - 7)
     g.font = '9px "JetBrains Mono", ui-monospace, monospace'
     g.fillStyle = muted ? red(0.6) : soloed ? red(0.7) : ink(0.55)
@@ -1709,7 +1863,6 @@ const shown = new Float32Array(24)
 function drawSpectrum(
   cv: HTMLCanvasElement | null,
   bands: Float32Array,
-  solo: number | null = null,
   mixBand: 'low' | 'mid' | 'high' | null = null,
   mixDb = 0,
 ) {
@@ -1726,8 +1879,6 @@ function drawSpectrum(
     peaks[i] = Math.max(v, peaks[i] - 0.012)
     const bh = v * (cv.height - 4)
     g.fillStyle = 'rgba(234,234,234,0.88)'
-    // The armed band burns red; its neighbours dim to show the cut.
-    if (solo != null) g.fillStyle = i === solo ? '#ff2a2a' : 'rgba(234,234,234,0.25)'
     // The HELD EQ range tints red while you bend it — the analytical view
     // agreeing with the sculptural one.
     if (mixBand != null) {

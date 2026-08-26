@@ -19,6 +19,14 @@ export interface TrackInfo {
   title: string
   artist: string
   src: string
+  /** The artist's OWN declared values, when the source provides them —
+   *  printed beside scope's measured ones, never instead of them. */
+  bpm?: number
+  musicalKey?: string
+  genre?: string
+  plays?: number
+  /** Attribution: a link back to the track's page on its platform. */
+  link?: string
 }
 
 export class AudioEngine {

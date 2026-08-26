@@ -955,12 +955,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 
 /* the spectrum is playable: the canvas opts back into pointer events that
    its container declines, or a real click never reaches the solo handler. */
-.spec-play {
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: none;
-}
-
 /* ===========================================================================
    AMBIENT MODE — H hides the instrumentation; the star owns the room.
    The announce stays (a track change on a TV should still say its name).
@@ -1135,3 +1129,215 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .layer-muted .layer-name { color: #ff2a2a; }
 .layer-muted .layer-meter b { background: #ff2a2a; }
 .layer-solo { border-color: rgba(234, 234, 234, 0.5); }
+
+/* ── the tuner: the radio is a dial ─────────────────────────────────── */
+.tuner {
+  display: grid;
+  gap: 7px;
+  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  padding-top: 8px;
+}
+.tuner-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.tuner-chips button {
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(234, 234, 234, 0.55);
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.18);
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.tuner-chips button:hover { color: #eaeaea; border-color: rgba(234, 234, 234, 0.5); }
+.tuner-chips button.on {
+  color: #0a0a0a;
+  background: #eaeaea;
+  border-color: #eaeaea;
+}
+.tuner-find {
+  display: grid;
+  grid-template-columns: 1fr 34px;
+  gap: 4px;
+}
+.tuner-find input {
+  font: inherit;
+  font-size: 10px;
+  color: #eaeaea;
+  background: rgba(234, 234, 234, 0.05);
+  border: 1px solid rgba(234, 234, 234, 0.18);
+  padding: 4px 7px;
+  outline: none;
+}
+.tuner-find input:focus { border-color: rgba(234, 234, 234, 0.55); }
+.tuner-find input::placeholder { color: rgba(234, 234, 234, 0.3); }
+.tuner-find button {
+  font: inherit;
+  font-size: 9px;
+  text-transform: uppercase;
+  color: rgba(234, 234, 234, 0.7);
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.18);
+  cursor: pointer;
+}
+.tuner-find button:hover { color: #0a0a0a; background: #eaeaea; }
+.tuner-state {
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.32;
+}
+
+/* the deck's metadata plate: the artist's own declared values + link home */
+.deck-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid rgba(234, 234, 234, 0.3); }
+.deck-meta a:hover { border-color: #ff2a2a; color: #ff2a2a; }
+
+/* ── first-contact calibration ──────────────────────────────────────── */
+.onboard {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+.onboard-wire {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.onboard-wire line {
+  stroke: rgba(255, 42, 42, 0.75);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.onboard-wire circle { fill: #ff2a2a; }
+.onboard-wire .onboard-ping {
+  fill: none;
+  stroke: #ff2a2a;
+  animation: onb-ping 1.5s ease-out infinite;
+}
+@keyframes onb-ping {
+  from { r: 5; opacity: 1; }
+  to { r: 24; opacity: 0; }
+}
+.onboard-card {
+  position: absolute;
+  pointer-events: auto;
+  background: #0a0a0a;
+  border: 1px solid rgba(234, 234, 234, 0.35);
+  padding: 16px 18px 14px;
+  display: grid;
+  gap: 8px;
+  animation: onboard-in 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes onboard-in {
+  from { opacity: 0; transform: translateY(14px); }
+}
+.onboard-n {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: #ff2a2a;
+}
+.onboard-n i { font-style: normal; color: rgba(234, 234, 234, 0.35); }
+.onboard-card h2 {
+  font-family: 'Archivo Black', sans-serif;
+  font-size: 20px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  color: #eaeaea;
+  margin: 0;
+}
+.onboard-card p {
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(234, 234, 234, 0.72);
+  margin: 0;
+}
+.onboard-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.onboard-row button {
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.25);
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.onboard-row .onboard-skip { color: rgba(234, 234, 234, 0.45); }
+.onboard-row .onboard-skip:hover { color: #eaeaea; }
+.onboard-row .onboard-next { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
+.onboard-row .onboard-next:hover { background: #ff2a2a; border-color: #ff2a2a; color: #fff; }
+@media (prefers-reduced-motion: reduce) {
+  .onboard-card { animation: none; }
+}
+
+/* help is not a consumable: the manual reopens from the brand row */
+.rail-help {
+  font: inherit;
+  font-size: 11px;
+  color: rgba(234, 234, 234, 0.55);
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.25);
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+.rail-help:hover { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
+
+/* SPLIT: any track becomes stems, right where the track is named */
+.deck-split {
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #eaeaea;
+  background: none;
+  border: 1px solid rgba(234, 234, 234, 0.3);
+  padding: 5px 8px;
+  cursor: pointer;
+  justify-self: start;
+}
+.deck-split:hover:not(:disabled) { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
+.deck-split:disabled { color: #ff2a2a; border-color: rgba(255, 42, 42, 0.5); cursor: wait; }
+
+/* ── rail folds: mode changes breathe instead of popping ────────────── */
+.railfold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.railfold.open { grid-template-rows: 1fr; }
+.railfold > * {
+  overflow: hidden;
+  min-height: 0;
+  visibility: hidden;
+  transition: visibility 0s 0.45s;
+}
+.railfold.open > * {
+  visibility: visible;
+  transition: visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .railfold { transition: none; }
+  .railfold > * { transition: none; }
+}
