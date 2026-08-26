@@ -1270,8 +1270,10 @@ export default function App() {
       <div className="ruler-y" aria-hidden="true" />
       <div className="hazard" aria-hidden="true" />
 
+      {/* The reticle is no longer the cursor (the native crosshair is) —
+          it marks the grab point and carries the live gesture readout. */}
       <div ref={reticleRef} className="reticle" aria-hidden="true">
-        <i className="ret-h" /><i className="ret-v" /><i className="ret-dot" />
+        <i className="ret-dot" />
         <span ref={retLabelRef} className="ret-label" />
       </div>
 

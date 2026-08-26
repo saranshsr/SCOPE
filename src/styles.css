@@ -644,30 +644,26 @@ body {
   will-change: transform;
 }
 
-.ret-h, .ret-v {
-  position: absolute;
-  background: rgba(234, 234, 234, 0.8);
-}
-.ret-h { left: 0; right: 0; top: 50%; height: 1px; }
-.ret-v { top: 0; bottom: 0; left: 50%; width: 1px; }
-
-/* the gap: hairlines stop short of the center dot */
-.ret-h { clip-path: polygon(0 0, 34% 0, 34% 100%, 0 100%, 0 0, 100% 0, 100% 100%, 66% 100%, 66% 0); }
-.ret-v { clip-path: polygon(0 0, 100% 0, 100% 34%, 0 34%, 0 0, 0 100%, 100% 100%, 100% 66%, 0 66%); }
-
+/* The grab point: red core inside a dark ring so it survives both the
+   black field and the white blowouts of a loud drop. */
 .ret-dot {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 3px;
-  height: 3px;
+  width: 5px;
+  height: 5px;
   transform: translate(-50%, -50%);
   background: var(--red);
+  box-shadow: 0 0 0 1.5px rgba(10, 10, 10, 0.85);
 }
 
-/* Interactive elements keep honest system cursors. */
+/* Honest system cursors everywhere. The stage aims with a NATIVE
+   crosshair rather than a drawn one: a 1px hairline vanishes against a
+   white particle field, and hiding the OS cursor loses users who rely on
+   its size/contrast settings. The reticle now only carries the live
+   gesture readout, never the job of being the pointer. */
 @media (pointer: fine) {
-  .app { cursor: none; }
+  .app { cursor: crosshair; }
   .rail, .spec, .ctl-row, button, a, input { cursor: auto; }
   button, a { cursor: pointer; }
   .deck-wave { cursor: crosshair; }
@@ -689,8 +685,8 @@ body {
 
 /* Grabbing the instrument: the reticle's dot swells while spinning. */
 .app.grabbing .ret-dot {
-  width: 6px;
-  height: 6px;
+  width: 9px;
+  height: 9px;
 }
 .ret-dot { transition: width 120ms ease, height 120ms ease; }
 
@@ -952,7 +948,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--red);
+  /* the readout sits over live matter: keep it readable on white */
+  background: rgba(10, 10, 10, 0.82);
+  padding: 2px 5px;
 }
+.ret-label:empty { background: none; padding: 0; }
 
 /* --- the stem strips: each separated part, live level, one-tap mute -------- */
 .stemstrip {
