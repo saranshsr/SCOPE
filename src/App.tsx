@@ -23,6 +23,12 @@ import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './aud
 
 const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]', stems: '[04]' }
 
+/** Track time the way every player on earth writes it. */
+const fmtTime = (s: number) => {
+  if (!isFinite(s) || s < 0) return '0:00'
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+}
+
 /** A dissection tier — a stem (role) or an EQ band group, bottom-to-top. */
 type Tier = { label: string; role?: StemRole; band?: 'low' | 'mid' | 'high' }
 
@@ -36,8 +42,6 @@ export default function App() {
   // Live-text chrome, written imperatively at ~6Hz from the loop.
   const labelRef = useRef<HTMLSpanElement>(null)
   const bandRefs = useRef<(HTMLDivElement | null)[]>([])
-  const pctTopRef = useRef<HTMLSpanElement>(null)
-  const pctLeftRef = useRef<HTMLSpanElement>(null)
   const cElapsedRef = useRef<HTMLDataElement>(null)
   const cTotalRef = useRef<HTMLDataElement>(null)
 
@@ -52,6 +56,8 @@ export default function App() {
   const [decoding, setDecoding] = useState(false)
   const [paused, setPaused] = useState(false)
   const [volume, setVolume] = useState(0.8)
+  const [muted, setMuted] = useState(false)
+  const [diag, setDiag] = useState(false)
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
   const [rate, setRate] = useState(1)
   const [ambient, setAmbient] = useState(false)
@@ -83,20 +89,12 @@ export default function App() {
   const tuningRef = useRef(tuning)
   // signal/machine stats, written imperatively at chrome rate
   const bpmRef = useRef<HTMLElement>(null)
-  const lockRef = useRef<HTMLElement>(null)
   const levelRef = useRef<HTMLDivElement>(null)
-  const peakRef = useRef<HTMLElement>(null)
-  const fpsRef = useRef<HTMLElement>(null)
-  const ptsRef = useRef<HTMLElement>(null)
-  const qRef = useRef<HTMLElement>(null)
-  const bufRef = useRef<HTMLElement>(null)
   const zoomRef = useRef<HTMLElement>(null)
   const fltRef = useRef<HTMLElement>(null)
-  const fltCellRef = useRef<HTMLDivElement>(null)
   const echoRef = useRef<HTMLElement>(null)
-  const echoCellRef = useRef<HTMLDivElement>(null)
   const sectRef = useRef<HTMLElement>(null)
-  const sectCellRef = useRef<HTMLDivElement>(null)
+  const diagRef = useRef<HTMLElement>(null)
   const retLabelRef = useRef<HTMLSpanElement>(null)
   const sceneRef = useRef<Scene | null>(null)
   // the frame loop closes over mount-time state, so the current track is
@@ -885,35 +883,22 @@ export default function App() {
         drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress)
         drawSpectrum(specRef.current, f.bands, mix.on ? mix.band : null, mixState.eq)
         const el = engine.el
-        const pct = el.duration > 0 ? (el.currentTime / el.duration) * 100 : 0
-        const pctText = `${pct.toFixed(1)}%`
-        if (pctTopRef.current) pctTopRef.current.textContent = pctText
-        if (pctLeftRef.current) pctLeftRef.current.textContent = pctText
         if (labelRef.current)
           labelRef.current.textContent = `tracking ${(94 + fp.tempoConfidence * 5.9).toFixed(2)}%`
-        // signal block
+        // now-playing plate: measured beside the artist's declared datum,
+        // dimmed until the beat-tracker actually locks
         if (bpmRef.current) {
-          // Measured beside declared: the instrument's reading, then the
-          // artist's own datum. A survey drawing cites its source.
-          const measured = fp.tempoConfidence > 0.12 ? `${Math.round(fp.tempo)}` : '--'
+          const locked = fp.tempoConfidence > 0.12
+          const measured = locked ? `${Math.round(fp.tempo)}` : '--'
           const dec = trackRef.current?.bpm
-          bpmRef.current.textContent = dec ? `${measured}/${dec}` : measured
+          bpmRef.current.textContent = `bpm ${dec ? `${measured}/${dec}` : measured}`
+          bpmRef.current.classList.toggle('locked', locked)
         }
-        if (lockRef.current)
-          lockRef.current.textContent = `${Math.round(Math.min(1, fp.tempoConfidence) * 100)}%`
         if (levelRef.current)
           levelRef.current.style.width = `${Math.min(100, Math.round(f.rms * 240))}%`
-        if (peakRef.current) {
-          let pk = 0
-          for (let i = 1; i < 24; i++) if (f.bands[i] > f.bands[pk]) pk = i
-          const hz = Math.round(60 * Math.pow(12000 / 60, pk / 23))
-          peakRef.current.textContent = hz >= 1000 ? `${(hz / 1000).toFixed(1)}k` : `${hz}`
-        }
-        // machine block
-        if (fpsRef.current) fpsRef.current.textContent = `${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))}`
-        if (ptsRef.current)
-          ptsRef.current.textContent = `${Math.round((108000 * (scene.densityNow) + 2600 + 3600) / 1000)}k`
-        if (qRef.current) qRef.current.textContent = perf.q < 1 ? 'reduced' : 'full'
+        // diagnostics: one dim line, only for those who ask
+        if (diagRef.current)
+          diagRef.current.textContent = `fps ${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))} · pts ${Math.round((108000 * scene.densityNow + 2600 + 3600) / 1000)}k · quality ${perf.q < 1 ? 'reduced' : 'full'}`
         setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : (engineRef.current?.el.paused ?? false))
         // the layer rows: visible whenever stems are loaded or the stack
         // is open — top ring first, mirroring the drawing
@@ -955,26 +940,28 @@ export default function App() {
         } else {
           setLayerUi(null)
         }
-        if (zoomRef.current) zoomRef.current.textContent = `${scene.zoomLevel.toFixed(1)}×`
-        if (fltRef.current && fltCellRef.current) {
+        // contextual chips: a state renders ONLY while it is non-default —
+        // silence is the default reading of a healthy instrument
+        if (zoomRef.current) {
+          const z = scene.zoomLevel
+          zoomRef.current.textContent = `zoom ${z.toFixed(1)}×`
+          zoomRef.current.classList.toggle('on', z > 1.04)
+        }
+        if (fltRef.current) {
           const sv = mixState.sweep
-          fltRef.current.textContent = Math.abs(sv) < 0.04 ? '--' : `${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)}`
-          fltCellRef.current.classList.toggle('armed', Math.abs(sv) >= 0.04)
+          fltRef.current.textContent = `flt ${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)}`
+          fltRef.current.classList.toggle('on', Math.abs(sv) >= 0.04)
         }
-        if (echoRef.current && echoCellRef.current) {
-          echoRef.current.textContent = `${Math.round(mix.echo * 100)}%`
-          echoCellRef.current.classList.toggle('armed', mix.echo > 0.02)
+        if (echoRef.current) {
+          echoRef.current.textContent = `echo ${Math.round(mix.echo * 100)}%`
+          echoRef.current.classList.toggle('on', mix.echo > 0.02)
         }
-        if (sectRef.current && sectCellRef.current) {
+        if (sectRef.current) {
           const dv = scene.dissect
-          sectRef.current.textContent = dv > 0.02 ? `${Math.round(dv * 100)}%` : '--'
-          sectCellRef.current.classList.toggle('armed', dv > 0.02)
+          sectRef.current.textContent = `sect ${Math.round(dv * 100)}%`
+          sectRef.current.classList.toggle('on', dv > 0.02)
           // chrome that collides with the open stack ducks (mobile CSS)
           appRef.current?.classList.toggle('dissected', dv > 0.25)
-        }
-        if (bufRef.current) {
-          const c = canvas as HTMLCanvasElement
-          bufRef.current.textContent = `${c.width}×${c.height}`
         }
         // a..e — five live band levels; rows flicker in and out like the
         // reference (each row has its own visibility cycle).
@@ -985,11 +972,12 @@ export default function App() {
           el2.textContent = `${'abcde'[i]} :: ${v}`
           el2.style.opacity = Math.sin(t * (0.7 + i * 0.31) + i * 2.1) > -0.35 ? '1' : '0'
         }
-        if (startedRef.current && el.duration > 0) {
-          if (cElapsedRef.current)
-            cElapsedRef.current.textContent = `· ${Math.round(el.currentTime * 44100).toLocaleString('en-US').replace(/,/g, '')}`
-          if (cTotalRef.current)
-            cTotalRef.current.textContent = `· ${Math.round(el.duration * 44100).toLocaleString('en-US').replace(/,/g, '')}`
+        if (startedRef.current) {
+          const deckT = engine.kind === 'stems' && stemDeckRef.current
+            ? { t: stemDeckRef.current.currentTime(), d: stemDeckRef.current.duration }
+            : { t: el.currentTime, d: el.duration }
+          if (cElapsedRef.current) cElapsedRef.current.textContent = fmtTime(deckT.t)
+          if (cTotalRef.current) cTotalRef.current.textContent = fmtTime(deckT.d)
         }
         setPlaying(engine.playing)
       }
@@ -1287,11 +1275,9 @@ export default function App() {
         <span ref={retLabelRef} className="ret-label" />
       </div>
 
-      {/* crosshair — full frame, playhead % in red at each axis head */}
+      {/* crosshair — structural lines only; the scrubber owns the playhead */}
       <div className="x-v" />
       <div className="x-h" />
-      <span ref={pctTopRef} className="x-tag x-tag-top">0.0%</span>
-      <span ref={pctLeftRef} className="x-tag x-tag-left">0.0%</span>
 
       {/* the instrument's bracket frame */}
       <div className="frame">
@@ -1311,11 +1297,9 @@ export default function App() {
           1px grid-gap dividers, real values only. */}
       <dl className="titleblock">
         <div><dt>src</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
-        {/* Non-default state is never silent: a forgotten rate or an armed
-            solo makes the audio sound wrong, so the plate says so in red. */}
-        <div className={rate !== 1 ? 'armed' : ''}><dt>rate</dt><dd>{rate.toFixed(2)}×</dd></div>
-        <div><dt>cal</dt><dd>44.1K</dd></div>
-        <div><dt>fft</dt><dd>2048</dd></div>
+        {/* Non-default state is never silent: a forgotten pitch bend makes
+            the audio sound wrong, so the plate says so in red. */}
+        <div className={rate !== 1 ? 'armed' : ''}><dt>pitch</dt><dd>{rate.toFixed(2)}×</dd></div>
       </dl>
 
       {/* §3.1 macro-typography: the standby poster. A viewport-bleeding
@@ -1345,32 +1329,116 @@ export default function App() {
             <button className="rail-help" onClick={() => setOnboard(true)} title="how to play">?</button>
           </div>
 
-          <output className="readout rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
-            <span ref={labelRef} className="ro-label">tracking 94.00%</span>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} ref={(el) => { bandRefs.current[i] = el }} className="ro-band" />
-            ))}
-          </output>
-
-          {/* SIGNAL / MACHINE — real values only, grid-gap hairlines. */}
-          <dl className="statgrid rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
-            <div><dt>bpm</dt><dd ref={bpmRef}>--</dd></div>
-            <div><dt>lock</dt><dd ref={lockRef}>0%</dd></div>
-            <div><dt>peak</dt><dd ref={peakRef}>--</dd></div>
-            <div><dt>fps</dt><dd ref={fpsRef}>60</dd></div>
-            <div><dt>pts</dt><dd ref={ptsRef}>64k</dd></div>
-            <div><dt>quality</dt><dd ref={qRef}>full</dd></div>
-            <div><dt>zoom</dt><dd ref={zoomRef}>1.0×</dd></div>
-            <div ref={fltCellRef}><dt>flt</dt><dd ref={fltRef}>--</dd></div>
-            <div ref={echoCellRef}><dt>echo</dt><dd ref={echoRef}>0%</dd></div>
-            <div ref={sectCellRef}><dt>sect</dt><dd ref={sectRef}>--</dd></div>
-          </dl>
-          <div className="level rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
-            <span className="level-tag">level</span>
-            <div className="level-track"><div ref={levelRef} className="level-fill" /></div>
+          {/* 1 · NOW PLAYING — what you hear, and every control that acts on
+              it, in the order every music player taught the world: title,
+              artist, scrubber + time, transport. The loudest block in the
+              rail because it is the most-used. */}
+          <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
+            <samp className="deck-name"><Decode text={name} duration={700} /></samp>
+            {track && (
+              <div className="deck-meta">
+                <span ref={bpmRef} className="deck-bpm">bpm --</span>
+                {track.musicalKey && <span>key {track.musicalKey.toLowerCase()}</span>}
+                {track.genre && <span>{track.genre.toLowerCase()}</span>}
+                {track.link && (
+                  <a href={track.link} target="_blank" rel="noopener noreferrer">
+                    {track.artist.replace(' · audius', '')} ↗
+                  </a>
+                )}
+              </div>
+            )}
+            <canvas
+              ref={waveRef}
+              className="deck-wave"
+              width={464}
+              height={104}
+              onPointerDown={(e) => {
+                // The full-track strip is a scrubber, when there IS a track.
+                const r = e.currentTarget.getBoundingClientRect()
+                const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
+                const eng = engineRef.current
+                if (eng?.kind === 'stems' && stemDeckRef.current) {
+                  stemDeckRef.current.seek(frac * stemDeckRef.current.duration)
+                  return
+                }
+                const el = eng?.el
+                if (!el || !isFinite(el.duration) || el.duration <= 0) return
+                el.currentTime = frac * el.duration
+              }}
+            />
+            <div className="deck-time">
+              <data ref={cElapsedRef}>0:00</data>
+              <data ref={cTotalRef}>0:00</data>
+            </div>
+            <div className={`railfold${source !== 'mic' ? ' open' : ''}`}>
+              <div className="transport">
+                <button
+                  className="t-btn"
+                  onClick={() => {
+                    const e = engineRef.current
+                    if (!e) return
+                    if (e.kind === 'stems') {
+                      const d = stemDeckRef.current
+                      if (d) d.playing ? d.pause() : d.play()
+                      return
+                    }
+                    if (e.el.paused) void e.el.play()
+                    else e.el.pause()
+                  }}
+                >
+                  {paused ? 'play' : 'pause'}
+                </button>
+                <button
+                  className="t-btn"
+                  onClick={() => {
+                    const e = engineRef.current
+                    if (!e) return
+                    if (e.kind === 'radio') void e.next()
+                    else void e.playRadio()
+                  }}
+                >
+                  {source === 'file' || source === 'stems' ? 'radio' : 'skip'}
+                </button>
+                <button
+                  className={`t-btn t-mute${muted ? ' on' : ''}`}
+                  aria-pressed={muted}
+                  onClick={() => {
+                    const next = !muted
+                    setMuted(next)
+                    engineRef.current?.setMuted(next)
+                  }}
+                >
+                  {muted ? 'muted' : 'mute'}
+                </button>
+                <div className="vol">
+                  <span>vol</span>
+                  <input
+                    type="range" min={0} max={1} step={0.01} value={volume}
+                    onChange={(ev) => setVolume(Number(ev.target.value))}
+                    aria-label="volume"
+                  />
+                </div>
+                <label className="dial dial-pitch">
+                  <span>pitch</span>
+                  <input
+                    type="range" min={0.5} max={1.5} step={0.01} value={rate}
+                    onChange={(ev) => setRate(Number(ev.target.value))}
+                    onDoubleClick={() => setRate(1)}
+                    aria-label="pitch (playback speed, bends like vinyl)"
+                  />
+                  <data className={rate !== 1 ? 'armed' : ''}>{Math.round(rate * 100)}</data>
+                </label>
+              </div>
+            </div>
+            <div className={`railfold${(source === 'radio' || source === 'file') && track ? ' open' : ''}`}>
+              <button className="deck-split" onClick={() => void doSplit()} disabled={!!splitState}>
+                {splitState ?? 'split into stems'}
+              </button>
+            </div>
           </div>
 
-          <nav className="rail-src rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
+          {/* 2 · FEED — where the sound comes from */}
+          <nav className="rail-src rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
             <button className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
               <Decode text="radio" duration={380} replayOnHover />
             </button>
@@ -1383,11 +1451,10 @@ export default function App() {
           </nav>
 
           {/* SET YOUR VIBE — the radio takes a prompt, not a taxonomy. The
-              lexicon reads it into moods/genres/tempo against Audius's own
-              metadata, and the state line shows the interpretation: the
-              instrument never hides how it heard you. */}
+              state line shows the interpretation: the instrument never
+              hides how it heard you. */}
           <div className={`railfold${source === 'radio' ? ' open' : ''}`}>
-            <div className="tuner rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
+            <div className="tuner rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
               <form
                 className="tuner-find"
                 onSubmit={(e) => { e.preventDefault(); void setVibe(query) }}
@@ -1418,53 +1485,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* transport + volume — never a dead control: mic has no element
-              to pause or fade, so the row yields to the source switch; a
-              file's 'skip' can only mean back to the radio, so it says so. */}
-          <div className={`railfold${source !== 'mic' ? ' open' : ''}`}>
-            <div className="transport rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
-              <button
-                onClick={() => {
-                  const e = engineRef.current
-                  if (!e) return
-                  if (e.kind === 'stems') {
-                    const d = stemDeckRef.current
-                    if (d) d.playing ? d.pause() : d.play()
-                    return
-                  }
-                  if (e.el.paused) void e.el.play()
-                  else e.el.pause()
-                }}
-              >
-                <Decode text={paused ? 'play' : 'pause'} duration={300} replayOnHover />
-              </button>
-              <button
-                onClick={() => {
-                  const e = engineRef.current
-                  if (!e) return
-                  if (e.kind === 'radio') void e.next()
-                  else void e.playRadio()
-                }}
-              >
-                <Decode text={source === 'file' ? 'radio' : 'skip'} duration={300} replayOnHover />
-              </button>
-              <div className="vol">
-                <span>vol</span>
-                <input
-                  type="range" min={0} max={1} step={0.01} value={volume}
-                  onChange={(ev) => setVolume(Number(ev.target.value))}
-                  aria-label="volume"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* THE LAYER ROWS — every ring's visible twin. Name + live meter,
-              a level slider that IS the ring's fader (real stem gain or the
-              tier's own peaking filter), solo and mute. Hover a row and its
-              ring burns brighter; hover a ring and its row heats up. */}
+          {/* 3 · LAYERS — every ring's visible twin. */}
           <div className={`railfold${layerUi ? ' open' : ''}`}>
-            <div className="layers rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+            <div className="layers rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
               <span className="layers-tag">layers · each row is a ring</span>
               {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
@@ -1490,18 +1513,10 @@ export default function App() {
             </div>
           </div>
 
-          {/* response tuning — the instrument's own dials */}
-          <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
-            <label className="dial">
-              <span>rate</span>
-              <input
-                type="range" min={0.5} max={1.5} step={0.01} value={rate}
-                onChange={(ev) => setRate(Number(ev.target.value))}
-                onDoubleClick={() => setRate(1)}
-                aria-label="playback rate"
-              />
-              <data>{Math.round(rate * 100)}</data>
-            </label>
+          {/* 4 · VISUALS — how the star reacts. Audio controls live with
+              the track; these dials only shape the matter. */}
+          <div className="tuning rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
+            <span className="visuals-tag">visuals · how the star reacts</span>
             {([['turb', 'turbulence'], ['expo', 'exposure'], ['spin', 'spin']] as const).map(([k, label]) => (
               <label key={k} className="dial">
                 <span>{label}</span>
@@ -1514,60 +1529,38 @@ export default function App() {
               </label>
             ))}
             <div className="presets">
-              {([['calm', { turb: 0.6, expo: 0.8, spin: 0.5 }], ['std', { turb: 1, expo: 1, spin: 1 }], ['violent', { turb: 1.6, expo: 1.3, spin: 1.8 }]] as const).map(([name, t]) => (
-                <button key={name} onClick={() => setTuning(t)}>
-                  <Decode text={name} duration={300} replayOnHover />
+              {([['calm', { turb: 0.6, expo: 0.8, spin: 0.5 }], ['std', { turb: 1, expo: 1, spin: 1 }], ['violent', { turb: 1.6, expo: 1.3, spin: 1.8 }]] as const).map(([name2, t]) => (
+                <button key={name2} onClick={() => setTuning(t)}>
+                  <Decode text={name2} duration={300} replayOnHover />
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
-            <samp className="deck-name"><Decode text={name} duration={700} /></samp>
-            <div className={`railfold${(source === 'radio' || source === 'file') && track ? ' open' : ''}`}>
-              <button className="deck-split" onClick={() => void doSplit()} disabled={!!splitState}>
-                {splitState ?? 'split into stems'}
-              </button>
+          {/* 5 · FOOT — the level meter, states that only speak when armed,
+              the legend, and diagnostics for those who ask. */}
+          <div className="rail-foot rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+            <div className="level">
+              <span className="level-tag">level</span>
+              <div className="level-track"><div ref={levelRef} className="level-fill" /></div>
             </div>
-            {track && (track.musicalKey || track.genre || track.link) && (
-              <div className="deck-meta">
-                {track.musicalKey && <span>key {track.musicalKey.toLowerCase()}</span>}
-                {track.genre && <span>{track.genre.toLowerCase()}</span>}
-                {track.link && (
-                  <a href={track.link} target="_blank" rel="noopener noreferrer">
-                    {track.artist.replace(' · audius', '')} ↗
-                  </a>
-                )}
-              </div>
-            )}
-            <canvas
-              ref={waveRef}
-              className="deck-wave"
-              width={464}
-              height={104}
-              onPointerDown={(e) => {
-                // The full-track strip is a scrubber, when there IS a track.
-                const r = e.currentTarget.getBoundingClientRect()
-                const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width))
-                const eng = engineRef.current
-                if (eng?.kind === 'stems' && stemDeckRef.current) {
-                  stemDeckRef.current.seek(frac * stemDeckRef.current.duration)
-                  return
-                }
-                const el = eng?.el
-                if (!el || !isFinite(el.duration) || el.duration <= 0) return
-                el.currentTime = frac * el.duration
-              }}
-            />
-            <div className="deck-counts">
-              <data ref={cElapsedRef}>· 0</data>
-              <data ref={cTotalRef}>· 0</data>
+            <div className="chips" aria-live="off">
+              <span ref={zoomRef} className="chip" />
+              <span ref={fltRef} className="chip" />
+              <span ref={echoRef} className="chip" />
+              <span ref={sectRef} className="chip" />
             </div>
             {source !== 'stems' && (
               <span className="stemhint">have stems? drop them together (vocals·drums·bass). split any track locally with stemdeck</span>
             )}
             <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · r/f/m src · +/-/0 zoom · h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
+            <div className="diag">
+              <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
+                diag {diag ? '▾' : '▸'}
+              </button>
+              {diag && <samp ref={diagRef} className="diag-line">fps -- · pts -- · quality --</samp>}
+            </div>
           </div>
         </aside>
       )}

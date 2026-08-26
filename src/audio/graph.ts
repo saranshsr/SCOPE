@@ -329,6 +329,13 @@ export class AudioEngine {
     node.gain.setTargetAtTime(Math.max(-30, Math.min(10, db)), this.ctx.currentTime, 0.04)
   }
 
+  /** Master mute: the gain node sits AFTER the analyser, so the star
+   *  keeps dancing while muted — monitor silence, not instrument death.
+   *  Covers radio, files, stems and mic alike (all route through it). */
+  setMuted(m: boolean) {
+    this.gain.gain.setTargetAtTime(m ? 0 : 1, this.ctx.currentTime, 0.02)
+  }
+
   /** One ring, one filter: dB on the i-th tier's peaking band. */
   tierEq(i: number, db: number) {
     const f = this.tierFs[i]
