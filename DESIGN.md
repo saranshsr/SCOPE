@@ -64,7 +64,21 @@ No third face. No italics. Numbers always mono.
    piece 6), never smooth gradients.
 7. **Accessibility floors are law.** ≥44px touch targets, `:focus-visible`
    outlines, `aria-pressed` on toggles, reduced-motion strips animation
-   and restores native cursors, contrast floors per §1.
+   and restores native cursors, contrast floors per §1. Filled-red cells
+   carry INK type, never white: white on `--red` measures 4.3:1 and fails
+   AA, ink measures 4.6:1 — and it keeps the one-accent law intact.
+8. **A plate is FULL or it is not a plate.** Density ≥60% of the canvas
+   carrying composed content. The references measure 31% lit *pixels*;
+   round 1 shipped ~4% and read as decoration around emptiness. Sparse
+   is not minimal here, it is unfinished.
+9. **One vocabulary per sheet.** Everything is the same primitive: a
+   bordered cell sharing edges with its neighbours. A floating diagram, a
+   centered figure, boxes-and-arrows, or vertical type inside a page of
+   horizontal rows reads as foreign even when its content is correct.
+   Say new things in the vocabulary already on the page — a sequence is
+   expressed as indexed rows whose shared gutter border IS the spine, not
+   as a flowchart. Standby hides the console's rulers, survey grid and
+   crosshair for the same reason.
 
 ---
 
@@ -105,11 +119,20 @@ Fixed, pointer-events-none, in order: grain (SVG fractal noise, opacity
 
 ## 5 · Rollout plan
 
-**Phase 1 — the landing page (this pass).** The standby poster is rebuilt
-as the language's showcase: module header, unit plate rows, echo
-wordmark, leader-line capability list, corner meta, keyline frame, cell
-power button, poster-grade texture, vermillion red site-wide (token
-swap touches every red in one move).
+**Phase 1 — the landing page. SHIPPED (round 2).** The whole viewport is
+one instrument sheet: running header, image cell, texture strip, leader
+rows, wordmark band with the filled power cell, a dense data column
+(plate rows, dial faces at real knob values, drawn peak scale, the audio
+graph as indexed rows), running footer. The image cell is a HOLE — the
+live star is dollied into it by `scene.setFocus(x, y, dolly)` measured
+from the cell's own rect, so it frames the real instrument rather than a
+picture of one, and glides back out to full size on power-on.
+
+Round 1 failed and is worth remembering: it decorated the existing sparse
+layout instead of recomposing it (laws 8 and 9 were written from that
+failure). A later pass added a real signal-flow diagram that was correct
+but drawn as a floating flowchart — right content, foreign vocabulary —
+and had to be re-said as rows.
 
 **Phase 2 — the console (on the user's go).** Mapping already decided:
 

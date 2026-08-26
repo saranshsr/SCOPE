@@ -59,6 +59,9 @@ export default function App() {
   const [muted, setMuted] = useState(false)
   const [diag, setDiag] = useState(false)
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
+  /** standby plate: the chain row being read, and its texture strip */
+  const [pathHover, setPathHover] = useState<string | null>(null)
+  const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
   const [rate, setRate] = useState(1)
   const [ambient, setAmbient] = useState(false)
   // THE VIBE: a prompt in, a playlist out — plus the instrument's honest
@@ -115,6 +118,23 @@ export default function App() {
     tuningRef.current = tuning
     sceneRef.current?.setTuning(tuning.turb, tuning.expo, tuning.spin)
   }, [tuning])
+
+  // the standby plate's texture strip, and the star's aim into its image
+  // cell — both depend on the plate's measured layout, so they re-run on
+  // resize and are torn down the moment the instrument powers on.
+  useEffect(() => {
+    if (started) return
+    const paint = () => {
+      drawPosterWave(posterWaveRef.current)
+      ;(window as unknown as { __focus?: (snap?: boolean) => void }).__focus?.(true)
+    }
+    const raf = requestAnimationFrame(paint)
+    window.addEventListener('resize', paint)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', paint)
+    }
+  }, [started])
 
   useEffect(() => {
     const e = engineRef.current
@@ -203,13 +223,32 @@ export default function App() {
     // phones center on the viewport; the live desktop centers in the area
     // right of the 272px rail. Camera and DOM crosshair share one value.
     const RAIL = 272
-    const focus = () => {
+    /**
+     * Standby aims the star into the poster's image cell (measured from the
+     * DOM, so it stays right at every breakpoint); live returns it to the
+     * space the rail leaves. Resizes snap, state changes glide.
+     */
+    const focus = (snap = false) => {
       const live = startedRef.current && w > 720
-      const frac = live ? (RAIL + (w - RAIL) / 2) / w : 0.5
-      scene.setFocus(frac)
-      appRef.current?.style.setProperty('--cx', `${(frac * 100).toFixed(2)}%`)
+      let fx = live ? (RAIL + (w - RAIL) / 2) / w : 0.5
+      let fy = 0.5
+      let dolly = 1
+      if (!startedRef.current) {
+        const cell = document.querySelector('.pl-fig')
+        if (cell && h > 0) {
+          const r = cell.getBoundingClientRect()
+          if (r.height > 40) {
+            fx = (r.left + r.width / 2) / w
+            fy = (r.top + r.height / 2) / h
+            // fit the body inside the cell rather than cropping it
+            dolly = Math.max(1, (h / r.height) * 0.92)
+          }
+        }
+      }
+      scene.setFocus(fx, fy, dolly, snap)
+      appRef.current?.style.setProperty('--cx', `${(fx * 100).toFixed(2)}%`)
     }
-    ;(window as unknown as { __focus: () => void }).__focus = focus
+    ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus = focus
     const measure = () => {
       w = canvas.clientWidth
       h = canvas.clientHeight
@@ -219,7 +258,7 @@ export default function App() {
         surveyRef.current.width = w * dp
         surveyRef.current.height = h * dp
       }
-      focus()
+      focus(true)
     }
     measure()
     window.addEventListener('resize', measure)
@@ -1286,14 +1325,6 @@ export default function App() {
       {/* the instrument's bracket frame */}
       <div className="frame">
         <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-        {!started && (
-          <output className="readout">
-            <span ref={labelRef} className="ro-label">tracking 94.00%</span>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div key={i} ref={(el) => { bandRefs.current[i] = el }} className="ro-band" />
-            ))}
-          </output>
-        )}
         <span className="frame-dash" />
       </div>
 
@@ -1306,46 +1337,138 @@ export default function App() {
               the audio sound wrong, so the plate says so in red. */}
           <div className={rate !== 1 ? 'armed' : ''}><dt>pitch</dt><dd>{rate.toFixed(2)}×</dd></div>
         </dl>
-      ) : (
-        /* the unit plate: TRENDS-style rows, identity not data */
-        <dl className="p-plate" aria-hidden="true">
-          <div><dt>//unit_</dt><dd>D-01</dd></div>
-          <div><dt>//rev_</dt><dd>2.6</dd></div>
-          <div><dt>//ch_</dt><dd>01</dd></div>
-        </dl>
-      )}
+      ) : null}
 
-      {/* §3.1 macro-typography: the standby poster. A viewport-bleeding
-          structural wordmark against calculated negative space — the skill's
-          bimodal law: poster when idle, dense telemetry when live. */}
+      {/* THE STANDBY PLATE — the whole viewport is one instrument sheet
+          (DESIGN.md §5 phase 1, round 2). Every element is a bordered cell
+          sharing edges with its neighbours; the image cell is a hole in the
+          sheet, so the live star burns through it, framed and fitted. */}
       {!started && (
-        <>
-          {/* BLACK PLATE poster (DESIGN.md §5 phase 1): keyline frame,
-              module header + morse divider, echo wordmark, leader-line
-              capability list, corner meta. The orb burns through it all. */}
-          <div className="p-frame" aria-hidden="true" />
-          <header className="p-head">
-            <span className="p-modid">[scope-01] · polar audio instrument</span>
-            <span className="p-morse" aria-hidden="true">·· ——— · ·——· ··· — ·· ——</span>
+        <div className="plate">
+          <header className="pl-hdr">
+            <div><b>[scope-01]</b> polar audio instrument</div>
+            <div className="k">//unit_ <span>d-01</span></div>
+            <div className="k">//rev_ <span>2.6</span></div>
+            <div className="k">//ch_ <span>01</span></div>
           </header>
-          <header className="macro">
-            <h1 className="macro-name">
-              scope<span className="macro-reg">®</span>
-            </h1>
-            <div className="macro-echo" aria-hidden="true">scope</div>
-            <ul className="p-leads">
-              {['set a vibe', 'split any track', 'pull it apart'].map((t, i) => (
-                <li key={t} style={{ '--i': i } as React.CSSProperties}>
-                  <span><Decode text={t} duration={700 + i * 150} /></span>
-                  <i className="p-lead-line" aria-hidden="true" />
-                  <b className="p-lead-dot" aria-hidden="true" />
-                </li>
-              ))}
-            </ul>
-          </header>
-          <span className="p-meta p-meta-l" aria-hidden="true">/ webgl · 108k particles</span>
-          <span className="p-meta p-meta-r" aria-hidden="true">/ audius · artist-owned radio</span>
-        </>
+
+          <div className="pl-body">
+            <div className="pl-l">
+              <div className="pl-morse">
+                <span className="lbl">sig</span>
+                <svg
+                  width="100%"
+                  height="7"
+                  viewBox={`0 0 ${MORSE.total} 7`}
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <g fill="currentColor" opacity=".62">
+                    {MORSE.rects.map((r) => (
+                      <rect key={r.x} x={r.x} y="3" width={r.w} height="1.5" />
+                    ))}
+                  </g>
+                </svg>
+                <span className="lbl">tx</span>
+              </div>
+
+              {/* the image cell — deliberately empty: the star is behind it */}
+              <div className="pl-figwrap">
+                <div className="pl-fig">
+                  <i className="brk tl" /><i className="brk tr" />
+                  <i className="brk bl" /><i className="brk br" />
+                  <Reg className="reg a" /><Reg className="reg b" />
+                  <div className="pl-figcap">
+                    <span>fig.01 · particle field</span>
+                    <span>108,000 pts · fibonacci sphere</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pl-wave">
+                <canvas ref={posterWaveRef} />
+                <span className="wlbl">spectra</span>
+              </div>
+
+              <ul className="pl-leads">
+                {['set a vibe', 'split any track', 'pull it apart'].map((t, i) => (
+                  <li key={t} style={{ '--i': i } as React.CSSProperties}>
+                    <span className="no">{'abc'[i]}</span>
+                    <span><Decode text={t} duration={700 + i * 150} /></span>
+                    <i className="ln" aria-hidden="true" />
+                    <b className="dot" aria-hidden="true" />
+                  </li>
+                ))}
+              </ul>
+
+              <div className="pl-band">
+                <div className="pl-mark">
+                  <h1>scope<span className="pl-reg">®</span></h1>
+                  <div className="pl-echo" aria-hidden="true">scope</div>
+                </div>
+                <div className="pl-checks" aria-hidden="true" />
+                <div className="pl-act">
+                  <button className="power" onClick={power}>
+                    <Decode text="power on" duration={520} replayOnHover />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pl-r">
+              <div className="pl-row"><span className="k">//particles_</span><span className="v">108,000</span></div>
+              <div className="pl-row"><span className="k">//engine_</span><span className="v">webgl 2</span></div>
+              <div className="pl-row"><span className="k">//source_</span><span className="v">audius</span></div>
+              <div className="pl-row"><span className="k">//split_</span><span className="v">mdx-net</span></div>
+              <div className="pl-row opt"><span className="k">//stems_</span><span className="v">4 ch</span></div>
+              <div className="pl-row"><span className="k">//density_</span><Meter /></div>
+
+              <div className="pl-dials">
+                <Dial v={tuning.turb} cap="turb" />
+                <Dial v={tuning.expo} cap="expo" />
+                <Dial v={tuning.spin} cap="spin" />
+              </div>
+
+              {/* the scale is drawn; the needle stays parked until there is
+                  real audio to read (law 3: texture never fakes a value) */}
+              <div className="pl-row pl-peak">
+                <div className="pl-peak-hd"><span className="k">//peak_</span><span className="v">idle</span></div>
+                <Scale />
+              </div>
+
+              {/* scope's real audio graph, said in the sheet's own rows */}
+              <div className="pl-path">
+                <div className="pl-row"><span className="k">//path_</span><span className="v">signal chain</span></div>
+                {PATH.map((p) => (
+                  <div
+                    key={p.n}
+                    className={`pl-prow${p.sub ? ' sub' : ''}`}
+                    onMouseEnter={() => setPathHover(p.i)}
+                    onMouseLeave={() => setPathHover(null)}
+                  >
+                    <span className="ix">{p.ix}</span>
+                    <span className="nm">{p.n}</span>
+                    <span className="dt">{p.d}</span>
+                  </div>
+                ))}
+                <div className="pl-pathcap">{pathHover ?? 'hover a stage'}</div>
+              </div>
+
+              <div className="pl-pills">
+                <span className="pill on">( idle )</span>
+                <span className="pill">( ready )</span>
+                <span className="pill">( 44.1k )</span>
+              </div>
+              <div className="pl-strip" aria-hidden="true" />
+            </div>
+          </div>
+
+          <footer className="pl-ftr">
+            <span>/ webgl · 108k particles</span>
+            <span>/ drop a track anywhere</span>
+            <span>/ audius · artist-owned radio</span>
+          </footer>
+        </div>
       )}
 
       {/* THE CONSOLE RAIL — the live state's spine. One engineered column
@@ -1621,14 +1744,6 @@ export default function App() {
       </div>
       )}
 
-      {/* standby: one action. Sources moved into the rail when live. */}
-      {!started && (
-        <div className="ctl-row">
-          <button className="power" onClick={power}>
-            <Decode text="power on" duration={520} replayOnHover />
-          </button>
-        </div>
-      )}
       <input
         ref={fileRef}
         type="file"
@@ -1664,6 +1779,129 @@ export default function App() {
       <div className="grain" />
     </div>
   )
+}
+
+/* ══ standby plate furniture ═══════════════════════════════════════════
+   Drawn, never typed: the craft floor forbids glyph characters standing in
+   for icons, and DESIGN.md law 3 forbids texture that could read as data. */
+
+/** Morse texture: dot 4 wide, dash 16, uniform 8 gap. Pattern only. */
+const MORSE = (() => {
+  const seq = '..-.-.--..-.--..-.-..--.-.-..--..-.-.'
+  const rects: { x: number; w: number }[] = []
+  let x = 0
+  for (const c of seq) {
+    const w = c === '-' ? 16 : 4
+    rects.push({ x, w })
+    x += w + 8
+  }
+  return { rects, total: x - 8 }
+})()
+
+/** scope's actual graph, in order (src/audio/graph.ts). */
+const PATH: { ix: string; n: string; d: string; i: string; sub?: boolean }[] = [
+  { ix: '01', n: 'src', d: 'radio · file · mic', i: 'the audio you feed it: radio, a file, or the mic' },
+  { ix: '02', n: 'eq', d: '3 shelves', i: 'three shelves, the ones the orb bends when you grab it' },
+  { ix: '03', n: 'tiers', d: '6 peaking', i: 'six peaking filters, one per dissection ring' },
+  { ix: '04', n: 'filter', d: 'hp / lp', i: 'the colour sweep: high-pass left, low-pass right' },
+  { ix: '05', n: 'echo', d: 'parallel loop', i: 'a tempo-locked delay with feedback, sent in parallel' },
+  { ix: '06', n: 'analyser', d: '24 bands', i: '24 log bands: everything the star sees' },
+  { ix: '', n: 'star', d: 'visuals tap here', sub: true, i: 'the visuals read the analyser, never the output: mute keeps the star dancing' },
+  { ix: '07', n: 'out', d: 'master gain', i: 'master gain, and the node that mute silences' },
+]
+
+function Reg({ className }: { className: string }) {
+  return (
+    <svg className={className} width="13" height="13" aria-hidden="true">
+      <g stroke="var(--red)" strokeWidth="1">
+        <line x1="6.5" y1="0" x2="6.5" y2="13" />
+        <line x1="0" y1="6.5" x2="13" y2="6.5" />
+      </g>
+    </svg>
+  )
+}
+
+/** Block meter: how much of the shell renders at zoom 1. */
+function Meter() {
+  return (
+    <svg width="86" height="9" aria-hidden="true">
+      <g fill="var(--ink)">
+        {[0, 10, 20, 30, 40].map((x) => <rect key={x} x={x} y="0" width="7" height="9" />)}
+      </g>
+      <g fill="none" stroke="currentColor">
+        {[50.5, 60.5, 70.5, 79.5].map((x) => <rect key={x} x={x} y=".5" width="6" height="8" />)}
+      </g>
+    </svg>
+  )
+}
+
+/** Dial face at the knob's real value (range 0.25..2, 270° sweep). */
+function Dial({ v, cap }: { v: number; cap: string }) {
+  const a = ((-135 + ((v - 0.25) / 1.75) * 270) * Math.PI) / 180
+  return (
+    <div>
+      <svg width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
+        <rect x=".5" y=".5" width="41" height="41" fill="none" stroke="currentColor" opacity=".5" />
+        <circle cx="21" cy="21" r="13" fill="none" stroke="currentColor" />
+        <line
+          x1="21" y1="21"
+          x2={(21 + Math.sin(a) * 12).toFixed(1)}
+          y2={(21 - Math.cos(a) * 12).toFixed(1)}
+          stroke="var(--ink)" strokeWidth="1.5"
+        />
+        <circle cx="21" cy="21" r="1.6" fill="var(--red)" />
+      </svg>
+      <span className="cap">{cap}</span>
+    </div>
+  )
+}
+
+/** The spectrum ruler. Drawn scale, no needle: standby has no signal. */
+function Scale() {
+  return (
+    <svg width="100%" height="22" preserveAspectRatio="none" viewBox="0 0 280 22" aria-hidden="true">
+      <g stroke="currentColor">
+        <line x1="0" y1="11.5" x2="280" y2="11.5" opacity=".5" />
+        {[1, 36, 71, 106, 141, 176, 211, 246, 279].map((x, i) => (
+          <line key={x} x1={x} y1={i % 3 === 0 ? 3 : 7} x2={x} y2="11" />
+        ))}
+      </g>
+      <text x="0" y="21" fill="currentColor" fontSize="6" fontFamily="monospace">20HZ</text>
+      <text x="259" y="21" fill="currentColor" fontSize="6" fontFamily="monospace">20KHZ</text>
+    </svg>
+  )
+}
+
+/**
+ * The poster's waveform strip: layered vertical hairlines with a dithered
+ * falloff (DESIGN.md primitive 11). Standby has no audio, so this is
+ * declared texture on the poster, where law 3 permits it.
+ */
+function drawPosterWave(cv: HTMLCanvasElement | null) {
+  if (!cv) return
+  const g = cv.getContext('2d')
+  const w = cv.clientWidth
+  const h = cv.clientHeight
+  if (!g || w < 2 || h < 2) return
+  const d = Math.min(2, window.devicePixelRatio || 1)
+  cv.width = w * d
+  cv.height = h * d
+  g.setTransform(d, 0, 0, d, 0, 0)
+  g.clearRect(0, 0, w, h)
+  const mid = h / 2
+  for (let i = 0; i < w; i++) {
+    const t = i / w
+    const env = Math.abs(Math.sin(t * Math.PI * 3.1)) * Math.abs(Math.cos(t * Math.PI * 7.3)) * 0.75 + 0.08
+    const jag = 0.55 + 0.45 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
+    const a = env * jag * (h * 0.46)
+    const lit = 0.25 + 0.75 * Math.pow(env, 0.6)
+    g.fillStyle = `rgba(234,234,239,${(lit * (0.35 + Math.random() * 0.65)).toFixed(3)})`
+    g.fillRect(i, mid - a, 1, a * 2)
+    if (Math.random() < env * 0.55) {
+      g.fillStyle = `rgba(234,234,239,${(lit * 0.5).toFixed(3)})`
+      g.fillRect(i, mid - a * 1.5, 1, a * 0.4)
+    }
+  }
 }
 
 /**

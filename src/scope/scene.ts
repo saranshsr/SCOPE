@@ -514,6 +514,13 @@ export class Scene {
   private born = performance.now()
   private t = 0
   private focusFrac = 0.5
+  private focusTx = 0.5
+  /** Vertical aim, and the frame dolly: >1 pushes the camera back so the
+   *  body fits inside the standby poster's image cell. */
+  private focusFracY = 0.5
+  private focusTy = 0.5
+  private dolly = 1
+  private dollyT = 1
   private quality = 1
   /** Camera zoom, 1..5. Damped toward zoomTarget every frame. */
   private zoom = 1
@@ -958,8 +965,21 @@ export class Scene {
     this.burst(1)
   }
 
-  setFocus(frac: number) {
-    this.focusFrac = frac
+  /**
+   * Aim the body at a point on the glass, and optionally shrink it to sit
+   * inside a frame. Standby parks the star inside the poster's image cell;
+   * powering on glides it back out to full size. Snap for resizes, glide
+   * for state changes.
+   */
+  setFocus(frac: number, fracY = 0.5, dolly = 1, snap = false) {
+    this.focusTx = frac
+    this.focusTy = fracY
+    this.dollyT = dolly
+    if (snap) {
+      this.focusFrac = frac
+      this.focusFracY = fracY
+      this.dolly = dolly
+    }
     this.resize(this.lastW, this.lastH)
   }
 
@@ -1042,9 +1062,12 @@ export class Scene {
     // so the dissected stack must live in the top half — dolly back harder
     // and aim below the stack's centre to raise it into the visible stage.
     const portrait = aspect < 0.85
-    this.camera.position.z = (baseZ / this.zoom) * (1 + dis * (portrait ? 1.38 : 0.62))
-    const off = (-(this.focusFrac - 0.5) * 2 * aspect) / this.zoom
-    const ly = portrait ? -1.0 * dis : 0
+    this.camera.position.z = ((baseZ * this.dolly) / this.zoom) * (1 + dis * (portrait ? 1.38 : 0.62))
+    // Frustum half-extent at the subject plane is dolly/zoom, so the aim
+    // offsets scale with both or the body drifts out of its frame.
+    const off = (-(this.focusFrac - 0.5) * 2 * aspect * this.dolly) / this.zoom
+    const offY = ((this.focusFracY - 0.5) * 2 * this.dolly) / this.zoom
+    const ly = (portrait ? -1.0 * dis : 0) + offY
     this.camera.position.x = off
     this.camera.position.y = ly
     this.camera.lookAt(off, ly, 0)
@@ -1072,6 +1095,20 @@ export class Scene {
     this.uniforms.uDissect.value = dis
     if (Math.abs(dis - this.lastDis) > 1e-3) {
       this.lastDis = dis
+      this.placeCamera()
+    }
+
+    // Damped framing: powering on glides the star out of the poster's
+    // image cell to full size instead of cutting to it.
+    if (
+      Math.abs(this.dolly - this.dollyT) > 1e-4 ||
+      Math.abs(this.focusFrac - this.focusTx) > 1e-5 ||
+      Math.abs(this.focusFracY - this.focusTy) > 1e-5
+    ) {
+      const k = Math.min(1, dt * 3.4)
+      this.dolly += (this.dollyT - this.dolly) * k
+      this.focusFrac += (this.focusTx - this.focusFrac) * k
+      this.focusFracY += (this.focusTy - this.focusFracY) * k
       this.placeCamera()
     }
 
