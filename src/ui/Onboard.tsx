@@ -45,8 +45,8 @@ const STEPS: Step[] = [
     stack: 'open',
   },
   {
-    title: 'tune the radio',
-    body: 'chips retune the trending sweep by genre. the search box finds any artist or track on audius. real released music, artist-owned.',
+    title: 'set your vibe',
+    body: 'type a feeling: late night drive, gym rage, rainy study. the instrument reads it into moods and tempo and plays real music from audius to match. artist names work too.',
     anchor: '.tuner',
     stack: 'closed',
   },

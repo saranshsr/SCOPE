@@ -5,7 +5,7 @@ import { BeatClock } from './audio/beat'
 import { Scene } from './scope/scene'
 import { playlist } from './data/tracks'
 import { loadPeaks, peaksFromFile, energyAhead, type TrackPeaks } from './scope/peaks'
-import { fetchAudiusRadio, searchAudius, AUDIUS_GENRES } from './audio/audius'
+import { fetchAudiusRadio, fetchVibe } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
@@ -55,9 +55,10 @@ export default function App() {
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
   const [rate, setRate] = useState(1)
   const [ambient, setAmbient] = useState(false)
-  // THE TUNER: which Audius genre the radio is tuned to, and the search box.
-  const [tuneIdx, setTuneIdx] = useState(0)
+  // THE VIBE: a prompt in, a playlist out — plus the instrument's honest
+  // read of how it understood you.
   const [query, setQuery] = useState('')
+  const [vibeRead, setVibeRead] = useState<string | null>(null)
   const [tuning2, setTuning2] = useState<'idle' | 'loading' | 'empty'>('idle')
   const [onboard, setOnboard] = useState(false)
   // SPLIT: the playing track being separated into stems, in-browser.
@@ -1167,21 +1168,21 @@ export default function App() {
     }
   }, [])
 
-  /** Tune the radio: swap the playlist to a genre or a search, then play.
-   *  Boots the instrument if it's still on standby, so a tuner click is a
-   *  complete action rather than a setting that needs a second gesture. */
-  const tuneTo = async (idx: number, q = '') => {
+  /** Set the vibe: the prompt becomes a read (moods, genres, tempo), the
+   *  read becomes a playlist, and the instrument shows its interpretation.
+   *  Boots from standby, so a vibe is a complete action. */
+  const setVibe = async (prompt: string) => {
     const eng = engineRef.current
-    if (!eng) return
+    if (!eng || !prompt.trim()) return
     setTuning2('loading')
-    setTuneIdx(idx)
-    const list = q ? await searchAudius(q) : await fetchAudiusRadio(AUDIUS_GENRES[idx].genre)
-    if (!list.length) {
+    const { tracks, read } = await fetchVibe(prompt.trim())
+    setVibeRead(read)
+    if (!tracks.length) {
       setTuning2('empty')
       return
     }
     setTuning2('idle')
-    eng.setPlaylist(list)
+    eng.setPlaylist(tracks)
     if (!startedRef.current) {
       startedRef.current = true
       setStarted(true)
@@ -1367,37 +1368,38 @@ export default function App() {
             </button>
           </nav>
 
-          {/* THE TUNER — the radio is a dial, not a slot machine. Genre chips
-              retune the trending sweep; search finds any artist on the
-              platform. Both are one click from sound. */}
+          {/* SET YOUR VIBE — the radio takes a prompt, not a taxonomy. The
+              lexicon reads it into moods/genres/tempo against Audius's own
+              metadata, and the state line shows the interpretation: the
+              instrument never hides how it heard you. */}
           <div className={`railfold${source === 'radio' ? ' open' : ''}`}>
             <div className="tuner rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
-              <div className="tuner-chips">
-                {AUDIUS_GENRES.map((g, i) => (
-                  <button
-                    key={g.label}
-                    className={i === tuneIdx && !query ? 'on' : ''}
-                    onClick={() => { setQuery(''); void tuneTo(i) }}
-                  >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
               <form
                 className="tuner-find"
-                onSubmit={(e) => { e.preventDefault(); if (query.trim()) void tuneTo(tuneIdx, query) }}
+                onSubmit={(e) => { e.preventDefault(); void setVibe(query) }}
               >
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="find an artist or track"
-                  aria-label="search audius"
+                  placeholder="set your vibe · or name an artist"
+                  aria-label="set your vibe"
                   spellCheck={false}
                 />
                 <button type="submit">go</button>
               </form>
+              <div className="tuner-chips">
+                {['late night drive', 'gym rage', 'rainy study', 'rooftop sunset'].map((v) => (
+                  <button key={v} onClick={() => { setQuery(v); void setVibe(v) }}>
+                    {v}
+                  </button>
+                ))}
+              </div>
               <span className="tuner-state">
-                {tuning2 === 'loading' ? 'tuning …' : tuning2 === 'empty' ? 'nothing playable found' : 'streaming from audius · artist-owned'}
+                {tuning2 === 'loading'
+                  ? 'reading the vibe …'
+                  : tuning2 === 'empty'
+                    ? 'nothing playable found · try other words'
+                    : vibeRead ?? 'streaming from audius · artist-owned'}
               </span>
             </div>
           </div>
