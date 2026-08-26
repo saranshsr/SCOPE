@@ -4,3 +4,6 @@ dist/
 .env.local
 local-media
 .vercel
+
+# design-lint tooling: installed on demand via npx, not product code
+.github/skills/impeccable/
