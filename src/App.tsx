@@ -1736,7 +1736,7 @@ export default function App() {
               state line shows the interpretation: the instrument never
               hides how it heard you. */}
           <div className={`railfold${source === 'radio' ? ' open' : ''}`}>
-            <div className="tuner rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
+            <div className="tuner rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
               <form
                 className="tuner-find"
                 onSubmit={(e) => { e.preventDefault(); void setVibe(query) }}
@@ -1769,7 +1769,7 @@ export default function App() {
 
           {/* 3 · LAYERS — every ring's visible twin. */}
           <div className={`railfold${layerUi ? ' open' : ''}`}>
-            <div className="layers rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
+            <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
               <span className="layers-tag">layers · each row is a ring</span>
               {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
@@ -1797,7 +1797,7 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
-          <div className="tuning rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
+          <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             <span className="visuals-tag">visuals · how the star reacts</span>
             {([['turb', 'turbulence'], ['expo', 'exposure'], ['spin', 'spin']] as const).map(([k, label]) => (
               <label key={k} className="dial">
@@ -1821,7 +1821,7 @@ export default function App() {
 
           {/* 5 · FOOT — the level meter, states that only speak when armed,
               the legend, and diagnostics for those who ask. */}
-          <div className="rail-foot rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
+          <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <div className="level">
               <span className="level-tag">level</span>
               <div className="level-track"><div ref={levelRef} className="level-fill" /></div>

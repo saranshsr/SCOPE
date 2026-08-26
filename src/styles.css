@@ -171,14 +171,17 @@ body {
 .tick.bl { left: -1px; bottom: -1px; border-left-width: 1px; border-bottom-width: 1px; }
 .tick.br { right: -1px; bottom: -1px; border-right-width: 1px; border-bottom-width: 1px; }
 
-/* the small dash on the frame's lower edge — the reference's one off-white touch */
+/* the small dash on the frame's lower edge. It was green — a second accent
+   in a one-accent language (§6 instant reject), and the comment claiming it
+   was "off-white" had drifted from the code. It is chrome, so it takes the
+   chrome line token. */
 .frame-dash {
   position: absolute;
   left: 8px;
   bottom: -1px;
   width: 56px;
   height: 1px;
-  background: rgba(120, 220, 120, 0.5);
+  background: var(--pl-line);
 }
 
 /* flickering readout block, top-left inside the frame */
@@ -1104,7 +1107,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border-color: #eaeaea;
 }
 .layer-btn-m.on {
-  color: #fff;
+  color: #0a0a0a;
   background: #e13b2a;
   border-color: #e13b2a;
 }
@@ -1267,7 +1270,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .onboard-row .onboard-skip { color: rgba(234, 234, 234, 0.45); }
 .onboard-row .onboard-skip:hover { color: #eaeaea; }
 .onboard-row .onboard-next { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
-.onboard-row .onboard-next:hover { background: #e13b2a; border-color: #e13b2a; color: #fff; }
+.onboard-row .onboard-next:hover { background: #e13b2a; border-color: #e13b2a; color: #0a0a0a; }
 @media (prefers-reduced-motion: reduce) {
   .onboard-card { animation: none; }
 }
@@ -1363,7 +1366,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .t-btn:hover { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
 .transport .t-btn:active { transform: translateY(1px); }
 .transport .t-mute.on {
-  color: #fff;
+  color: #0a0a0a;
   background: #e13b2a;
   border-color: #e13b2a;
 }
