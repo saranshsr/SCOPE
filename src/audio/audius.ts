@@ -60,6 +60,17 @@ const LEXICON: [RegExp, VibeSense][] = [
   [/soul|rnb|r&b/i, { genres: ['R&B/Soul'], bpm: [70, 110] }],
   [/reggae|dub(?!step)/i, { genres: ['Reggae'], bpm: [70, 100] }],
   [/latin|reggaeton/i, { genres: ['Latin'], bpm: [90, 110] }],
+  [/phonk|drift/i, { moods: ['Gritty', 'Brooding'], genres: ['Trap', 'Electro', 'Hip-Hop/Rap'], bpm: [125, 165] }],
+  [/hyperpop|glitch/i, { moods: ['Excited', 'Rowdy'], genres: ['Hyperpop', 'Glitch Hop', 'Electronic'], bpm: [130, 170] }],
+  [/trance|uplifting|euphoric/i, { moods: ['Stirring', 'Empowering'], genres: ['Trance', 'Progressive House'], bpm: [132, 142] }],
+  [/hardstyle|hardcore|gabber/i, { moods: ['Aggressive', 'Rowdy'], genres: ['Hardstyle'], bpm: [145, 180] }],
+  [/vaporwave|synthwave|retro|80s/i, { moods: ['Cool', 'Sentimental'], genres: ['Vaporwave', 'Electronic', 'Electro'], bpm: [80, 118] }],
+  [/afro|amapiano|afrobeats?/i, { moods: ['Upbeat', 'Easygoing'], genres: ['Afrobeat', 'House', 'Dancehall'], bpm: [100, 118] }],
+  [/future bass|melodic bass|chill trap/i, { moods: ['Stirring', 'Yearning'], genres: ['Future Bass', 'Electronic'], bpm: [130, 160] }],
+  [/sad boy|sadboy|down bad|in my feels|feels/i, { moods: ['Melancholy', 'Yearning'], genres: ['Lo-Fi', 'R&B/Soul', 'Hip-Hop/Rap'], bpm: [60, 105] }],
+  [/rock|guitar|band/i, { genres: ['Rock', 'Alternative'], bpm: [100, 160] }],
+  [/metal|heavy/i, { moods: ['Aggressive', 'Fiery'], genres: ['Metal'], bpm: [120, 190] }],
+  [/pop\b|catchy|radio/i, { moods: ['Upbeat'], genres: ['Pop'], bpm: [100, 130] }],
 ]
 
 /** Read a prompt: blend every lexicon hit into one sense + a human line. */

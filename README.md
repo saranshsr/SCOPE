@@ -24,11 +24,15 @@ organ: drums gate the eruptions, bass drives the photosphere, vocals
 light a corona ring that dies when the voice does. Everything stays in
 your browser — stems are never uploaded.
 
-**The tuner.** The radio is a dial: genre chips retune the trending
-sweep (house, techno, dnb, dubstep, trap, hip-hop, lo-fi and more) and
-a search box finds any artist or track on Audius, ranked by real play
-counts. Every track carries the artist's own declared bpm and key
-(printed beside scope's measured values) and a link back to its page.
+**Set your vibe.** The radio takes a prompt, not a taxonomy. Type a
+feeling (late night drive, gym rage, rainy study, warehouse at 3am)
+and a lexicon reads it into Audius's own mood taxonomy, genre names
+and bpm ranges, scores trending and search candidates against the
+read, and plays the best thirty. The state line shows exactly how the
+instrument heard you; artist names still work as plain search. Your
+last vibe is remembered and greets you on the next visit. Every track
+carries the artist's own declared bpm and key (printed beside scope's
+measured values) and a link back to its page.
 
 **Split any track.** Press SPLIT INTO STEMS and the playing track
 separates into vocals / drums / bass / other, entirely in your

@@ -1182,6 +1182,9 @@ export default function App() {
       return
     }
     setTuning2('idle')
+    try {
+      localStorage.setItem('scope-vibe', prompt.trim())
+    } catch { /* private mode */ }
     eng.setPlaylist(tracks)
     if (!startedRef.current) {
       startedRef.current = true
@@ -1231,7 +1234,17 @@ export default function App() {
     setStarted(true)
     ;(window as unknown as { __focus: () => void }).__focus()
     sceneRef.current?.powerOn()
-    void engineRef.current?.playRadio()
+    // a returning listener gets their last vibe back, not the generic sweep
+    let saved: string | null = null
+    try {
+      saved = localStorage.getItem('scope-vibe')
+    } catch { /* private mode */ }
+    if (saved) {
+      setQuery(saved)
+      void setVibe(saved)
+    } else {
+      void engineRef.current?.playRadio()
+    }
   }
 
   const name = splitState
