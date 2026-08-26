@@ -31,11 +31,15 @@ counts. Every track carries the artist's own declared bpm and key
 (printed beside scope's measured values) and a link back to its page.
 
 **Split any track.** Press SPLIT INTO STEMS and the playing track
-separates into vocals / drums / bass / other in about fifteen seconds,
-entirely in your browser: STFT, harmonic/percussive separation, bass
-crossover and center-channel vocal extraction in a Web Worker. Nothing
-is uploaded. The stems land in the same deck as a stem-file drop:
-named rings, rows, real per-stem gains.
+separates into vocals / drums / bass / other, entirely in your
+browser. Vocals come from a real neural model (UVR MDX-Net Voc_FT via
+onnxruntime-web, WebGPU when available): a 66MB one-time download,
+cached forever, then roughly a minute per track. Drums, bass and other
+are carved from the instrumental by harmonic/percussive separation and
+crossover in a Web Worker. If the model can't load, a center-channel
+fallback still splits instantly. Nothing is uploaded either way. The
+stems land in the same deck as a stem-file drop: named rings, rows,
+real per-stem gains.
 
 **First contact.** A guided tour points at each control where it
 lives (it opens the stack itself to show you the rings), fires once on

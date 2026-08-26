@@ -9,7 +9,7 @@ import { fetchAudiusRadio, searchAudius, AUDIUS_GENRES } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
-import { splitTrack, splitSelfTest } from './audio/split'
+import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 
 /**
  * scope — a polar oscilloscope made of type.
@@ -189,6 +189,8 @@ export default function App() {
     if (import.meta.env.DEV) {
       ;(window as unknown as { __eng: AudioEngine }).__eng = engine
       ;(window as unknown as { __splitTest: () => Promise<number> }).__splitTest = splitSelfTest
+      ;(window as unknown as { __split7680: typeof split7680Test }).__split7680 = split7680Test
+      ;(window as unknown as { __splitNeural: typeof splitNeuralTest }).__splitNeural = splitNeuralTest
     }
 
     const scene = new Scene(canvas)

@@ -16,6 +16,45 @@ export interface SplitResult {
 
 export type SplitProgress = { stage: string; pct: number }
 
+const MODEL_URL =
+  'https://huggingface.co/Politrees/UVR_resources/resolve/main/models/MDXNet/UVR-MDX-NET-Voc_FT.onnx'
+
+let modelBuf: ArrayBuffer | null = null
+
+/** The MDX vocal model: fetched once with progress, cached forever in the
+ *  Cache API. Any failure returns null and the split runs classical-only. */
+async function fetchModel(onProgress: (p: SplitProgress) => void): Promise<ArrayBuffer | null> {
+  if (modelBuf) return modelBuf
+  try {
+    const cache = await caches.open('scope-ml-v1')
+    const hit = await cache.match(MODEL_URL)
+    if (hit) return (modelBuf = await hit.arrayBuffer())
+    const resp = await fetch(MODEL_URL)
+    if (!resp.ok || !resp.body) return null
+    const total = Number(resp.headers.get('content-length')) || 66762490
+    const reader = resp.body.getReader()
+    const parts: Uint8Array[] = []
+    let got = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      parts.push(value)
+      got += value.length
+      onProgress({ stage: 'model', pct: (got / total) * 100 })
+    }
+    const all = new Uint8Array(got)
+    let o = 0
+    for (const p of parts) {
+      all.set(p, o)
+      o += p.length
+    }
+    await cache.put(MODEL_URL, new Response(all.slice().buffer, { headers: { 'content-type': 'application/octet-stream' } })).catch(() => {})
+    return (modelBuf = all.buffer)
+  } catch {
+    return null
+  }
+}
+
 let worker: Worker | null = null
 
 function getWorker(): Worker {
@@ -37,17 +76,52 @@ export function splitSelfTest(): Promise<number> {
   })
 }
 
+/** DEV: the 7680 FFT/STFT gates. */
+export function split7680Test(): Promise<{ fftErrDb: number; invErrDb: number; stftSnrDb: number }> {
+  return new Promise((resolve) => {
+    const w = getWorker()
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.data?.kind === 'selftest7680') {
+        w.removeEventListener('message', onMsg)
+        resolve(ev.data)
+      }
+    }
+    w.addEventListener('message', onMsg)
+    w.postMessage({ kind: 'selftest7680' })
+  })
+}
+
+/** DEV: model channel-order probe (silent right channel must stay silent). */
+export async function splitNeuralTest(onProgress: (p: SplitProgress) => void): Promise<unknown> {
+  const model = await fetchModel(onProgress)
+  if (!model) return { error: 'model unavailable' }
+  return new Promise((resolve) => {
+    const w = getWorker()
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.data?.kind === 'neuraltest') {
+        w.removeEventListener('message', onMsg)
+        resolve(ev.data)
+      }
+    }
+    w.addEventListener('message', onMsg)
+    w.postMessage({ kind: 'neuraltest', model })
+  })
+}
+
 export async function splitTrack(
   src: string,
   ctx: AudioContext,
   onProgress: (p: SplitProgress) => void,
 ): Promise<SplitResult[]> {
   onProgress({ stage: 'fetch', pct: 0 })
-  const resp = await fetch(src)
+  const [resp, model] = await Promise.all([fetch(src), fetchModel(onProgress)])
   if (!resp.ok) throw new Error(`fetch ${resp.status}`)
   const raw = await resp.arrayBuffer()
   onProgress({ stage: 'decode', pct: 0 })
-  const buf = await ctx.decodeAudioData(raw)
+  // decode at 44100 — the model's native rate; AudioBufferSourceNode
+  // resamples on playback, so the deck doesn't care
+  const oac = new OfflineAudioContext(2, 2, 44100)
+  const buf = await oac.decodeAudioData(raw)
 
   const ch0 = buf.getChannelData(0)
   const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)
@@ -65,7 +139,7 @@ export async function splitTrack(
         const order = m.order as StemRole[]
         const channels = m.channels as Float32Array[]
         const out: SplitResult[] = order.map((role, i) => {
-          const sb = ctx.createBuffer(2, buf.length, buf.sampleRate)
+          const sb = ctx.createBuffer(2, buf.length, 44100)
           sb.copyToChannel(channels[i * 2] as Float32Array<ArrayBuffer>, 0)
           sb.copyToChannel(channels[i * 2 + 1] as Float32Array<ArrayBuffer>, 1)
           return { role, buffer: sb }
@@ -75,6 +149,6 @@ export async function splitTrack(
     }
     w.addEventListener('message', onMsg)
     w.addEventListener('error', (e) => reject(new Error(e.message)), { once: true })
-    w.postMessage({ kind: 'split', ch0: a, ch1: b, sampleRate: buf.sampleRate }, [a.buffer, b.buffer])
+    w.postMessage({ kind: 'split', ch0: a, ch1: b, sampleRate: 44100, model }, [a.buffer, b.buffer])
   })
 }
