@@ -1299,26 +1299,53 @@ export default function App() {
 
       {/* top-right: the title block — an engineering drawing's data plate,
           1px grid-gap dividers, real values only. */}
-      <dl className="titleblock">
-        <div><dt>src</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
-        {/* Non-default state is never silent: a forgotten pitch bend makes
-            the audio sound wrong, so the plate says so in red. */}
-        <div className={rate !== 1 ? 'armed' : ''}><dt>pitch</dt><dd>{rate.toFixed(2)}×</dd></div>
-      </dl>
+      {started ? (
+        <dl className="titleblock">
+          <div><dt>src</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
+          {/* Non-default state is never silent: a forgotten pitch bend makes
+              the audio sound wrong, so the plate says so in red. */}
+          <div className={rate !== 1 ? 'armed' : ''}><dt>pitch</dt><dd>{rate.toFixed(2)}×</dd></div>
+        </dl>
+      ) : (
+        /* the unit plate: TRENDS-style rows, identity not data */
+        <dl className="p-plate" aria-hidden="true">
+          <div><dt>//unit_</dt><dd>D-01</dd></div>
+          <div><dt>//rev_</dt><dd>2.6</dd></div>
+          <div><dt>//ch_</dt><dd>01</dd></div>
+        </dl>
+      )}
 
       {/* §3.1 macro-typography: the standby poster. A viewport-bleeding
           structural wordmark against calculated negative space — the skill's
           bimodal law: poster when idle, dense telemetry when live. */}
       {!started && (
-        <header className="macro">
-          <div className="macro-unit">
-            <span className="barcode" aria-hidden="true" /> UNIT D-01 · REV 2.6 · CH 01
-          </div>
-          <h1 className="macro-name">
-            scope<span className="macro-reg">®</span>
-          </h1>
-          <p className="macro-sub"><Decode text="polar audio instrument /// set a vibe · split any track · pull it apart" duration={1100} /></p>
-        </header>
+        <>
+          {/* BLACK PLATE poster (DESIGN.md §5 phase 1): keyline frame,
+              module header + morse divider, echo wordmark, leader-line
+              capability list, corner meta. The orb burns through it all. */}
+          <div className="p-frame" aria-hidden="true" />
+          <header className="p-head">
+            <span className="p-modid">[scope-01] · polar audio instrument</span>
+            <span className="p-morse" aria-hidden="true">·· ——— · ·——· ··· — ·· ——</span>
+          </header>
+          <header className="macro">
+            <h1 className="macro-name">
+              scope<span className="macro-reg">®</span>
+            </h1>
+            <div className="macro-echo" aria-hidden="true">scope</div>
+            <ul className="p-leads">
+              {['set a vibe', 'split any track', 'pull it apart'].map((t, i) => (
+                <li key={t} style={{ '--i': i } as React.CSSProperties}>
+                  <span><Decode text={t} duration={700 + i * 150} /></span>
+                  <i className="p-lead-line" aria-hidden="true" />
+                  <b className="p-lead-dot" aria-hidden="true" />
+                </li>
+              ))}
+            </ul>
+          </header>
+          <span className="p-meta p-meta-l" aria-hidden="true">/ webgl · 108k particles</span>
+          <span className="p-meta p-meta-r" aria-hidden="true">/ audius · artist-owned radio</span>
+        </>
       )}
 
       {/* THE CONSOLE RAIL — the live state's spine. One engineered column
@@ -1598,7 +1625,7 @@ export default function App() {
       {!started && (
         <div className="ctl-row">
           <button className="power" onClick={power}>
-            [ <Decode text="click to power on" duration={520} replayOnHover /> ]
+            <Decode text="power on" duration={520} replayOnHover />
           </button>
         </div>
       )}
@@ -1673,7 +1700,7 @@ function drawWave(
     }
     // The playhead — the same red as the crosshair tags; one instrument.
     // 2 buffer px = 1 CSS px on the retina buffer.
-    g.fillStyle = '#ff2a2a'
+    g.fillStyle = '#e13b2a'
     g.fillRect(px, 0, 2, H)
     return
   }
@@ -1734,7 +1761,7 @@ function drawSurvey(
     g.lineTo(b.x, b.y)
     g.stroke()
     g.setLineDash([])
-    g.fillStyle = `rgba(255,42,42,${Math.min(1, sa + 0.25)})`
+    g.fillStyle = `rgba(225, 59, 42,${Math.min(1, sa + 0.25)})`
     g.beginPath()
     g.moveTo(t.x - 4, t.y - 6)
     g.lineTo(t.x + 4, t.y - 6)
@@ -1754,7 +1781,7 @@ function drawSurvey(
   if (a <= 0.01) return
   const n = tiers.length
   const ink = (al: number) => `rgba(234,234,234,${al * a})`
-  const red = (al: number) => `rgba(255,42,42,${al * a})`
+  const red = (al: number) => `rgba(225, 59, 42,${al * a})`
   g.textBaseline = 'middle'
   g.lineWidth = 1
 
@@ -1900,7 +1927,7 @@ function drawSpectrum(
     // agreeing with the sculptural one.
     if (mixBand != null) {
       const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
-      if (inBand) g.fillStyle = `rgba(255,42,42,${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
+      if (inBand) g.fillStyle = `rgba(225, 59, 42,${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
     }
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly

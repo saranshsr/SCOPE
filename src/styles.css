@@ -10,9 +10,13 @@
 :root {
   --bg: #0a0a0a;
   --ink: #eaeaea;
+  /* chrome tier: the blueprint-grey of the CHANNEL sheet — module labels,
+     decorative data, diagrams. Functional text stays on --ink. */
+  --ink-dim: #9a9db4;
+  --red-dim: rgba(225, 59, 42, 0.5);
   --dim: rgba(234, 234, 234, 0.45);
   --faint: rgba(234, 234, 234, 0.14);
-  --red: #ff2a2a;
+  --red: #e13b2a;
   --edge: 24px;
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
@@ -312,7 +316,7 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.09;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
   animation: grain 0.45s steps(3) infinite;
 }
@@ -331,7 +335,7 @@ body {
 @media (max-width: 560px) {
   :root { --edge: 14px; }
   .spec { right: auto; left: var(--edge); bottom: calc(var(--edge) + 118px + env(safe-area-inset-bottom, 0px)); }
-  .ctl-row { bottom: auto; top: calc(var(--edge) + 28px); }
+  .ctl-row { bottom: calc(var(--edge) + 40px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ===========================================================================
@@ -423,11 +427,13 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: repeating-linear-gradient(
+  /* scanline residue + a poster vignette: the ground is matter */
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.42) 100%),
+    repeating-linear-gradient(
     0deg,
     transparent,
     transparent 2px,
-    rgba(0, 0, 0, 0.09) 2px,
+    rgba(0, 0, 0, 0.12) 2px,
     rgba(0, 0, 0, 0.09) 4px
   );
 }
@@ -949,12 +955,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient { cursor: none; }
 
 /* A cell in a non-default state — the machine admitting it. */
-.titleblock .armed dt, .statgrid .armed dt { color: rgba(255, 42, 42, 0.75); }
+.titleblock .armed dt, .statgrid .armed dt { color: rgba(225, 59, 42, 0.75); }
 .titleblock .armed dd, .statgrid .armed dd { color: var(--red); }
 
 /* Mixing: the reticle's dot goes red — you are holding the audio. */
 .app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
-.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(255, 42, 42, 0.7); }
+.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(225, 59, 42, 0.7); }
 
 /* the live parameter riding the reticle while you hold audio */
 .ret-label {
@@ -996,9 +1002,9 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .stem-bar { height: 5px; border: 1px solid rgba(234, 234, 234, 0.18); display: block; }
 .stem-bar i { display: block; height: 100%; background: var(--ink); transition: width 100ms linear; }
 .stem-ms { font-size: 8px; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; text-align: right; }
-.stem-muted { border-color: rgba(255, 42, 42, 0.5); }
+.stem-muted { border-color: rgba(225, 59, 42, 0.5); }
 .stem-muted .stem-role, .stem-muted .stem-ms { color: var(--red); }
-.stem-muted .stem-bar i { background: rgba(255, 42, 42, 0.4); }
+.stem-muted .stem-bar i { background: rgba(225, 59, 42, 0.4); }
 
 .stemhint {
   font-size: 8px;
@@ -1097,11 +1103,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-btn-m.on {
   color: #fff;
-  background: #ff2a2a;
-  border-color: #ff2a2a;
+  background: #e13b2a;
+  border-color: #e13b2a;
 }
-.layer-muted .layer-name { color: #ff2a2a; }
-.layer-muted .layer-meter b { background: #ff2a2a; }
+.layer-muted .layer-name { color: #e13b2a; }
+.layer-muted .layer-meter b { background: #e13b2a; }
 .layer-solo { border-color: rgba(234, 234, 234, 0.5); }
 
 /* ── the tuner: the radio is a dial ─────────────────────────────────── */
@@ -1176,7 +1182,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   opacity: 0.55;
 }
 .deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid rgba(234, 234, 234, 0.3); }
-.deck-meta a:hover { border-color: #ff2a2a; color: #ff2a2a; }
+.deck-meta a:hover { border-color: #e13b2a; color: #e13b2a; }
 
 /* ── first-contact calibration ──────────────────────────────────────── */
 .onboard {
@@ -1192,14 +1198,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   height: 100%;
 }
 .onboard-wire line {
-  stroke: rgba(255, 42, 42, 0.75);
+  stroke: rgba(225, 59, 42, 0.75);
   stroke-width: 1;
   stroke-dasharray: 3 4;
 }
-.onboard-wire circle { fill: #ff2a2a; }
+.onboard-wire circle { fill: #e13b2a; }
 .onboard-wire .onboard-ping {
   fill: none;
-  stroke: #ff2a2a;
+  stroke: #e13b2a;
   animation: onb-ping 1.5s ease-out infinite;
 }
 @keyframes onb-ping {
@@ -1223,7 +1229,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .onboard-n {
   font-size: 9px;
   letter-spacing: 0.18em;
-  color: #ff2a2a;
+  color: #e13b2a;
 }
 .onboard-n i { font-style: normal; color: rgba(234, 234, 234, 0.35); }
 .onboard-card h2 {
@@ -1259,7 +1265,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .onboard-row .onboard-skip { color: rgba(234, 234, 234, 0.45); }
 .onboard-row .onboard-skip:hover { color: #eaeaea; }
 .onboard-row .onboard-next { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
-.onboard-row .onboard-next:hover { background: #ff2a2a; border-color: #ff2a2a; color: #fff; }
+.onboard-row .onboard-next:hover { background: #e13b2a; border-color: #e13b2a; color: #fff; }
 @media (prefers-reduced-motion: reduce) {
   .onboard-card { animation: none; }
 }
@@ -1292,7 +1298,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   justify-self: start;
 }
 .deck-split:hover:not(:disabled) { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
-.deck-split:disabled { color: #ff2a2a; border-color: rgba(255, 42, 42, 0.5); cursor: wait; }
+.deck-split:disabled { color: #e13b2a; border-color: rgba(225, 59, 42, 0.5); cursor: wait; }
 
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
 .railfold {
@@ -1356,8 +1362,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .t-btn:active { transform: translateY(1px); }
 .transport .t-mute.on {
   color: #fff;
-  background: #ff2a2a;
-  border-color: #ff2a2a;
+  background: #e13b2a;
+  border-color: #e13b2a;
 }
 .transport .vol {
   grid-column: 1 / 3;
@@ -1377,7 +1383,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   align-items: center;
   gap: 4px;
 }
-.transport .dial-pitch data.armed { color: #ff2a2a; }
+.transport .dial-pitch data.armed { color: #e13b2a; }
 
 /* contextual chips: states speak only while non-default */
 .chips { display: flex; flex-wrap: wrap; gap: 5px; min-height: 0; }
@@ -1386,8 +1392,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #ff2a2a;
-  border: 1px solid rgba(255, 42, 42, 0.55);
+  color: #e13b2a;
+  border: 1px solid rgba(225, 59, 42, 0.55);
   padding: 3px 7px;
 }
 .chip.on { display: inline-block; }
@@ -1420,6 +1426,161 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 button:focus-visible,
 input:focus-visible,
 a:focus-visible {
-  outline: 1px solid #ff2a2a;
+  outline: 1px solid #e13b2a;
   outline-offset: 2px;
+}
+
+/* ══ BLACK PLATE · the standby poster (DESIGN.md §5 phase 1) ══════════ */
+
+/* keyline frame: the hero zone gets the OUTER poster's red rectangle */
+.p-frame {
+  position: absolute;
+  inset: calc(var(--edge) + 34px);
+  border: 1px solid var(--red-dim);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.p-head {
+  position: absolute;
+  top: var(--edge);
+  left: var(--edge);
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.p-modid { color: var(--ink); opacity: 0.85; }
+.p-morse {
+  color: var(--ink-dim);
+  opacity: 0.55;
+  letter-spacing: 0.3em;
+  font-size: 10px;
+}
+
+/* the unit plate: gapless cell rows, TRENDS-style */
+.p-plate {
+  position: absolute;
+  top: var(--edge);
+  right: var(--edge);
+  z-index: 2;
+  margin: 0;
+  display: grid;
+  width: 168px;
+  border: 1px solid rgba(154, 157, 180, 0.4);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.p-plate > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 8px;
+}
+.p-plate > div + div { border-top: 1px solid rgba(154, 157, 180, 0.4); }
+.p-plate dt { color: var(--ink-dim); }
+.p-plate dd { margin: 0; color: var(--ink); }
+
+/* echo wordmark: the display moment repeats once as a red ghost */
+.macro-echo {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: clamp(4rem, 13vw, 15rem);
+  line-height: 0.85;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--red-dim);
+  margin-top: -0.18em;
+  clip-path: inset(0 0 46% 0);
+  opacity: 0.8;
+  margin-bottom: -0.42em; /* the clipped ghost shouldn't hold dead space */
+}
+
+/* leader lines: label ●──── (the OUTER consciousness list) */
+.p-leads {
+  list-style: none;
+  margin: 18px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+  max-width: 380px;
+}
+.p-leads li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0;
+  animation: p-lead-in 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: calc(var(--i) * 140ms + 500ms);
+}
+@keyframes p-lead-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.p-lead-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(154, 157, 180, 0.45);
+}
+.p-lead-dot {
+  width: 4px;
+  height: 4px;
+  background: var(--red);
+}
+
+/* corner meta: slash-prefixed, honest values only */
+.p-meta {
+  position: absolute;
+  bottom: calc(var(--edge) + 2px);
+  z-index: 2;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  opacity: 0.75;
+}
+.p-meta-l { left: var(--edge); }
+.p-meta-r { right: var(--edge); }
+
+/* the power cell: one loud red action */
+.ctl-row .power {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--red);
+  background: rgba(10, 10, 10, 0.6);
+  border: 1px solid var(--red);
+  padding: 14px 34px;
+  min-height: 48px;
+  cursor: pointer;
+}
+.ctl-row .power:hover {
+  color: #0a0a0a;
+  background: var(--red);
+}
+
+/* the standby fiction module drops to blueprint ink */
+.frame .readout { color: var(--ink-dim); }
+.frame .readout .ro-label { color: var(--ink-dim); }
+
+@media (max-width: 720px) {
+  .p-plate { display: none; }
+  .p-frame { inset: calc(var(--edge) + 20px); }
+  .p-leads { max-width: 260px; }
+  .macro-echo { clip-path: inset(0 0 55% 0); }
+  .p-meta-r { display: none; } /* one honest note is enough on a phone */
+  .macro { bottom: calc(var(--edge) + 96px + env(safe-area-inset-bottom, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .p-leads li { animation: none; opacity: 1; }
 }
