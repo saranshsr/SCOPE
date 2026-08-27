@@ -112,7 +112,6 @@ export default function App() {
   const startedRef = useRef(false)
   const appRef = useRef<HTMLDivElement>(null)
   const reticleRef = useRef<HTMLDivElement>(null)
-  const gridRef = useRef<HTMLDivElement>(null)
   // Full-track peaks for whatever is playing; generation counter guards
   // against a slow fetch landing after the track has already changed.
   const peaksRef = useRef<TrackPeaks | null>(null)
@@ -776,14 +775,6 @@ export default function App() {
     // The grid sweeps ride the music: Web Animations playbackRate is the
     // one dial that changes a running CSS animation's speed without a jump.
     const perf = { ema: 0.016, cool: 3, q: 1 }
-    let lineAnims: Animation[] = []
-    const collectAnims = () => {
-      lineAnims = []
-      gridRef.current?.querySelectorAll('.gl-v, .gl-h').forEach((el) => {
-        lineAnims.push(...el.getAnimations())
-      })
-    }
-    setTimeout(collectAnims, 200)
 
     // rms history for the scrolling waveform strip.
     const wave = new Float32Array(220)
@@ -986,13 +977,6 @@ export default function App() {
             perf.cool = 5
           }
         }
-      }
-
-      // Sweep rate follows the energy; beats flash the whole layer briefly.
-      if (gridRef.current) {
-        const rate = 0.8 + f.low * 2.6 + beatPulse * 2.2
-        for (const a of lineAnims) a.playbackRate = rate
-        gridRef.current.style.opacity = String(Math.min(1, 0.8 + beatPulse * 0.5))
       }
 
       chromeAcc += dt
@@ -1457,21 +1441,6 @@ export default function App() {
       {/* The survey grid, alive: a pulse of light travels along each line
           (the GridLines component's technique — background-position on a
           long gradient, staggered per line, compositor-only). */}
-      <div ref={gridRef} className="gridlayer" aria-hidden="true">
-        {Array.from({ length: 15 }, (_, i) => (
-          <i key={`v${i}`} className="gl-v" style={{ left: `${((i + 1) / 16) * 100}%`, '--i': i } as React.CSSProperties} />
-        ))}
-        {Array.from({ length: 8 }, (_, i) => (
-          <i key={`h${i}`} className="gl-h" style={{ top: `${((i + 1) / 9) * 100}%`, '--i': i + 4 } as React.CSSProperties} />
-        ))}
-      </div>
-      {/* measuring chrome: tick rulers on the stage edges, hazard strip at
-          the frame's foot — the skill's technical assets, kept quiet. */}
-      <div className="ruler-x" aria-hidden="true">
-        <span>020</span><span>040</span><span>060</span><span>080</span>
-      </div>
-      <div className="ruler-y" aria-hidden="true" />
-      <div className="hazard" aria-hidden="true" />
 
       {/* THE POINTER. One shape for the whole page: it never becomes an
           arrow, a hand or an I-beam, so the eye never re-finds it. */}
@@ -1483,12 +1452,6 @@ export default function App() {
       {/* crosshair — structural lines only; the scrubber owns the playhead */}
       <div className="x-v" />
       <div className="x-h" />
-
-      {/* the instrument's bracket frame */}
-      <div className="frame">
-        <i className="tick tl" /><i className="tick tr" /><i className="tick bl" /><i className="tick br" />
-        <span className="frame-dash" />
-      </div>
 
       {/* THE STANDBY PLATE — the whole viewport is one instrument sheet
           (DESIGN.md §5 phase 1, round 2). Every element is a bordered cell

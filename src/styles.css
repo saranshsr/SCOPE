@@ -54,52 +54,6 @@ body {
   text-transform: uppercase;
 }
 
-/* The blueprint grid — etched on the glass, over the picture, under the
-   chrome. Crosshair '+' marks at the intersections, per the telemetry law. */
-/* The survey grid: hairlines that carry a slow traveling pulse — ported
-   from the GridLines component. background-position animation only, so the
-   whole layer lives on the compositor. */
-.gridlayer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.gl-v,
-.gl-h {
-  position: absolute;
-  display: block;
-}
-
-.gl-v {
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  /* §6 forbids gradients on ink, and law 10 reserves motion for chrome that
-     represents signal — a survey grid represents position, and position is
-     not changing. A flat hairline on the token. */
-  background: var(--pl-line);
-  opacity: 0.34;
-}
-
-.gl-h {
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--pl-line);
-  opacity: 0.34;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .gl-v,
-  .gl-h {
-    animation: none;
-    background: rgba(234, 234, 234, 0.07);
-    background-size: auto;
-  }
-}
-
 .stage {
   position: absolute;
   touch-action: none;
@@ -117,44 +71,6 @@ body {
 }
 .x-v { left: var(--cx, 50%); top: 0; bottom: 0; width: 1px; transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1); }
 .x-h { top: 50%; left: 0; right: 0; height: 1px; }
-
-/* --- the instrument's bracket frame ------------------------------------------ */
-
-.frame {
-  position: absolute;
-  left: var(--cx, 50%);
-  transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1);
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(78vmin, calc(100% - 2 * var(--edge)));
-  height: min(78vmin, calc(100% - 2 * var(--edge)));
-  border: 1px solid var(--pl-line);
-  pointer-events: none;
-}
-
-.tick {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  border: 0 solid var(--pl-line);
-}
-.tick.tl { left: -1px; top: -1px; border-left-width: 1px; border-top-width: 1px; }
-.tick.tr { right: -1px; top: -1px; border-right-width: 1px; border-top-width: 1px; }
-.tick.bl { left: -1px; bottom: -1px; border-left-width: 1px; border-bottom-width: 1px; }
-.tick.br { right: -1px; bottom: -1px; border-right-width: 1px; border-bottom-width: 1px; }
-
-/* the small dash on the frame's lower edge. It was green — a second accent
-   in a one-accent language (§6 instant reject), and the comment claiming it
-   was "off-white" had drifted from the code. It is chrome, so it takes the
-   chrome line token. */
-.frame-dash {
-  position: absolute;
-  left: 8px;
-  bottom: -1px;
-  width: 56px;
-  height: 1px;
-  background: var(--pl-line);
-}
 
 /* --- top-right source id ----------------------------------------------------- */
 
@@ -486,7 +402,7 @@ body {
     animation: none;
     opacity: 0; /* the rail already carries the title */
   }
-  .x-v, .frame {
+  .x-v {
     transition: none;
   }
 }
@@ -570,81 +486,13 @@ body {
   .app input { cursor: text !important; }
 }
 
-/* Grabbing the instrument: the reticle's dot swells while spinning. */
-.app.grabbing .ret-dot {
-  width: 9px;
-  height: 9px;
-}
-.ret-dot { transition: width 120ms ease, height 120ms ease; }
-
-/* --- measuring chrome: rulers + hazard strip ---------------------------------- */
-
-/* Tick ruler along the stage's top edge — fine ticks every 8px, a taller
-   tick every 40px, mono labels under the major marks. */
-.ruler-x {
-  position: absolute;
-  top: 0;
-  left: var(--rail-w);
-  right: 0;
-  height: 14px;
-  pointer-events: none;
-  z-index: 2;
-  background:
-    repeating-linear-gradient(90deg, rgba(234, 234, 234, 0.3) 0 1px, transparent 1px 40px),
-    repeating-linear-gradient(90deg, rgba(234, 234, 234, 0.14) 0 1px, transparent 1px 8px);
-  background-size: 100% 9px, 100% 5px;
-  background-repeat: no-repeat;
-}
-.ruler-x span {
-  position: absolute;
-  top: 9px;
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  color: rgba(234, 234, 234, 0.3);
-}
-.ruler-x span:nth-child(1) { left: 20%; }
-.ruler-x span:nth-child(2) { left: 40%; }
-.ruler-x span:nth-child(3) { left: 60%; }
-.ruler-x span:nth-child(4) { left: 80%; }
-
-/* Vertical ruler on the right edge — ticks only, the labels live on X. */
-.ruler-y {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: 14px;
-  pointer-events: none;
-  z-index: 2;
-  background:
-    repeating-linear-gradient(0deg, rgba(234, 234, 234, 0.3) 0 1px, transparent 1px 40px),
-    repeating-linear-gradient(0deg, rgba(234, 234, 234, 0.14) 0 1px, transparent 1px 8px);
-  background-size: 9px 100%, 5px 100%;
-  background-position: right top;
-  background-repeat: no-repeat;
-}
-
-/* The hazard strip: thick diagonal warning stripes, 3px of them — the
-   machine's one piece of danger paint, along the frame's foot. */
-.hazard {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  pointer-events: none;
-  z-index: 4;
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--red) 0 6px,
-    transparent 6px 14px
-  );
-  opacity: 0.38;
-}
+/* Grabbing the instrument: the reticle's dot swells while spinning.
+   Transform, not width/height — the dot rides a 60fps pointer, and
+   animating box dimensions thrashes layout on every frame of the swell. */
+.app.grabbing .ret-dot { transform: translate(-50%, -50%) scale(2.25); }
+.ret-dot { transition: transform 120ms ease; }
 
 @media (max-width: 720px) {
-  .ruler-x { left: 0; }
-  .ruler-y { display: none; }
   .titleblock { grid-template-columns: 1fr 1fr; }
   /* Priorities invert on the phone sheet: identity, then what's playing
      and its scrubber, then sources and transport — stats and tuning live
@@ -799,10 +647,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient .rail,
 .app.ambient .titleblock,
 .app.ambient .spec,
-.app.ambient .ruler-x,
-.app.ambient .ruler-y,
-.app.ambient .hazard,
-.app.ambient .frame,
 .app.ambient .x-v,
 .app.ambient .x-h,
 .app.ambient .reticle {
@@ -1313,15 +1157,10 @@ a:focus-visible {
 /* Standby is the plate, and nothing else. The console's measuring chrome —
    rulers, survey grid, crosshair, bracket frame — is a second vocabulary
    that reads as clutter across a composed sheet. It returns on power-on. */
-/* Gone in BOTH states now, not just standby: rulers, survey grid, hazard
-   stripe and the centred frame are a second vocabulary, and the console
-   plate's own border plus the stage brackets do that job in one language.
-   The crosshair survives, gated to an active drag. */
-.ruler-x,
-.ruler-y,
-.hazard,
-.gridlayer,
-.frame { display: none; }
+/* The rulers, survey grid, hazard stripe and centred frame are gone: a
+   second vocabulary competing with the panel, and the plate border plus the
+   stage brackets do that job in one language. The crosshair survives,
+   gated to an active drag. */
 .x-v,
 .x-h { display: none; }
 .app.dragging .x-v,
@@ -1838,6 +1677,18 @@ input[type='range'] { height: 32px; }
    A block formatting context contains it without adding any visual box. */
 .cn-plate .rail-foot { padding: 0; display: flow-root; }
 .cn-plate .rail-foot > *:first-child { margin-top: 0; }
+/* The foot's own padding went when the rail was de-spaced, which left its
+   rows running edge-to-edge against the plate border. They are rows like
+   any other row: same 8/12 cell padding, same shared bottom edge. */
+.cn-plate .rail-foot > * {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
+}
+.cn-plate .rail-foot > *:last-child { border-bottom: 0; }
+.cn-plate .level { gap: 10px; }
+.cn-plate .chips:empty,
+.cn-plate .chips:not(:has(.chip.on)) { display: none; }
 .cn-plate .console-dials { margin: 0; border-left: 0; border-right: 0; }
 .cn-plate .deck-meta { margin: 0; border: 0; }
 .cn-plate .deck-meta > div:first-child { border-top: 0; }
@@ -1885,3 +1736,30 @@ input[type='range'] { height: 32px; }
     top: calc(var(--edge) + 44px);
   }
 }
+
+
+/* ══ BROWSER SURFACES ══════════════════════════════════════════════════
+   Selection, caret, scrollbars and numerals ship with browser defaults
+   that belong to no design system. They are part of the sheet. */
+::selection { background: var(--red); color: #0a0a0a; }
+.app input { caret-color: var(--red); }
+
+/* The rail scrolls. Hiding its scrollbar entirely hid the fact that there
+   is more panel below the fold; a hairline in the chrome ink says so
+   without breaking the language. */
+.cn-plate .rail { scrollbar-width: thin; scrollbar-color: var(--pl-line) transparent; }
+.cn-plate .rail::-webkit-scrollbar { display: block; width: 6px; }
+.cn-plate .rail::-webkit-scrollbar-track { background: transparent; }
+.cn-plate .rail::-webkit-scrollbar-thumb { background: var(--pl-line); }
+.cn-plate .rail::-webkit-scrollbar-thumb:hover { background: var(--ink-dim); }
+
+/* Every live numeral is tabular, or the digits jitter as they update:
+   the clock, the bpm, the dial values, the pills and the diagnostics. */
+.deck-time,
+.deck-meta dd,
+.pl-dial .cap b,
+.cn-hdr .k span,
+.chip,
+.diag-line,
+.spec-hz,
+.tuner-state { font-variant-numeric: tabular-nums; }
