@@ -6,7 +6,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
  * Each card anchors to the control it explains: a pulsing target sits on
  * the real element, a hairline runs from the card to it, and when a
  * feature lives inside the open stack the tour opens the stack itself.
- * Shows once on first power-on; the rail's [?] reopens it anytime.
+ * Shows on power-on every visit until the visitor actually reaches the
+ * end; the rail's [?] reopens it anytime.
  */
 
 const KEY = 'scope-onboard-v1'
@@ -76,17 +77,28 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
   const s = STEPS[step]
   const last = step === STEPS.length - 1
 
-  const finish = () => {
-    try {
-      localStorage.setItem(KEY, '1')
-    } catch {
-      /* private mode: shows again, fine */
-    }
+  /**
+   * Close without marking it learned. Skip and Escape are "not now", not
+   * "never again" — this tour is the only place the star gestures, the
+   * dissection and the split are taught, and one stray Escape used to
+   * retire it permanently.
+   */
+  const dismiss = () => {
     ops?.closeStack()
     onDone()
     // hand focus back where it came from, or the next Tab restarts at the
     // top of the document with no announcement
     returnTo.current?.focus?.()
+  }
+
+  /** Reaching the end is the only thing that counts as having learned it. */
+  const complete = () => {
+    try {
+      localStorage.setItem(KEY, '1')
+    } catch {
+      /* private mode: shows again, which is the safe direction */
+    }
+    dismiss()
   }
 
   // The tour is the only place the star gestures are taught, and it mounts
@@ -166,7 +178,7 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'Escape') finish()
+      if (e.code === 'Escape') dismiss()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -207,8 +219,10 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
         <h2>{s.title}</h2>
         <p>{s.body}</p>
         <div className="onboard-row">
-          <button className="onboard-skip" onClick={finish}>skip</button>
-          <button className="onboard-next" onClick={() => (last ? finish() : setStep(step + 1))}>
+          {/* "not now" rather than "skip": dismissing costs nothing, the
+              tour returns next visit until it is actually finished */}
+          <button className="onboard-skip" onClick={dismiss}>not now</button>
+          <button className="onboard-next" onClick={() => (last ? complete() : setStep(step + 1))}>
             {last ? 'play' : 'next'}
           </button>
         </div>
