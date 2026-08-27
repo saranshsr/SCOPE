@@ -96,6 +96,9 @@ export default function App() {
   const tuningRef = useRef(tuning)
   // signal/machine stats, written imperatively at chrome rate
   const bpmRef = useRef<HTMLElement>(null)
+  /** the scrubber's announced position — written on the chrome tick */
+  const [scrubPct, setScrubPct] = useState(0)
+  const [scrubText, setScrubText] = useState('0:00')
   const levelRef = useRef<HTMLDivElement>(null)
   const zoomRef = useRef<HTMLElement>(null)
   const fltRef = useRef<HTMLElement>(null)
@@ -1091,6 +1094,15 @@ export default function App() {
             : { t: el.currentTime, d: el.duration }
           if (cElapsedRef.current) cElapsedRef.current.textContent = fmtTime(deckT.t)
           if (cTotalRef.current) cTotalRef.current.textContent = fmtTime(deckT.d)
+          // the scrubber announces its own position. Rounded to whole
+          // percent and whole seconds so this only re-renders when the
+          // announced value would actually differ.
+          if (isFinite(deckT.d) && deckT.d > 0) {
+            const pct = Math.round((deckT.t / deckT.d) * 100)
+            setScrubPct((p) => (p === pct ? p : pct))
+            const txt = `${fmtTime(deckT.t)} of ${fmtTime(deckT.d)}`
+            setScrubText((p) => (p === txt ? p : txt))
+          }
         }
         setPlaying(engine.playing)
       }
@@ -1203,9 +1215,12 @@ export default function App() {
         case 'Digit2': setTuning({ turb: 1, expo: 1, spin: 1 }); break
         case 'Digit3': setTuning({ turb: 1.6, expo: 1.3, spin: 1.8 }); break
         case 'KeyR': void eng.playRadio(); break
-        case 'KeyF': fileRef.current?.click(); break
-        case 'KeyM': void eng.useMic(); break
-        case 'KeyH': setAmbient((a) => !a); break
+        // shift on the three that are disruptive from a stray keystroke:
+        // f opens a file picker, m fires a browser permission prompt, and
+        // h blanks the whole interface. Everything else stays bare.
+        case 'KeyF': if (e.shiftKey) fileRef.current?.click(); break
+        case 'KeyM': if (e.shiftKey) void eng.useMic(); break
+        case 'KeyH': if (e.shiftKey) setAmbient((a) => !a); break
         case 'KeyD':
           // keyboard dissect: full open / full shut
           sect.latched = !sect.latched
@@ -1252,6 +1267,9 @@ export default function App() {
 
     // --- zoom: wheel on desktop, pinch on touch -------------------------
     const onWheel = (e: WheelEvent) => {
+      // ctrl+wheel is the browser's zoom gesture; swallowing it blocked
+      // page zoom across the whole stage (1.4.4)
+      if (e.ctrlKey) return
       if ((e.target as Element)?.closest?.('.rail, .spec')) return
       e.preventDefault()
       scene.zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12)
@@ -1474,7 +1492,7 @@ export default function App() {
 
   return (
     <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}`}>
-      <canvas ref={canvasRef} className="stage" />
+      <canvas ref={canvasRef} className="stage" aria-hidden="true" />
       {/* The survey drawing — numbered markers, dashed drop-lines, tier
           labels — projected over the dissected stack. Exists only while
           the orb is pulled apart. */}
@@ -1544,7 +1562,7 @@ export default function App() {
               </div>
 
               <div className="pl-wave">
-                <canvas ref={posterWaveRef} />
+                <canvas ref={posterWaveRef} aria-hidden="true" />
                 <span className="wlbl">motion</span>
               </div>
 
@@ -1648,20 +1666,28 @@ export default function App() {
               <i className={`src-dot${playing ? ' live' : ''}`} />
             </div>
             <div className={`k${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
-            <button className="rail-help" onClick={() => setOnboard(true)} title="how to play">?</button>
+            <button
+              className="rail-help"
+              onClick={() => setOnboard(true)}
+              aria-label="how to play"
+              aria-haspopup="dialog"
+            >
+              <span aria-hidden="true">?</span>
+            </button>
           </header>
 
           <div className="cn-body">
-        <aside className="rail">
+        <main className="rail" aria-label="instrument console">
+          <h1 className="sr-only">scope console</h1>
           {/* 1 · NOW PLAYING — what you hear, and every control that acts on
               it, in the order every music player taught the world: title,
               artist, scrubber + time, transport. The loudest block in the
               rail because it is the most-used. */}
-          <div className="cn-mod"><span>01 · now playing</span><i>//deck_</i></div>
+          <h2 className="cn-mod"><span>01 · now playing</span><i>//deck_</i></h2>
           <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
             <div className="pl-row cn-track">
               <span className="k">//track_</span>
-              <samp className="deck-name"><Decode text={name} duration={700} /></samp>
+              <samp className="deck-name" role="status" aria-live="polite"><Decode text={name} duration={700} /></samp>
             </div>
             {track && (
               /* §5 phase 2: track meta as plate rows. As inline spans it
@@ -1689,6 +1715,33 @@ export default function App() {
               className="deck-wave"
               width={464}
               height={104}
+              role="slider"
+              tabIndex={0}
+              aria-label="seek"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(scrubPct)}
+              aria-valuetext={scrubText}
+              onKeyDown={(e) => {
+                const eng = engineRef.current
+                if (!eng) return
+                const dur = eng.kind === 'stems' && stemDeckRef.current
+                  ? stemDeckRef.current.duration
+                  : eng.el.duration
+                if (!isFinite(dur) || dur <= 0) return
+                const seek = (t: number) => {
+                  const to = Math.max(0, Math.min(dur, t))
+                  if (eng.kind === 'stems' && stemDeckRef.current) stemDeckRef.current.seek(to)
+                  else eng.el.currentTime = to
+                }
+                const now = eng.kind === 'stems' && stemDeckRef.current
+                  ? stemDeckRef.current.currentTime()
+                  : eng.el.currentTime
+                if (e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); seek(now + 5) }
+                else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); seek(now - 5) }
+                else if (e.key === 'Home') { e.preventDefault(); e.stopPropagation(); seek(0) }
+                else if (e.key === 'End') { e.preventDefault(); e.stopPropagation(); seek(dur) }
+              }}
               onPointerDown={(e) => {
                 // The full-track strip is a scrubber, when there IS a track.
                 const r = e.currentTarget.getBoundingClientRect()
@@ -1768,24 +1821,32 @@ export default function App() {
               </div>
             </div>
             <div className={`railfold${(source === 'radio' || source === 'file') && track ? ' open' : ''}`}>
-              <button className="deck-split" onClick={() => void doSplit()} disabled={!!splitState}>
+              <button
+                className="deck-split"
+                onClick={() => { if (!splitState) void doSplit() }}
+                aria-disabled={!!splitState}
+                aria-busy={!!splitState}
+              >
                 {splitState ?? 'split into stems'}
               </button>
+              {/* disabled would drop focus and leave the a11y tree; a live
+                  sibling announces progress without stealing the control */}
+              <span className="sr-only" role="status">{splitState ?? ''}</span>
             </div>
           </div>
 
-          <div className="cn-mod"><span>02 · feed</span><i>//source_</i></div>
-          <nav className="rail-src rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
-            <button className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
+          <h2 className="cn-mod"><span>02 · feed</span><i>//source_</i></h2>
+          <div className="rail-src rail-sec" role="radiogroup" aria-label="audio source" style={{ '--i': 2 } as React.CSSProperties}>
+            <button role="radio" aria-checked={source === 'radio'} className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
               <Decode text="radio" duration={380} replayOnHover />
             </button>
-            <button className={source === 'file' ? 'on' : ''} onClick={() => fileRef.current?.click()}>
+            <button role="radio" aria-checked={source === 'file'} className={source === 'file' ? 'on' : ''} onClick={() => fileRef.current?.click()}>
               <Decode text="file" duration={380} replayOnHover />
             </button>
-            <button className={source === 'mic' ? 'on' : ''} onClick={() => void engineRef.current?.useMic()}>
+            <button role="radio" aria-checked={source === 'mic'} className={source === 'mic' ? 'on' : ''} onClick={() => void engineRef.current?.useMic()}>
               <Decode text="mic" duration={380} replayOnHover />
             </button>
-          </nav>
+          </div>
 
           {/* SET YOUR VIBE — the radio takes a prompt, not a taxonomy. The
               state line shows the interpretation: the instrument never
@@ -1803,7 +1864,7 @@ export default function App() {
                   aria-label="set your vibe"
                   spellCheck={false}
                 />
-                <button type="submit">go</button>
+                <button type="submit" aria-label="set vibe">go</button>
               </form>
               <div className="tuner-chips">
                 {['late night drive', 'gym rage', 'rainy study', 'rooftop sunset'].map((v) => (
@@ -1812,7 +1873,7 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <span className="tuner-state">
+              <span className="tuner-state" role="status">
                 {tuning2 === 'loading'
                   ? 'reading the vibe …'
                   : tuning2 === 'empty'
@@ -1823,8 +1884,11 @@ export default function App() {
           </div>
 
           {/* 3 · LAYERS — every ring's visible twin. */}
+          <h2 className="cn-mod"><span>03 · layers</span><i>//each row is a ring_</i></h2>
+          {!layerUi && (
+            <p className="cn-hint">pull the star apart (or press d) to mix its rings</p>
+          )}
           <div className={`railfold${layerUi ? ' open' : ''}`}>
-            <div className="cn-mod"><span>03 · layers</span><i>//each row is a ring_</i></div>
             <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
               {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
@@ -1847,8 +1911,22 @@ export default function App() {
                     onDoubleClick={() => tierCtlRef.current?.gain(L.i, 1)}
                     aria-label={`${L.label} level`}
                   />
-                  <button className={`layer-btn${L.solo ? ' on' : ''}`} onClick={() => tierCtlRef.current?.solo(L.i)}>s</button>
-                  <button className={`layer-btn layer-btn-m${L.muted ? ' on' : ''}`} onClick={() => tierCtlRef.current?.mute(L.i)}>m</button>
+                  <button
+                    className={`layer-btn${L.solo ? ' on' : ''}`}
+                    aria-label={`solo ${L.label}`}
+                    aria-pressed={L.solo}
+                    onClick={() => tierCtlRef.current?.solo(L.i)}
+                  >
+                    <span aria-hidden="true">s</span>
+                  </button>
+                  <button
+                    className={`layer-btn layer-btn-m${L.muted ? ' on' : ''}`}
+                    aria-label={`mute ${L.label}`}
+                    aria-pressed={L.muted}
+                    onClick={() => tierCtlRef.current?.mute(L.i)}
+                  >
+                    <span aria-hidden="true">m</span>
+                  </button>
                 </div>
               ))}
             </div>
@@ -1856,7 +1934,7 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
-          <div className="cn-mod"><span>04 · visuals</span><i>//how the star reacts_</i></div>
+          <h2 className="cn-mod"><span>04 · visuals</span><i>//how the star reacts_</i></h2>
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             {/* The SAME dial the landing ships. These were UA-default range
                 inputs rendering the same three parameters in a second
@@ -1882,9 +1960,9 @@ export default function App() {
 
           {/* 4 · SPECTRUM — docked into the panel. It carried real content
               while hovering over the star, which is what made it a card. */}
-          <div className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></div>
+          <h2 className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></h2>
           <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
-            <canvas ref={specRef} width={400} height={144} />
+            <canvas ref={specRef} width={400} height={144} aria-hidden="true" />
             <div className="spec-hz">
               <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
             </div>
@@ -1908,10 +1986,10 @@ export default function App() {
             {source !== 'stems' && (
               <span className="stemhint">have stems? drop them together (vocals·drums·bass). split any track locally with stemdeck</span>
             )}
-            <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · [ ] filter · e/E echo · \ flat · r/f/m src · +/-/0 zoom · h hide</kbd>
+            <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · [ ] filter · e/E echo · \ flat · r/shift+f/shift+m src · +/-/0 zoom · shift+h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
           </div>
-        </aside>
+        </main>
 
             {/* the stage: the star burns through this cell, framed by
                 brackets and nothing else. All the measuring chrome that

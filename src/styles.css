@@ -13,10 +13,12 @@
   /* chrome tier: the blueprint-grey of the CHANNEL sheet — module labels,
      decorative data, diagrams. Functional text stays on --ink. */
   --ink-dim: #9a9db4;
-  --red-dim: rgba(225, 59, 42, 0.5);
+  --red-dim: rgba(225, 59, 42, 0.78);
   /* the plate's shared cell border — one weight, one colour, everywhere */
-  --pl-line: rgba(141, 144, 168, 0.5);
-  --dim: rgba(234, 234, 234, 0.45);
+  /* 0.68, not 0.5: at 0.5 this measured 2.37:1 and it is the border of
+     every control in the app. 1.4.11 wants 3:1 — this reads 3.05:1. */
+  --pl-line: rgba(141, 144, 168, 0.68);
+  --dim: rgba(234, 234, 234, 0.55);
   --faint: rgba(234, 234, 234, 0.14);
   --red: #e13b2a;
   --edge: 24px;
@@ -92,7 +94,7 @@ body {
   gap: 2px;
 }
 .titleblock dt {
-  color: rgba(234, 234, 234, 0.34);
+  color: rgba(234, 234, 234, 0.55);
   font-size: 8px;
   letter-spacing: 0.14em;
 }
@@ -540,7 +542,7 @@ body {
   gap: 8px;
   margin-top: 10px;
 }
-.level-tag { color: rgba(234, 234, 234, 0.34); font-size: 8px; letter-spacing: 0.14em; }
+.level-tag { color: rgba(234, 234, 234, 0.55); font-size: 8px; letter-spacing: 0.14em; }
 /* §3.4 block meter: discrete cells, not a continuous bar. */
 .level-meter { flex: 1; display: flex; gap: 3px; }
 .level-meter i {
@@ -571,7 +573,7 @@ body {
 .transport button:hover { color: var(--ink); }
 .transport button:active { transform: translateY(1px); }
 .vol { display: flex; align-items: center; gap: 8px; flex: 1; }
-.vol span { color: rgba(234, 234, 234, 0.34); font-size: 8px; letter-spacing: 0.14em; }
+.vol span { color: rgba(234, 234, 234, 0.55); font-size: 8px; letter-spacing: 0.14em; }
 
 .tuning {
   margin-top: 14px;
@@ -634,7 +636,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-family: inherit;
   font-size: 8px;
   letter-spacing: 0.1em;
-  color: rgba(234, 234, 234, 0.3);
+  color: rgba(234, 234, 234, 0.55);
   text-transform: uppercase;
 }
 
@@ -652,7 +654,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient .reticle {
   opacity: 0 !important;
   pointer-events: none !important;
-  transition: opacity 500ms ease;
+  /* opacity alone leaves ~40 controls focusable but invisible, with no
+     visible focus ring and no way back. visibility removes them from the
+     tab order once the fade completes. */
+  visibility: hidden;
+  transition: opacity 500ms ease, visibility 0s linear 500ms;
 }
 .app.ambient { cursor: none; }
 
@@ -684,7 +690,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 8px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.5;
+  opacity: 0.62;
 }
 
 /* ── the dissection ─────────────────────────────────────────────────── */
@@ -757,7 +763,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font: inherit;
   font-size: 9px;
   text-transform: uppercase;
-  color: rgba(234, 234, 234, 0.5);
+  color: rgba(234, 234, 234, 0.55);
   background: none;
   border: 1px solid var(--pl-line);
   padding: 2px 0;
@@ -791,21 +797,29 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   background: var(--pl-line);
   border: 1px solid var(--pl-line);
 }
+/* The cells need their OWN ground. Without it the container's line colour
+   showed straight through the transparent buttons as a pale lavender fill,
+   and the leftover 1px border doubled the hairline against the grid gap.
+   .rail-src directly above is the same construction, done right. */
+/* Cells in a shared-edge grid, not free-floating boxes. This rule still
+   carried `background: none` and its own 1px border from before the
+   container became a gap:1px grid — so the container's line colour showed
+   through as a pale fill and every chip doubled the hairline. */
 .tuner-chips button {
   font: inherit;
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(234, 234, 234, 0.55);
-  background: none;
-  border: 1px solid var(--pl-line);
-  padding: 3px 7px;
+  color: var(--dim);
+  background: var(--bg);
+  border: 0;
+  padding: 10px 8px;
   cursor: pointer;
 }
-.tuner-chips button:hover { color: #eaeaea; border-color: var(--pl-line); }
+.tuner-chips button:hover { color: var(--red); background: rgba(225, 59, 42, 0.12); }
 .tuner-chips button.on {
-  color: #0a0a0a;
-  background: #eaeaea;
+  color: var(--bg);
+  background: var(--red);
   border-color: #eaeaea;
 }
 .tuner-find {
@@ -823,7 +837,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   outline: none;
 }
 .tuner-find input:focus { border-color: var(--pl-line); }
-.tuner-find input::placeholder { color: rgba(234, 234, 234, 0.3); }
+.tuner-find input::placeholder { color: rgba(234, 234, 234, 0.55); }
 .tuner-find button {
   font: inherit;
   font-size: 9px;
@@ -912,7 +926,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   letter-spacing: 0.18em;
   color: #e13b2a;
 }
-.onboard-n i { font-style: normal; color: rgba(234, 234, 234, 0.35); }
+.onboard-n i { font-style: normal; color: rgba(234, 234, 234, 0.55); }
 .onboard-card h2 {
   font-family: 'Archivo Black', sans-serif;
   font-size: 20px;
@@ -943,7 +957,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 6px 14px;
   cursor: pointer;
 }
-.onboard-row .onboard-skip { color: rgba(234, 234, 234, 0.45); }
+.onboard-row .onboard-skip { color: rgba(234, 234, 234, 0.55); }
 .onboard-row .onboard-skip:hover { color: #eaeaea; }
 .onboard-row .onboard-next { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
 .onboard-row .onboard-next:hover { background: #e13b2a; border-color: #e13b2a; color: #0a0a0a; }
@@ -1018,7 +1032,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   opacity: 0.7;
   margin-top: -4px;
 }
-.deck-bpm { opacity: 0.45; transition: opacity 0.3s; }
+.deck-bpm { opacity: 0.62; transition: opacity 0.3s; }
 .deck-bpm.locked { opacity: 1; }
 
 /* the transport: three equal ≥44px targets — the loudest row in the rail */
@@ -1113,14 +1127,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 8px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(234, 234, 234, 0.35);
+  color: rgba(234, 234, 234, 0.55);
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
 }
 .diag-toggle:hover { color: rgba(234, 234, 234, 0.8); }
-.diag-line { font-size: 8px; letter-spacing: 0.1em; opacity: 0.45; }
+.diag-line { font-size: 8px; letter-spacing: 0.1em; opacity: 0.62; }
 
 /* keyboard reach: every control shows where focus is (WCAG 2.4.7) */
 button:focus-visible,
@@ -1623,6 +1637,10 @@ input[type='range'] { height: 32px; }
 /* module header — the landing has no equivalent, so this is the one new
    primitive the console adds to the language */
 .cn-mod {
+  /* it is an <h2> now, so it arrives with the UA's heading margin — which
+     put a 7px seam above and below all five module headers */
+  margin: 0;
+  font-weight: 400;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1763,3 +1781,26 @@ input[type='range'] { height: 32px; }
 .diag-line,
 .spec-hz,
 .tuner-state { font-variant-numeric: tabular-nums; }
+
+
+/* Visually hidden, still announced — the console's h1 and the split
+   progress region exist for assistive tech only. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+/* 03 · LAYERS keeps its place in the sequence even before you dissect, so
+   the module codes stay stable identifiers instead of renumbering. */
+.cn-hint {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
+  color: var(--dim);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+}
