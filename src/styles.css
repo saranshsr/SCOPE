@@ -773,12 +773,13 @@ body {
   /* The spectrum was absolutely positioned onto the bottom console,
      covering the readout. On phones it docks top-right under the title
      block, smaller — every gauge visible, nothing stacked. */
+  /* Docked in the panel now, so the float-era offsets are inert — but the
+     TRANSFORM was not: it scaled the cell to 82%, so its rendered box came
+     up 16px short of the 91.5px it still occupied in layout. That was the
+     last non-zero seam, and it also meant the spectrum rendered 18%
+     undersized on every phone. */
   .spec {
-    bottom: auto;
-    top: calc(var(--edge) + 84px);
-    right: var(--edge);
-    transform: scale(0.82);
-    transform-origin: top right;
+    transform: none;
   }
 }
 
