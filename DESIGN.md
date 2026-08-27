@@ -38,7 +38,25 @@ No third face. No italics. Numbers always mono.
 - Hairlines only: 1px. Borders share edges (gapless cell grids), never
   double up.
 - Corner radius: 0 everywhere, forever.
-- Spacing steps: 4 / 6 / 8 / 10 / 16 / 24.
+- Spacing steps: **4 / 6 / 8 / 10 / 12 / 16 / 24**. 12 was added after a
+  measured audit found it was already the product's most-repeated value —
+  17 components on both surfaces share a 12px horizontal cell gutter. The
+  spec was describing an intention the code had outgrown.
+- **One row height.** Every full-width row cell is `8px 12px`: 8 vertical
+  so the rail scans on a single rhythm, 12 horizontal so every cell in a
+  column shares one gutter. Row primitives previously used 6/7/8/9/10 for
+  the same role, and the console ran two gutters — cells authored under
+  `.cn-` used 12px while cells inherited from the pre-plate rail were
+  never migrated and sat 4px inboard.
+- **Three gap steps, named for the relationship, not the size:**
+  `--gap-tight: 4px` (parts of one unit — meter cells, icon + label),
+  `--gap-related: 8px` (siblings in a group), `--gap-sep: 12px` (distinct
+  groups). Sibling spacing previously took 12 different values for what
+  was visually the same relationship.
+- Deliberate exceptions, documented rather than swept: the figure inset
+  (16), the wordmark cell (12 vertical), the dial cells (10/6 — square
+  cells, not rows), and POWER ON's 34px horizontal, which is optical
+  compensation for its letter-spacing.
 
 ---
 
