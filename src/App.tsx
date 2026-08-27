@@ -1329,7 +1329,15 @@ export default function App() {
   /** Set the vibe: the prompt becomes a read (moods, genres, tempo), the
    *  read becomes a playlist, and the instrument shows its interpretation.
    *  Boots from standby, so a vibe is a complete action. */
-  const setVibe = async (prompt: string) => {
+  /**
+   * @param play  Whether to start a track from the new playlist straight
+   *   away. True for an explicit vibe submit — you asked, you hear it now.
+   *   FALSE for the boot-time restore of a saved vibe: the radio is already
+   *   playing under the rev by then, and cutting it off to start a second
+   *   track is exactly the "it revs, then a new track starts" jump. The
+   *   playlist still swaps, so the NEXT track comes from the vibe.
+   */
+  const setVibe = async (prompt: string, play = true) => {
     const eng = engineRef.current
     if (!eng || !prompt.trim()) return
     setTuning2('loading')
@@ -1350,6 +1358,8 @@ export default function App() {
       ;(window as unknown as { __focus: () => void }).__focus()
       sceneRef.current?.powerOn()
     }
+    // queue-only: whatever is already sounding plays on, uninterrupted
+    if (!play) return
     await eng.playRadio()
   }
 
@@ -1473,12 +1483,14 @@ export default function App() {
     try {
       saved = localStorage.getItem('scope-vibe')
     } catch { /* private mode */ }
-    // sound first, vibe second: the sweep starts instantly while the
-    // saved vibe's playlist fetches, then the swap happens mid-listen
+    // Sound first: the radio starts instantly so the rev has something to
+    // move to. The saved vibe then swaps the PLAYLIST underneath without
+    // restarting playback, so the track you rev to is the track you land
+    // on, and the vibe takes effect from the next one.
     void engineRef.current?.playRadio()
     if (saved) {
       setQuery(saved)
-      void setVibe(saved)
+      void setVibe(saved, false)
     }
   }
 
