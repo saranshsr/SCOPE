@@ -74,48 +74,19 @@ body {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(234, 234, 234, 0.055) 20%,
-    rgba(234, 234, 234, 0.055) 42%,
-    rgba(234, 234, 234, 0.22) 50%,
-    rgba(234, 234, 234, 0.055) 58%,
-    rgba(234, 234, 234, 0.055) 80%,
-    transparent 100%
-  );
-  background-size: 100% 320%;
-  animation: gl-flow-v 5.5s linear infinite;
-  animation-delay: calc(var(--i) * -0.85s);
+  /* §6 forbids gradients on ink, and law 10 reserves motion for chrome that
+     represents signal — a survey grid represents position, and position is
+     not changing. A flat hairline on the token. */
+  background: var(--pl-line);
+  opacity: 0.34;
 }
 
 .gl-h {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(234, 234, 234, 0.055) 20%,
-    rgba(234, 234, 234, 0.055) 42%,
-    rgba(234, 234, 234, 0.22) 50%,
-    rgba(234, 234, 234, 0.055) 58%,
-    rgba(234, 234, 234, 0.055) 80%,
-    transparent 100%
-  );
-  background-size: 320% 100%;
-  animation: gl-flow-h 6.5s linear infinite;
-  animation-delay: calc(var(--i) * -0.85s);
-}
-
-@keyframes gl-flow-v {
-  from { background-position: 0% 0%; }
-  to { background-position: 0% 200%; }
-}
-
-@keyframes gl-flow-h {
-  from { background-position: 0% 0%; }
-  to { background-position: 200% 0%; }
+  background: var(--pl-line);
+  opacity: 0.34;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -156,7 +127,7 @@ body {
   transform: translate(-50%, -50%);
   width: min(78vmin, calc(100% - 2 * var(--edge)));
   height: min(78vmin, calc(100% - 2 * var(--edge)));
-  border: 1px solid rgba(234, 234, 234, 0.1);
+  border: 1px solid var(--pl-line);
   pointer-events: none;
 }
 
@@ -164,7 +135,7 @@ body {
   position: absolute;
   width: 12px;
   height: 12px;
-  border: 0 solid rgba(234, 234, 234, 0.55);
+  border: 0 solid var(--pl-line);
 }
 .tick.tl { left: -1px; top: -1px; border-left-width: 1px; border-top-width: 1px; }
 .tick.tr { right: -1px; top: -1px; border-right-width: 1px; border-top-width: 1px; }
@@ -199,17 +170,14 @@ body {
 
 /* The title block — an engineering drawing's corner data plate. Razor-thin
    dividers via the skill's grid-gap trick, real values only. */
+/* Docked: rows in the panel, sharing edges with their neighbours. */
 .titleblock {
-  position: absolute;
-  top: var(--edge);
-  right: var(--edge);
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(5, auto);
+  grid-template-columns: 1fr 1fr;
   gap: 1px;
-  background: rgba(234, 234, 234, 0.16);
-  border: 1px solid rgba(234, 234, 234, 0.16);
-  z-index: 2;
+  background: var(--pl-line);
+  border: 1px solid var(--pl-line);
 }
 .titleblock > div {
   background: var(--bg);
@@ -232,7 +200,7 @@ body {
 .src-dot {
   width: 9px;
   height: 9px;
-  border-radius: 50%;
+  /* §1: radius 0 everywhere. A square block reads as an indicator, not a bubble. */
   border: 1px solid var(--dim);
   background: transparent;
 }
@@ -248,7 +216,7 @@ body {
 }
 .deck-name {
   color: var(--ink);
-  border-bottom: 1px solid rgba(234, 234, 234, 0.35);
+  border-bottom: 1px solid var(--pl-line);
   padding-bottom: 3px;
   margin-bottom: 5px;
   max-width: 230px;
@@ -267,20 +235,17 @@ body {
 
 /* --- bottom-right spectrum ----------------------------------------------------- */
 
+/* Docked into the panel: no absolute position, no scrim, no card. It
+   carried real content while hovering over the star — that is what made
+   it a card rather than a cell (law 1). */
 .spec {
-  position: absolute;
-  right: var(--edge);
-  bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
-  /* The panel stays transparent to the pointer so it never steals a drag
-     from the stage — but the canvas itself is a control (tap to solo) and
-     opts back in below. */
-  pointer-events: none;
+  margin-top: 8px;
 }
 .spec-label {
   color: var(--ink);
   margin-bottom: 4px;
 }
-.spec canvas { display: block; width: 200px; height: 72px; border: 1px solid rgba(234,234,234,0.18); padding: 2px; }
+.spec canvas { display: block; width: 100%; height: 60px; border: 1px solid var(--pl-line); padding: 2px; }
 .spec-hz {
   display: flex;
   justify-content: space-between;
@@ -414,16 +379,15 @@ body {
    zones, not floating clusters. */
 .deck,
 .spec {
-  border: 1px solid rgba(234, 234, 234, 0.16);
+  border: 1px solid var(--pl-line);
   padding: 8px 10px 9px;
-  background: rgba(10, 10, 10, 0.72);
 }
 
 .spec canvas {
   border: none;
   padding: 0;
-  width: 200px;
-  height: 72px; /* buffer is 2x — retina-crisp bars */
+  width: 100%;
+  height: 60px; /* buffer is 2x — retina-crisp bars */
 }
 
 /* §7 CRT scanlines — the skill's exact recipe, held faint so the grid and
@@ -466,7 +430,7 @@ body {
   flex-direction: column;
   padding: calc(var(--edge) + 4px) 18px calc(var(--edge) + env(safe-area-inset-bottom, 0px));
   background: rgba(10, 10, 10, 0.82);
-  border-right: 1px solid rgba(234, 234, 234, 0.14);
+  border-right: 1px solid var(--pl-line);
   z-index: 3;
 }
 
@@ -489,12 +453,15 @@ body {
   align-items: baseline;
   justify-content: space-between;
   padding-bottom: 14px;
-  border-bottom: 1px solid rgba(234, 234, 234, 0.14);
+  border-bottom: 1px solid var(--pl-line);
 }
 
 .rail-word {
-  font-family: var(--font-display);
-  font-size: 22px;
+  /* law 2: the announcement owns the one display moment; the wordmark
+     steps down to the mono tier so the rail whispers. */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
   letter-spacing: -0.02em;
   text-transform: uppercase;
   color: var(--ink);
@@ -518,8 +485,8 @@ body {
   grid-template-columns: repeat(3, 1fr);
   gap: 1px;
   margin-top: 22px;
-  background: rgba(234, 234, 234, 0.14); /* 1px grid-gap dividers */
-  border: 1px solid rgba(234, 234, 234, 0.14);
+  background: var(--pl-line); /* 1px grid-gap dividers */
+  border: 1px solid var(--pl-line);
 }
 
 .rail-src button {
@@ -551,7 +518,7 @@ body {
 .rail-foot {
   margin-top: auto;
   padding-top: 16px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  border-top: 1px solid var(--pl-line);
 }
 
 .rail-foot .deck-name {
@@ -614,7 +581,7 @@ body {
     max-height: 46vh;
     max-height: 46dvh; /* stable under the iOS URL bar */
     border-right: none;
-    border-top: 1px solid rgba(234, 234, 234, 0.14);
+    border-top: 1px solid var(--pl-line);
   }
   .announce {
     left: var(--edge);
@@ -787,7 +754,7 @@ body {
 @media (max-width: 720px) {
   .ruler-x { left: 0; }
   .ruler-y { display: none; }
-  .titleblock { grid-template-columns: repeat(3, auto); }
+  .titleblock { grid-template-columns: 1fr 1fr; }
   /* Priorities invert on the phone sheet: identity, then what's playing
      and its scrubber, then sources and transport — stats and tuning live
      below the fold for the curious thumb. Desktop keeps the pinned foot. */
@@ -837,11 +804,14 @@ body {
   margin-top: 10px;
 }
 .level-tag { color: rgba(234, 234, 234, 0.34); font-size: 8px; letter-spacing: 0.14em; }
-.level-track {
+/* §3.4 block meter: discrete cells, not a continuous bar. */
+.level-meter { flex: 1; display: flex; gap: 3px; }
+.level-meter i {
   flex: 1;
-  height: 6px;
-  border: 1px solid rgba(234, 234, 234, 0.18);
+  height: 9px;
+  border: 1px solid var(--pl-line);
 }
+.level-meter i.on { background: var(--ink); border-color: var(--ink); }
 .level-fill {
   height: 100%;
   width: 0%;
@@ -855,7 +825,7 @@ body {
   gap: 14px;
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  border-top: 1px solid var(--pl-line);
 }
 .transport button {
   background: none;
@@ -875,7 +845,7 @@ body {
 .tuning {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  border-top: 1px solid var(--pl-line);
   display: grid;
   gap: 8px;
 }
@@ -887,7 +857,7 @@ body {
 }
 .dial span { color: var(--dim); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
 .dial data { color: var(--ink); font-size: 10px; text-align: right; font-variant-numeric: tabular-nums; }
-.presets { display: flex; gap: 1px; background: rgba(234,234,234,0.14); border: 1px solid rgba(234,234,234,0.14); margin-top: 2px; }
+.presets { display: flex; gap: 1px; background: rgba(234,234,234,0.14); border: 1px solid var(--pl-line); margin-top: 2px; }
 .presets button {
   flex: 1;
   background: var(--bg);
@@ -904,6 +874,7 @@ body {
 
 /* brutalist range inputs: hairline track, square white thumb */
 input[type='range'] {
+  font-size: 9px;
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -912,13 +883,13 @@ input[type='range'] {
   margin: 0;
   touch-action: none;
 }
-input[type='range']::-webkit-slider-runnable-track { height: 1px; background: rgba(234,234,234,0.3); }
+input[type='range']::-webkit-slider-runnable-track { height: 1px; background: var(--pl-line); }
 input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 8px; height: 8px; margin-top: -3.5px;
   background: var(--ink); border: none; border-radius: 0;
 }
-input[type='range']::-moz-range-track { height: 1px; background: rgba(234,234,234,0.3); }
+input[type='range']::-moz-range-track { height: 1px; background: var(--pl-line); }
 input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var(--ink); border: none; border-radius: 0; }
 
 /* the fuller rail scrolls on short screens rather than clipping */
@@ -987,7 +958,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .stemstrip {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  border-top: 1px solid var(--pl-line);
   display: grid;
   gap: 6px;
 }
@@ -997,14 +968,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   align-items: center;
   gap: 8px;
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.14);
+  border: 1px solid var(--pl-line);
   padding: 6px 8px;
   cursor: pointer;
   font: inherit;
   color: var(--ink);
 }
 .stem-role { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; text-align: left; }
-.stem-bar { height: 5px; border: 1px solid rgba(234, 234, 234, 0.18); display: block; }
+.stem-bar { height: 5px; border: 1px solid var(--pl-line); display: block; }
 .stem-bar i { display: block; height: 100%; background: var(--ink); transition: width 100ms linear; }
 .stem-ms { font-size: 8px; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; text-align: right; }
 .stem-muted { border-color: rgba(225, 59, 42, 0.5); }
@@ -1030,11 +1001,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   pointer-events: none;
 }
 
-/* Portrait phones: the spectrum panel sits exactly where the HIGH ring
-   lands once the stack opens — it yields while dissected. */
+/* The spectrum and title plate used to float over the stage, so they had
+   to yield when the rings opened underneath them. They are cells in the
+   panel now — hiding them would blank out real content, not free the view. */
 @media (max-width: 720px) {
-  .app.dissected .spec,
-  .app.dissected .titleblock {
+  .app.dissected .survey-legend {
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s;
@@ -1049,9 +1020,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* ── the layer rows: every ring's visible twin ──────────────────────── */
 .layers {
   display: grid;
-  gap: 5px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
-  padding-top: 8px;
+  gap: 1px;
+  background: var(--pl-line);
+  border: 1px solid var(--pl-line);
+  border-top: 1px solid var(--pl-line);
 }
 .layers-tag {
   font-size: 8px;
@@ -1061,14 +1033,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer {
   display: grid;
-  grid-template-columns: 74px 1fr 18px 18px;
+  grid-template-columns: 74px 1fr 28px 28px;
   gap: 6px;
   align-items: center;
-  border: 1px solid rgba(234, 234, 234, 0.12);
-  padding: 4px 6px;
+  border: 0;
+  background: #0a0a0a;
+  padding: 6px 8px;
   transition: border-color 0.15s;
 }
-.layer-hot { border-color: rgba(234, 234, 234, 0.55); }
+.layer-hot { border-color: var(--pl-line); }
 .layer-name {
   font-size: 9px;
   letter-spacing: 0.08em;
@@ -1076,17 +1049,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   display: grid;
   gap: 3px;
 }
-.layer-meter {
-  display: block;
-  height: 2px;
-  background: rgba(234, 234, 234, 0.12);
-}
+.layer-meter { display: flex; gap: 2px; margin-top: 4px; }
 .layer-meter b {
-  display: block;
-  height: 100%;
-  background: rgba(234, 234, 234, 0.8);
-  transition: width 0.12s linear;
+  flex: 1;
+  height: 5px;
+  border: 1px solid var(--pl-line);
 }
+.layer-meter b.on { background: var(--ink); border-color: var(--ink); }
 .layer input[type='range'] {
   width: 100%;
   margin: 0;
@@ -1097,7 +1066,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: rgba(234, 234, 234, 0.5);
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.2);
+  border: 1px solid var(--pl-line);
   padding: 2px 0;
   cursor: pointer;
 }
@@ -1113,19 +1082,21 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-muted .layer-name { color: #e13b2a; }
 .layer-muted .layer-meter b { background: #e13b2a; }
-.layer-solo { border-color: rgba(234, 234, 234, 0.5); }
+.layer-solo { border-color: var(--pl-line); }
 
 /* ── the tuner: the radio is a dial ─────────────────────────────────── */
 .tuner {
   display: grid;
   gap: 7px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  border-top: 1px solid var(--pl-line);
   padding-top: 8px;
 }
 .tuner-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--pl-line);
+  border: 1px solid var(--pl-line);
 }
 .tuner-chips button {
   font: inherit;
@@ -1134,11 +1105,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: rgba(234, 234, 234, 0.55);
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.18);
+  border: 1px solid var(--pl-line);
   padding: 3px 7px;
   cursor: pointer;
 }
-.tuner-chips button:hover { color: #eaeaea; border-color: rgba(234, 234, 234, 0.5); }
+.tuner-chips button:hover { color: #eaeaea; border-color: var(--pl-line); }
 .tuner-chips button.on {
   color: #0a0a0a;
   background: #eaeaea;
@@ -1154,11 +1125,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 10px;
   color: #eaeaea;
   background: rgba(234, 234, 234, 0.05);
-  border: 1px solid rgba(234, 234, 234, 0.18);
+  border: 1px solid var(--pl-line);
   padding: 4px 7px;
   outline: none;
 }
-.tuner-find input:focus { border-color: rgba(234, 234, 234, 0.55); }
+.tuner-find input:focus { border-color: var(--pl-line); }
 .tuner-find input::placeholder { color: rgba(234, 234, 234, 0.3); }
 .tuner-find button {
   font: inherit;
@@ -1166,7 +1137,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: rgba(234, 234, 234, 0.7);
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.18);
+  border: 1px solid var(--pl-line);
   cursor: pointer;
 }
 .tuner-find button:hover { color: #0a0a0a; background: #eaeaea; }
@@ -1178,16 +1149,28 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 
 /* the deck's metadata plate: the artist's own declared values + link home */
+/* §5 phase 2: plate rows — label left, value right, edges shared. */
 .deck-meta {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  margin: 8px 0 0;
   font-size: 8px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.55;
+  border: 1px solid var(--pl-line);
 }
-.deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid rgba(234, 234, 234, 0.3); }
-.deck-meta a:hover { border-color: #e13b2a; color: #e13b2a; }
+.deck-meta > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+}
+.deck-meta > div + div { border-top: 1px solid var(--pl-line); }
+.deck-meta dt { color: var(--ink-dim); }
+.deck-meta dd { margin: 0; color: var(--ink); text-align: right; }
+.deck-meta .deck-bpm.locked { color: var(--red); }
+.deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid var(--pl-line); }
+.deck-meta a:hover { border-color: var(--red); color: var(--red); }
 
 /* ── first-contact calibration ──────────────────────────────────────── */
 .onboard {
@@ -1221,7 +1204,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   position: absolute;
   pointer-events: auto;
   background: #0a0a0a;
-  border: 1px solid rgba(234, 234, 234, 0.35);
+  border: 1px solid var(--pl-line);
   padding: 16px 18px 14px;
   display: grid;
   gap: 8px;
@@ -1263,7 +1246,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   letter-spacing: 0.1em;
   text-transform: uppercase;
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.25);
+  border: 1px solid var(--pl-line);
   padding: 6px 14px;
   cursor: pointer;
 }
@@ -1281,7 +1264,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 11px;
   color: rgba(234, 234, 234, 0.55);
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.25);
+  border: 1px solid var(--pl-line);
   width: 22px;
   height: 22px;
   cursor: pointer;
@@ -1297,7 +1280,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: #eaeaea;
   background: none;
-  border: 1px solid rgba(234, 234, 234, 0.3);
+  border: 1px solid var(--pl-line);
   padding: 5px 8px;
   cursor: pointer;
   justify-self: start;
@@ -1331,7 +1314,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .nowplaying {
   display: grid;
   gap: 8px;
-  border-top: 1px solid rgba(234, 234, 234, 0.14);
+  border-top: 1px solid var(--pl-line);
   padding-top: 10px;
 }
 .deck-time {
@@ -1349,7 +1332,16 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
+  /* gap 1px over the line colour: adjacent cells SHARE one hairline instead
+     of each carrying its own with a gutter between (§1, law 1). */
+  gap: 1px;
+  background: var(--pl-line);
+  border: 1px solid var(--pl-line);
+  /* the older rule's padding sat INSIDE this background, painting a solid
+     line-coloured band above the buttons */
+  padding-top: 0;
+  border-top: 1px solid var(--pl-line);
+  margin-top: 10px;
 }
 .transport .t-btn {
   font: inherit;
@@ -1359,8 +1351,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   min-height: 44px;
   color: #eaeaea;
-  background: rgba(234, 234, 234, 0.06);
-  border: 1px solid rgba(234, 234, 234, 0.4);
+  background: #0a0a0a;
+  border: 0;
   cursor: pointer;
 }
 .transport .t-btn:hover { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
@@ -1379,14 +1371,21 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.85;
+  /* a cell in the shared-border grid, not something floating on the line */
+  background: #0a0a0a;
+  padding: 10px 10px;
+  min-height: 40px;
 }
 .transport .dial-pitch {
   grid-column: 3 / 4;
   display: grid;
-  grid-template-columns: 34px 1fr 24px;
+  grid-template-columns: 30px 1fr 24px;
   align-items: center;
   gap: 4px;
+  background: #0a0a0a;
+  padding: 10px 8px;
+  min-height: 40px;
+  font-size: 9px;
 }
 .transport .dial-pitch data.armed { color: #e13b2a; }
 
@@ -1397,11 +1396,22 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #e13b2a;
-  border: 1px solid rgba(225, 59, 42, 0.55);
+  color: var(--red);
+  border: 1px solid var(--red-dim);
   padding: 3px 7px;
 }
 .chip.on { display: inline-block; }
+
+/* The landing's dial grid, reused verbatim in the console. Same component,
+   same face, same affordances — the point of the whole exercise. */
+.console-dials {
+  border: 1px solid var(--pl-line);
+  background: var(--pl-line);
+  gap: 1px;
+  margin-top: 8px;
+}
+.console-dials .pl-dial { background: #0a0a0a; }
+.console-dials .pl-dial + .pl-dial { border-left: 0; }
 
 /* visuals group label */
 .visuals-tag {
@@ -1841,4 +1851,38 @@ a:focus-visible {
 }
 @media (prefers-reduced-motion: reduce) {
   .pl-leads li { animation: none; opacity: 1; }
+}
+
+
+/* ══ LAW 7 · THE TOUCH FLOOR ═══════════════════════════════════════════
+   The audit measured 1 of ~10 console controls at ≥44px; range thumbs were
+   8×8. These live at the end of the sheet deliberately: the component rules
+   above set their own heights, and on equal specificity the last rule wins.
+   The visible track stays a hairline — only the HIT AREA grows. */
+.layer-btn { min-width: 28px; min-height: 28px; }
+.rail-help { min-width: 32px; min-height: 32px; }
+.deck-split { min-height: 40px; }
+.tuner-chips button { min-height: 36px; }
+.tuner-find input, .tuner-find button { min-height: 40px; }
+.presets button { min-height: 36px; }
+.diag-toggle { min-height: 32px; padding: 0 4px; }
+input[type='range'] { height: 32px; }
+.layer input[type='range'] { height: 28px; }
+
+@media (pointer: coarse) {
+  /* the parent grid sizes the row, so the floor goes on the container too */
+  .tuner-find, .rail-src { min-height: 44px; }
+  .rail-src button { min-height: 44px; }
+  .layer-btn { min-width: 44px; min-height: 44px; }
+  .rail-help,
+  .deck-split,
+  .tuner-chips button,
+  .tuner-find input,
+  .tuner-find button,
+  .presets button,
+  .diag-toggle { min-height: 44px; }
+  input[type='range'] { height: 44px; }
+  .layer input[type='range'] { height: 40px; }
+  input[type='range']::-webkit-slider-thumb { width: 16px; height: 16px; }
+  input[type='range']::-moz-range-thumb { width: 16px; height: 16px; }
 }

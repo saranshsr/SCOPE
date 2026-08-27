@@ -550,7 +550,7 @@ export default function App() {
           if (retLabelRef.current) {
             retLabelRef.current.textContent =
               mix.echo > 0.02
-                ? `echo ${Math.round(mix.echo * 100)}%`
+                ? `( echo ${Math.round(mix.echo * 100)}% )`
                 : Math.abs(mixState.sweep) > 0.05 && Math.abs(e.movementX ?? 1) > Math.abs(e.movementY ?? 0)
                   ? `${mixState.sweep < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(mixState.sweep) * 100)}`
                   : mix.stemRole
@@ -979,11 +979,15 @@ export default function App() {
           const locked = fp.tempoConfidence > 0.12
           const measured = locked ? `${Math.round(fp.tempo)}` : '--'
           const dec = trackRef.current?.bpm
-          bpmRef.current.textContent = `bpm ${dec ? `${measured}/${dec}` : measured}`
+          bpmRef.current.textContent = dec ? `${measured} / ${dec}` : measured
           bpmRef.current.classList.toggle('locked', locked)
         }
-        if (levelRef.current)
-          levelRef.current.style.width = `${Math.min(100, Math.round(f.rms * 240))}%`
+        if (levelRef.current) {
+          // block meter: light discrete cells, never stretch a bar
+          const lit = Math.round(Math.min(1, f.rms * 2.4) * 12)
+          const cells = levelRef.current.children
+          for (let i = 0; i < cells.length; i++) cells[i].className = i < lit ? 'on' : ''
+        }
         // diagnostics: one dim line, only for those who ask
         if (diagRef.current)
           diagRef.current.textContent = `fps ${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))} · pts ${Math.round((108000 * scene.densityNow + 2600 + 3600) / 1000)}k · quality ${perf.q < 1 ? 'reduced' : 'full'}`
@@ -1032,21 +1036,21 @@ export default function App() {
         // silence is the default reading of a healthy instrument
         if (zoomRef.current) {
           const z = scene.zoomLevel
-          zoomRef.current.textContent = `zoom ${z.toFixed(1)}×`
+          zoomRef.current.textContent = `( zoom ${z.toFixed(1)}× )`
           zoomRef.current.classList.toggle('on', z > 1.04)
         }
         if (fltRef.current) {
           const sv = mixState.sweep
-          fltRef.current.textContent = `flt ${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)}`
+          fltRef.current.textContent = `( flt ${sv < 0 ? 'hp' : 'lp'} ${Math.round(Math.abs(sv) * 100)} )`
           fltRef.current.classList.toggle('on', Math.abs(sv) >= 0.04)
         }
         if (echoRef.current) {
-          echoRef.current.textContent = `echo ${Math.round(mix.echo * 100)}%`
+          echoRef.current.textContent = `( echo ${Math.round(mix.echo * 100)}% )`
           echoRef.current.classList.toggle('on', mix.echo > 0.02)
         }
         if (sectRef.current) {
           const dv = scene.dissect
-          sectRef.current.textContent = `sect ${Math.round(dv * 100)}%`
+          sectRef.current.textContent = `( sect ${Math.round(dv * 100)}% )`
           sectRef.current.classList.toggle('on', dv > 0.02)
           // chrome that collides with the open stack ducks (mobile CSS)
           appRef.current?.classList.toggle('dissected', dv > 0.25)
@@ -1453,17 +1457,6 @@ export default function App() {
         <span className="frame-dash" />
       </div>
 
-      {/* top-right: the title block — an engineering drawing's data plate,
-          1px grid-gap dividers, real values only. */}
-      {started ? (
-        <dl className="titleblock">
-          <div><dt>src</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
-          {/* Non-default state is never silent: a forgotten pitch bend makes
-              the audio sound wrong, so the plate says so in red. */}
-          <div className={rate !== 1 ? 'armed' : ''}><dt>pitch</dt><dd>{rate.toFixed(2)}×</dd></div>
-        </dl>
-      ) : null}
-
       {/* THE STANDBY PLATE — the whole viewport is one instrument sheet
           (DESIGN.md §5 phase 1, round 2). Every element is a bordered cell
           sharing edges with its neighbours; the image cell is a hole in the
@@ -1611,6 +1604,13 @@ export default function App() {
             <button className="rail-help" onClick={() => setOnboard(true)} title="how to play">?</button>
           </div>
 
+          {/* The src/pitch plate used to float over the star as its own card.
+              It is the same real data, now as rows in the panel (law 1). */}
+          <dl className="titleblock" style={{ '--i': 1 } as React.CSSProperties}>
+            <div><dt>//src_</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
+            <div className={rate !== 1 ? 'armed' : ''}><dt>//pitch_</dt><dd>{rate.toFixed(2)}×</dd></div>
+          </dl>
+
           {/* 1 · NOW PLAYING — what you hear, and every control that acts on
               it, in the order every music player taught the world: title,
               artist, scrubber + time, transport. The loudest block in the
@@ -1618,16 +1618,25 @@ export default function App() {
           <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
             <samp className="deck-name"><Decode text={name} duration={700} /></samp>
             {track && (
-              <div className="deck-meta">
-                <span ref={bpmRef} className="deck-bpm">bpm --</span>
-                {track.musicalKey && <span>key {track.musicalKey.toLowerCase()}</span>}
-                {track.genre && <span>{track.genre.toLowerCase()}</span>}
-                {track.link && (
-                  <a href={track.link} target="_blank" rel="noopener noreferrer">
-                    {track.artist.replace(' · audius', '')} ↗
-                  </a>
+              /* §5 phase 2: track meta as plate rows. As inline spans it
+                 wrapped mid-value in a 272px rail ("BPM - /73"). */
+              <dl className="deck-meta">
+                <div><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
+                {track.musicalKey && (
+                  <div><dt>//key_</dt><dd>{track.musicalKey.toLowerCase()}</dd></div>
                 )}
-              </div>
+                {track.genre && <div><dt>//genre_</dt><dd>{track.genre.toLowerCase()}</dd></div>}
+                {track.link && (
+                  <div>
+                    <dt>//artist_</dt>
+                    <dd>
+                      <a href={track.link} target="_blank" rel="noopener noreferrer">
+                        {track.artist.replace(' · audius', '')}
+                      </a>
+                    </dd>
+                  </div>
+                )}
+              </dl>
             )}
             <canvas
               ref={waveRef}
@@ -1780,7 +1789,11 @@ export default function App() {
                 >
                   <span className="layer-name">
                     {String(L.i + 1).padStart(2, '0')} {L.label}
-                    <i className="layer-meter"><b style={{ width: `${Math.min(100, L.level * 260)}%` }} /></i>
+                    <i className="layer-meter">
+                      {Array.from({ length: 8 }, (_, k) => (
+                        <b key={k} className={k < Math.round(Math.min(1, L.level * 2.6) * 8) ? 'on' : ''} />
+                      ))}
+                    </i>
                   </span>
                   <input
                     type="range" min={0} max={2} step={0.01} value={L.gain}
@@ -1799,17 +1812,19 @@ export default function App() {
               the track; these dials only shape the matter. */}
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             <span className="visuals-tag">visuals · how the star reacts</span>
-            {([['turb', 'turbulence'], ['expo', 'exposure'], ['spin', 'spin']] as const).map(([k, label]) => (
-              <label key={k} className="dial">
-                <span>{label}</span>
-                <input
-                  type="range" min={0.25} max={2} step={0.05} value={tuning[k]}
-                  onChange={(ev) => setTuning((t) => ({ ...t, [k]: Number(ev.target.value) }))}
-                  aria-label={label}
+            {/* The SAME dial the landing ships. These were UA-default range
+                inputs rendering the same three parameters in a second
+                vocabulary — one product cannot hold two. */}
+            <div className="pl-dials console-dials">
+              {([['turb', 'turb'], ['expo', 'expo'], ['spin', 'spin']] as const).map(([k, label]) => (
+                <Dial
+                  key={k}
+                  v={tuning[k]}
+                  cap={label}
+                  onChange={(f) => setTuning((t) => ({ ...t, [k]: f(t[k]) }))}
                 />
-                <data>{Math.round(tuning[k] * 100)}</data>
-              </label>
-            ))}
+              ))}
+            </div>
             <div className="presets">
               {([['calm', { turb: 0.6, expo: 0.8, spin: 0.5 }], ['std', { turb: 1, expo: 1, spin: 1 }], ['violent', { turb: 1.6, expo: 1.3, spin: 1.8 }]] as const).map(([name2, t]) => (
                 <button key={name2} onClick={() => setTuning(t)}>
@@ -1819,12 +1834,24 @@ export default function App() {
             </div>
           </div>
 
+          {/* 4 · SPECTRUM — docked into the panel. It carried real content
+              while hovering over the star, which is what made it a card. */}
+          <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
+            <div className="spec-label">spectrum</div>
+            <canvas ref={specRef} width={400} height={144} />
+            <div className="spec-hz">
+              <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
+            </div>
+          </div>
+
           {/* 5 · FOOT — the level meter, states that only speak when armed,
               the legend, and diagnostics for those who ask. */}
-          <div className="rail-foot rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
+          <div className="rail-foot rail-sec" style={{ '--i': 7 } as React.CSSProperties}>
             <div className="level">
               <span className="level-tag">level</span>
-              <div className="level-track"><div ref={levelRef} className="level-fill" /></div>
+              <div ref={levelRef} className="level-meter" aria-hidden="true">
+                {Array.from({ length: 12 }, (_, i) => <i key={i} />)}
+              </div>
             </div>
             <div className="chips" aria-live="off">
               <span ref={zoomRef} className="chip" />
@@ -1839,7 +1866,7 @@ export default function App() {
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
             <div className="diag">
               <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
-                diag {diag ? '▾' : '▸'}
+                diag {diag ? '[-]' : '[+]'}
               </button>
               {diag && <samp ref={diagRef} className="diag-line">fps -- · pts -- · quality --</samp>}
             </div>
@@ -1860,18 +1887,6 @@ export default function App() {
       )}
 
       {/* bottom-right: spectrum */}
-      {started && (
-      <div className="spec">
-        <div className="spec-label">
-          <Decode text="spectrum" duration={400} />
-        </div>
-        <canvas ref={specRef} width={400} height={144} />
-        <div className="spec-hz">
-          <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
-        </div>
-      </div>
-      )}
-
       <input
         ref={fileRef}
         type="file"
