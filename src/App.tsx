@@ -626,6 +626,13 @@ export default function App() {
     //   pulling FAR out           -> echo builds while held, rings out after
     const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', stemRole: null as StemRole | null, sx: 0, sy: 0, r0: 1, echo: 0 }
     const mixState = { sweep: 0, eq: 0 }
+    // Filter and echo were reachable ONLY by dragging the star, so they had
+    // no keyboard path and vanished entirely under reduced-motion. The
+    // keyboard sets a LATCHED value instead of a momentary one — which the
+    // house law permits precisely because the chips render it: "anything
+    // worth keeping lives on a visible control that shows its state".
+    // A gesture still springs back, but back to the latch, not to zero.
+    const latch = { sweep: 0, echo: 0 }
     const centerPx = () => {
       const fracX = startedRef.current && w > 720 ? (320 + (w - 320) / 2) / w : 0.5
       return { x: fracX * w, y: h / 2 }
@@ -752,10 +759,10 @@ export default function App() {
         if (mix.stemRole && stemDeckRef.current) stemDeckRef.current.setStemGain(mix.stemRole, 1)
         mix.stemRole = null
         eng2?.eq(mix.band, 0)
-        eng2?.echo(0)
-        mixState.sweep = 0
-        eng2?.sweep(0)
-        mix.echo = 0
+        eng2?.echo(latch.echo)
+        mixState.sweep = latch.sweep
+        eng2?.sweep(latch.sweep)
+        mix.echo = latch.echo
         scene.setGrab(null, 0)
         applySpectralMix()
         mixState.eq = 0
@@ -1144,9 +1151,14 @@ export default function App() {
     // The console is playable: every control has a key. Never hijacks a
     // focused input (sliders keep their native arrow behavior).
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as Element)?.tagName === 'INPUT') return
-      // a focused dial owns its keys: Space must not power on from inside one
-      if ((e.target as Element)?.closest?.('[role="slider"]')) return
+      // A focused control owns its own keys. This guard used to name only
+      // INPUT and sliders, so Space on a focused BUTTON hit `case 'Space'`
+      // below, whose preventDefault() suppressed the button's own
+      // activation — MUTE, SKIP, SPLIT, the sources, GO, the layer s/m
+      // pair and the tour's NEXT all toggled playback instead of firing.
+      if ((e.target as Element)?.closest?.(
+        'input, textarea, select, button, a[href], [role="slider"], [contenteditable]',
+      )) return
       if (!startedRef.current) {
         if (e.code === 'Space' || e.code === 'Enter') {
           e.preventDefault()
@@ -1205,6 +1217,35 @@ export default function App() {
         case 'Minus':
         case 'NumpadSubtract': sceneRef.current?.zoomBy(1 / 1.25); break
         case 'Digit0': sceneRef.current?.setZoom(1); break
+        // the colour filter, latched: [ sweeps toward high-pass, ] toward
+        // low-pass, \ returns it flat. The ( flt ) chip shows the value.
+        case 'BracketLeft':
+        case 'BracketRight': {
+          e.preventDefault()
+          const d = e.code === 'BracketRight' ? 0.12 : -0.12
+          latch.sweep = Math.max(-1, Math.min(1, Number((latch.sweep + d).toFixed(2))))
+          mixState.sweep = latch.sweep
+          eng.sweep(latch.sweep)
+          break
+        }
+        case 'Backslash':
+          e.preventDefault()
+          latch.sweep = 0
+          latch.echo = 0
+          mixState.sweep = 0
+          mix.echo = 0
+          eng.sweep(0)
+          eng.echo(0)
+          break
+        // echo depth, latched: e adds, shift+E removes. ( echo ) shows it.
+        case 'KeyE': {
+          e.preventDefault()
+          const d = e.shiftKey ? -0.2 : 0.2
+          latch.echo = Math.max(0, Math.min(1, Number((latch.echo + d).toFixed(2))))
+          mix.echo = latch.echo
+          eng.echo(latch.echo)
+          break
+        }
       }
     }
     window.addEventListener('keydown', onKey)
@@ -1867,7 +1908,7 @@ export default function App() {
             {source !== 'stems' && (
               <span className="stemhint">have stems? drop them together (vocals·drums·bass). split any track locally with stemdeck</span>
             )}
-            <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · r/f/m src · +/-/0 zoom · h hide</kbd>
+            <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · [ ] filter · e/E echo · \ flat · r/f/m src · +/-/0 zoom · h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
           </div>
         </aside>

@@ -26,7 +26,12 @@ system, not evidence of an assembled one.
 
 ---
 
-## P0 — blocking
+## P0 — blocking · ALL FOUR FIXED
+
+> Fixed and verified in the running app. Re-verification evidence is noted
+> inline under each. Score moves 12/20 → 15/20 (accessibility 2→3,
+> performance 2→3) pending a re-audit.
+
 
 **P0-1 · `Space` is stolen from every focused button.**
 `App.tsx:1147-1149` guards `INPUT` and `[role="slider"]` but not `BUTTON`;
@@ -35,7 +40,9 @@ the button's own activation. Verified in the browser: with MUTE focused, a
 real Space press did **not** activate it. Affects MUTE, SKIP, SPLIT,
 RADIO/FILE/MIC, GO, layer s/m, presets, diag, `?`, and the tour's NEXT.
 Enter still works, so it is not total. *WCAG 2.1.1 (A), 3.2.2 (A).*
-Fix: widen the guard to `input, textarea, select, button, a[href], [role="slider"]`.
+**FIXED** — guard widened to `input, textarea, select, button, a[href],
+[role="slider"], [contenteditable]`. Verified: with MUTE focused, Space is
+no longer `preventDefault`ed, so the browser's own activation survives.
 
 **P0-2 · The onboarding tour is unreachable by keyboard.**
 Focus is never moved into it; it mounts last in the DOM so NEXT is ~42 tabs
@@ -43,6 +50,9 @@ away; Space on NEXT hits P0-1; 24 controls behind it stay focusable (no
 trap, no `aria-modal`). Verified in the browser. `role="dialog"`, the
 label, Escape and focus-restore are all correct — only entry is missing.
 *WCAG 2.4.3 (A).* The tour is the only place the star gestures are taught.
+**FIXED** — focus moves to the card on open and on every step change, Tab
+wraps at both ends, `aria-modal="true"`, `aria-live="polite"` so step text
+is announced, and focus returns to the opener on close. All verified.
 
 **P0-3 · Filter and echo have no non-pointer path.**
 Both exist only as star drags. Every other gesture has a visible twin —
@@ -51,6 +61,11 @@ the s/m buttons. These two were never given one. Compounding: the whole
 gesture body is gated behind `if (!reducedMotion)` (`App.tsx:500`), so a
 reduced-motion user has no access to filter or echo **at all**.
 *WCAG 2.1.1 (A), 2.5.1 (A).* **You chose: add keyboard equivalents.**
+**FIXED** — `[` and `]` sweep the filter, `e` / `shift+E` set echo depth,
+`\\` returns both flat. These set a LATCHED value, which the house law
+allows because the chips render it. A gesture still springs back, but now
+to the latch rather than to zero. Verified: `( flt lp 96 )` and
+`( echo 80% )` both armed, and the spectrum visibly rolled off.
 
 **P0-4 · The WebGL drawing buffer is resized every frame.**
 `scene.ts:1011` (`setFocus` → `resize`) and `:1148` (zoom glide) call
@@ -60,8 +75,10 @@ reduced-motion user has no access to filter or echo **at all**.
 moments the product shows off: the entire 1000ms boot dive, and every
 wheel zoom. The self-profiler then reads the resulting stutter as slow
 hardware and sheds half the particles.
-Fix: guard `resize()` on actual dimension change; let the hot paths reach
-`placeCamera()` only.
+**FIXED** — `resize()` now reallocates only when width, height or DPR
+actually change; the hot paths reach `placeCamera()` only. Verified by
+instrumenting the `canvas.width` setter: **zero** buffer reallocations
+through a full zoom glide and reset, where before it was one per frame.
 
 ## P1 — major
 

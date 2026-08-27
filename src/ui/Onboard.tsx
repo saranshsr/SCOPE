@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 /**
  * First-contact calibration — a guided walk that POINTS.
@@ -69,6 +69,9 @@ export function shouldOnboard(): boolean {
 export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => void }) {
   const [step, setStep] = useState(0)
   const [pos, setPos] = useState<{ cx: number; cy: number; ok: boolean }>({ cx: 0, cy: 0, ok: false })
+  const cardRef = useRef<HTMLDivElement>(null)
+  /** whatever had focus when the tour opened, so it can be handed back */
+  const returnTo = useRef<HTMLElement | null>(null)
 
   const s = STEPS[step]
   const last = step === STEPS.length - 1
@@ -81,7 +84,46 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
     }
     ops?.closeStack()
     onDone()
+    // hand focus back where it came from, or the next Tab restarts at the
+    // top of the document with no announcement
+    returnTo.current?.focus?.()
   }
+
+  // The tour is the only place the star gestures are taught, and it mounts
+  // last in the DOM — without this, reaching NEXT took ~42 tabs through the
+  // whole rail, and every control behind the card stayed focusable.
+  useEffect(() => {
+    returnTo.current = document.activeElement as HTMLElement | null
+    cardRef.current?.focus()
+    const onTrap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return
+      const card = cardRef.current
+      if (!card) return
+      const f = card.querySelectorAll<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')
+      if (!f.length) return
+      const first = f[0]
+      const lastEl = f[f.length - 1]
+      // wrap at both ends — the card is modal, so Tab must never leave it
+      if (!card.contains(document.activeElement)) {
+        e.preventDefault()
+        first.focus()
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        lastEl.focus()
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+    window.addEventListener('keydown', onTrap, true)
+    return () => window.removeEventListener('keydown', onTrap, true)
+  }, [])
+
+  // each step swaps the card's content in place; move focus back to the
+  // card so the new text is what a screen reader lands on
+  useEffect(() => {
+    cardRef.current?.focus()
+  }, [step])
 
   // drive the instrument to wherever this step's feature lives
   useEffect(() => {
@@ -144,7 +186,7 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
   top = Math.max(14, Math.min(innerHeight - 230, top))
 
   return (
-    <div className="onboard" role="dialog" aria-label="how to play the instrument">
+    <div className="onboard" role="dialog" aria-modal="true" aria-label="how to play the instrument">
       {pos.ok && (
         <svg className="onboard-wire" aria-hidden="true">
           <line x1={pos.cx} y1={pos.cy} x2={left + (pos.cx > left + cardW / 2 ? cardW : 0)} y2={top + 34} />
@@ -152,7 +194,13 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
           <circle cx={pos.cx} cy={pos.cy} r="3" />
         </svg>
       )}
-      <div className="onboard-card" style={{ left, top, width: cardW }}>
+      <div
+        ref={cardRef}
+        className="onboard-card"
+        style={{ left, top, width: cardW }}
+        tabIndex={-1}
+        aria-live="polite"
+      >
         <span className="onboard-n">
           {String(step + 1).padStart(2, '0')}<i>/{String(STEPS.length).padStart(2, '0')}</i>
         </span>

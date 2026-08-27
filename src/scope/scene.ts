@@ -533,6 +533,7 @@ export class Scene {
   private calm = matchMedia('(prefers-reduced-motion: reduce)').matches
   private lastW = 2
   private lastH = 1
+  private lastDpr = 0
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false })
@@ -1065,13 +1066,23 @@ export class Scene {
   }
 
   resize(w: number, h: number) {
-    this.lastW = w
-    this.lastH = h
     const dpr = this.quality < 1 ? 1 : Math.min(2, window.devicePixelRatio || 1)
-    this.renderer.setPixelRatio(dpr)
-    this.renderer.setSize(w, h, false)
-    this.composer.setSize(w, h)
-    this.camera.aspect = w / Math.max(1, h)
+    // Only reallocate when the buffer ACTUALLY changes. three's setSize
+    // reassigns canvas.width/height unconditionally, which resets and
+    // clears the WebGL drawing buffer, and UnrealBloomPass.setSize
+    // allocates five Vector2s. setFocus() and the zoom glide call in here
+    // every frame — so the boot dive and every wheel zoom were paying a
+    // full buffer reset per frame, which the self-profiler then read as
+    // slow hardware and answered by shedding half the particles.
+    if (w !== this.lastW || h !== this.lastH || dpr !== this.lastDpr) {
+      this.lastW = w
+      this.lastH = h
+      this.lastDpr = dpr
+      this.renderer.setPixelRatio(dpr)
+      this.renderer.setSize(w, h, false)
+      this.composer.setSize(w, h)
+      this.camera.aspect = w / Math.max(1, h)
+    }
     this.placeCamera()
     // The subject dominates the stage, like the reference.
     this.uniforms.uR.value = 0.88
