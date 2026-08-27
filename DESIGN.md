@@ -128,6 +128,16 @@ live star is dollied into it by `scene.setFocus(x, y, dolly)` measured
 from the cell's own rect, so it frames the real instrument rather than a
 picture of one, and glides back out to full size on power-on.
 
+**Law 11 — primitives are not composition.** The console's first port
+swapped every token, cell, dial and meter onto the language and still read
+as a different product, because the *arrangement* was untouched: sections
+floated with 44px seams, there were no module headers, no running header
+or footer, and no plate. Getting the vocabulary right while leaving the
+composition alone is the same failure as decorating a sparse layout — it
+just hides better. A sheet is judged by its seams: **every section shares
+an edge with its neighbour, or it is not a sheet.** Measure the gaps; they
+should total zero.
+
 **Idle life (law 10 in practice).** A machine on standby is not a
 screenshot, but it is also not a screensaver. Only chrome that represents
 SIGNAL breathes — the morse carrier, leader terminals, armed pills, the

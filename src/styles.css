@@ -20,6 +20,8 @@
   --faint: rgba(234, 234, 234, 0.14);
   --red: #e13b2a;
   --edge: 24px;
+  /* one source of truth: JS reads this too (App.tsx RAIL) */
+  --rail-w: 320px;
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
   font-family: var(--font-mono);
@@ -425,7 +427,7 @@ body {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 272px;
+  width: var(--rail-w);
   display: flex;
   flex-direction: column;
   padding: calc(var(--edge) + 4px) 18px calc(var(--edge) + env(safe-area-inset-bottom, 0px));
@@ -540,10 +542,10 @@ body {
    Broadcast graphics cut in and cut out; they do not float. */
 .announce {
   position: absolute;
-  left: calc(272px + 40px);
+  left: calc(var(--rail-w) + 40px);
   bottom: calc(var(--edge) + 96px);
   /* Stops clear of the spectrum compartment instead of running under it. */
-  right: calc(var(--edge) + 248px);
+  right: var(--edge);
   pointer-events: none;
   z-index: 4;
   overflow: hidden;
@@ -693,7 +695,7 @@ body {
 .ruler-x {
   position: absolute;
   top: 0;
-  left: 272px;
+  left: var(--rail-w);
   right: 0;
   height: 14px;
   pointer-events: none;
@@ -1472,13 +1474,19 @@ a:focus-visible {
 /* Standby is the plate, and nothing else. The console's measuring chrome —
    rulers, survey grid, crosshair, bracket frame — is a second vocabulary
    that reads as clutter across a composed sheet. It returns on power-on. */
-.app:not(.live) .ruler-x,
-.app:not(.live) .ruler-y,
-.app:not(.live) .hazard,
-.app:not(.live) .gridlayer,
-.app:not(.live) .x-v,
-.app:not(.live) .x-h,
-.app:not(.live) .frame { display: none; }
+/* Gone in BOTH states now, not just standby: rulers, survey grid, hazard
+   stripe and the centred frame are a second vocabulary, and the console
+   plate's own border plus the stage brackets do that job in one language.
+   The crosshair survives, gated to an active drag. */
+.ruler-x,
+.ruler-y,
+.hazard,
+.gridlayer,
+.frame { display: none; }
+.x-v,
+.x-h { display: none; }
+.app.dragging .x-v,
+.app.dragging .x-h { display: block; }
 
 /* ── running header ── */
 .pl-hdr {
@@ -1885,4 +1893,159 @@ input[type='range'] { height: 32px; }
   .layer input[type='range'] { height: 40px; }
   input[type='range']::-webkit-slider-thumb { width: 16px; height: 16px; }
   input[type='range']::-moz-range-thumb { width: 16px; height: 16px; }
+}
+
+
+/* ══ THE CONSOLE PLATE ═════════════════════════════════════════════════
+   The console is the same sheet the landing is. The star canvas stays
+   full-bleed BEHIND this frame — the plate is a frame over it, never a
+   container, so the reticle and the stage keep their own coordinates. */
+.cn-plate {
+  position: absolute;
+  inset: var(--edge);
+  z-index: 3;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  border: 1px solid var(--pl-line);
+  pointer-events: none; /* the stage below stays grabbable */
+}
+.cn-plate > * { pointer-events: auto; }
+.cn-hdr { background: rgba(10, 10, 10, 0.94); }
+.cn-hdr .armed span { color: var(--red); }
+.cn-hdr .rail-help {
+  border: 0;
+  border-left: 1px solid var(--pl-line);
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  cursor: pointer;
+  padding: 0 14px;
+}
+.cn-hdr .rail-help:hover { color: var(--red); }
+
+.cn-body {
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  min-height: 0;
+}
+/* the stage is a HOLE in the plate: no background, just brackets */
+.cn-stage { position: relative; pointer-events: none; }
+.cn-brk {
+  position: absolute;
+  width: 13px; height: 13px;
+  border: 1px solid var(--ink);
+  opacity: 0.55;
+}
+.cn-brk.tl { top: 11px; left: 11px; border-right: 0; border-bottom: 0; }
+.cn-brk.tr { top: 11px; right: 11px; border-left: 0; border-bottom: 0; }
+.cn-brk.bl { bottom: 11px; left: 11px; border-right: 0; border-top: 0; }
+.cn-brk.br { bottom: 11px; right: 11px; border-left: 0; border-top: 0; }
+
+.cn-ftr { background: rgba(10, 10, 10, 0.94); }
+.cn-ftr .diag { display: flex; align-items: center; gap: 8px; }
+
+/* module header — the landing has no equivalent, so this is the one new
+   primitive the console adds to the language */
+.cn-mod {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--pl-line);
+  color: var(--red);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.cn-mod i { color: var(--ink-dim); font-style: normal; }
+.cn-track .k { color: var(--ink-dim); }
+.cn-track .deck-name { max-width: none; }
+
+/* ══ THE RAIL, DE-SPACED ═══════════════════════════════════════════════
+   Every section used to carry its own margin-top/padding-top; the measured
+   44px seam was a collapsed .railfold occupying a grid row inside
+   .nowplaying's gap PLUS .rail-src's 22px margin. Cells share edges now. */
+.cn-plate .rail {
+  position: static;
+  width: auto;
+  padding: 0;
+  border-right: 1px solid var(--pl-line);
+  border-top: 0;
+  /* the STAGE is the hole the star burns through; the panel is a panel.
+     At 0.82 the particle streaks read straight through the plate rows. */
+  background: rgba(10, 10, 10, 0.94);
+  display: block;
+  overflow-y: auto;
+  min-height: 0;
+}
+.cn-plate .nowplaying,
+.cn-plate .tuner,
+.cn-plate .layers,
+.cn-plate .tuning,
+.cn-plate .spec,
+.cn-plate .rail-src,
+.cn-plate .transport,
+.cn-plate .rail-foot {
+  margin: 0;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+}
+.cn-plate .nowplaying { display: block; padding: 0; }
+.cn-plate .nowplaying > * + * { border-top: 0; }
+.cn-plate .tuning { display: block; padding: 0; }
+.cn-plate .tuner { display: block; padding: 0; }
+.cn-plate .spec { padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
+/* flow-root, not block: with padding and border stripped, the foot's first
+   child's margin-top was collapsing OUT and pushing the section down 10px.
+   A block formatting context contains it without adding any visual box. */
+.cn-plate .rail-foot { padding: 0; display: flow-root; }
+.cn-plate .rail-foot > *:first-child { margin-top: 0; }
+.cn-plate .console-dials { margin: 0; border-left: 0; border-right: 0; }
+.cn-plate .deck-meta { margin: 0; border: 0; }
+.cn-plate .deck-meta > div:first-child { border-top: 0; }
+.cn-plate .deck-wave { width: 100%; height: 52px; display: block; }
+.cn-plate .deck-time { padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
+
+
+/* ══ THE CONSOLE PLATE ON A PHONE ══════════════════════════════════════
+   The old console flipped .rail from a left column to a bottom sheet by
+   re-anchoring its absolute position, and clamped it to 46dvh. Inside the
+   plate that fights the grid: the rail was pinned to 345px with 934px of
+   content. The plate keeps its frame; the BODY restacks and the rail
+   scrolls in its own row. These selectors are (0,2,0) so they beat the
+   bare .rail rules in the 720px query. */
+@media (max-width: 720px) {
+  .cn-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: 44dvh 1fr;
+    min-height: 0;
+  }
+  .cn-stage { order: -1; }
+  .cn-plate .rail {
+    position: static;
+    top: auto; right: auto; bottom: auto; left: auto;
+    width: auto;
+    max-height: none;
+    display: block;
+    border-right: 0;
+    border-top: 1px solid var(--pl-line);
+    overflow-y: auto;
+    min-height: 0;
+  }
+  /* the running header cannot hold four cells at phone width. The shared
+     .pl-hdr rule hides children 3 AND 4 — child 4 here is [?], the only
+     route to the tour and the full legend, so it is explicitly restored. */
+  .cn-hdr { grid-template-columns: 1fr auto auto; }
+  .cn-hdr > *:nth-child(3) { display: none; }
+  .cn-hdr > *:nth-child(4) { display: flex; align-items: center; }
+  .cn-ftr { grid-template-columns: 1fr auto; }
+  .cn-ftr > *:nth-child(2) { display: none; }
+  /* the announcement lives over the stage row, not over the panel */
+  .announce {
+    left: var(--edge);
+    right: var(--edge);
+    bottom: auto;
+    top: calc(var(--edge) + 44px);
+  }
 }

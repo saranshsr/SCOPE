@@ -249,8 +249,9 @@ export default function App() {
     let h = 0
     // The disc centers in whatever space the rail leaves it: standby and
     // phones center on the viewport; the live desktop centers in the area
-    // right of the 272px rail. Camera and DOM crosshair share one value.
-    const RAIL = 272
+    // right of the rail. Camera and DOM crosshair share one value, and it
+    // must stay in step with --rail-w in styles.css.
+    const RAIL = 320
     /**
      * Standby aims the star into the poster's image cell (measured from the
      * DOM, so it stays right at every breakpoint); live returns it to the
@@ -604,7 +605,7 @@ export default function App() {
     const mix = { on: false, band: 'mid' as 'low' | 'mid' | 'high', stemRole: null as StemRole | null, sx: 0, sy: 0, r0: 1, echo: 0 }
     const mixState = { sweep: 0, eq: 0 }
     const centerPx = () => {
-      const fracX = startedRef.current && w > 720 ? (272 + (w - 272) / 2) / w : 0.5
+      const fracX = startedRef.current && w > 720 ? (320 + (w - 320) / 2) / w : 0.5
       return { x: fracX * w, y: h / 2 }
     }
     const onCurDown = (e: PointerEvent) => {
@@ -1333,7 +1334,7 @@ export default function App() {
       y: (cell.top + cell.height / 2) / h,
       d: Math.max(1, (h / cell.height) * 0.92),
     }
-    const toX = w > 720 ? (272 + (w - 272) / 2) / w : 0.5
+    const toX = w > 720 ? (320 + (w - 320) / 2) / w : 0.5
     const t0 = performance.now()
     const step = () => {
       if (!bootRef.current) return
@@ -1596,27 +1597,36 @@ export default function App() {
           instead of four floating corners: brand plate, tracking readout,
           source switch, and the transport deck pinned at its foot. Children
           cascade in on boot via --i indexed delays. */}
+      {/* THE CONSOLE PLATE — the same sheet the landing is, so powering on
+          does not change design language. Running header, one gapless rail
+          column, the stage, running footer. The star canvas stays full-bleed
+          BEHIND this frame; the plate is a frame over it, not a container. */}
       {started && (
-        <aside className="rail">
-          <div className="rail-brand" style={{ '--i': 0 } as React.CSSProperties}>
-            <span className="rail-word">scope<span className="rail-reg">®</span></span>
-            <span className="barcode barcode-s" aria-hidden="true" />
+        <div className="cn-plate">
+          {/* the brand and the src/pitch plate stop being rail children:
+              both are running-header cells now (mockup, header row) */}
+          <header className="pl-hdr cn-hdr">
+            <div><b>[scope-02]</b> console</div>
+            <div className="k">
+              //src_ <span>{SOURCE_ID[source]}</span>
+              <i className={`src-dot${playing ? ' live' : ''}`} />
+            </div>
+            <div className={`k${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
             <button className="rail-help" onClick={() => setOnboard(true)} title="how to play">?</button>
-          </div>
+          </header>
 
-          {/* The src/pitch plate used to float over the star as its own card.
-              It is the same real data, now as rows in the panel (law 1). */}
-          <dl className="titleblock" style={{ '--i': 1 } as React.CSSProperties}>
-            <div><dt>//src_</dt><dd>{SOURCE_ID[source]} <i className={`src-dot${playing ? ' live' : ''}`} /></dd></div>
-            <div className={rate !== 1 ? 'armed' : ''}><dt>//pitch_</dt><dd>{rate.toFixed(2)}×</dd></div>
-          </dl>
-
+          <div className="cn-body">
+        <aside className="rail">
           {/* 1 · NOW PLAYING — what you hear, and every control that acts on
               it, in the order every music player taught the world: title,
               artist, scrubber + time, transport. The loudest block in the
               rail because it is the most-used. */}
+          <div className="cn-mod"><span>01 · now playing</span><i>//deck_</i></div>
           <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
-            <samp className="deck-name"><Decode text={name} duration={700} /></samp>
+            <div className="pl-row cn-track">
+              <span className="k">//track_</span>
+              <samp className="deck-name"><Decode text={name} duration={700} /></samp>
+            </div>
             {track && (
               /* §5 phase 2: track meta as plate rows. As inline spans it
                  wrapped mid-value in a 272px rail ("BPM - /73"). */
@@ -1728,7 +1738,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* 2 · FEED — where the sound comes from */}
+          <div className="cn-mod"><span>02 · feed</span><i>//source_</i></div>
           <nav className="rail-src rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
             <button className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
               <Decode text="radio" duration={380} replayOnHover />
@@ -1778,8 +1788,8 @@ export default function App() {
 
           {/* 3 · LAYERS — every ring's visible twin. */}
           <div className={`railfold${layerUi ? ' open' : ''}`}>
+            <div className="cn-mod"><span>05 · layers</span><i>//each row is a ring_</i></div>
             <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
-              <span className="layers-tag">layers · each row is a ring</span>
               {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
                   key={L.i}
@@ -1810,8 +1820,8 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
+          <div className="cn-mod"><span>03 · visuals</span><i>//how the star reacts_</i></div>
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
-            <span className="visuals-tag">visuals · how the star reacts</span>
             {/* The SAME dial the landing ships. These were UA-default range
                 inputs rendering the same three parameters in a second
                 vocabulary — one product cannot hold two. */}
@@ -1836,8 +1846,8 @@ export default function App() {
 
           {/* 4 · SPECTRUM — docked into the panel. It carried real content
               while hovering over the star, which is what made it a card. */}
+          <div className="cn-mod"><span>04 · spectrum</span><i>//24 bands_</i></div>
           <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
-            <div className="spec-label">spectrum</div>
             <canvas ref={specRef} width={400} height={144} />
             <div className="spec-hz">
               <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
@@ -1864,14 +1874,29 @@ export default function App() {
             )}
             <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · r/f/m src · +/-/0 zoom · h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
-            <div className="diag">
+          </div>
+        </aside>
+
+            {/* the stage: the star burns through this cell, framed by
+                brackets and nothing else. All the measuring chrome that
+                used to bleed across it now lives in the panel. */}
+            <div className="cn-stage">
+              <i className="cn-brk tl" /><i className="cn-brk tr" />
+              <i className="cn-brk bl" /><i className="cn-brk br" />
+            </div>
+          </div>
+
+          <footer className="pl-ftr cn-ftr">
+            <span>/ webgl · 108k particles</span>
+            <span>/ grab the star to mix · [?] for the full legend</span>
+            <span className="diag">
               <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
                 diag {diag ? '[-]' : '[+]'}
               </button>
               {diag && <samp ref={diagRef} className="diag-line">fps -- · pts -- · quality --</samp>}
-            </div>
-          </div>
-        </aside>
+            </span>
+          </footer>
+        </div>
       )}
 
       {/* THE ANNOUNCEMENT — every track change earns one display-scale
