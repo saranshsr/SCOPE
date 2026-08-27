@@ -471,10 +471,33 @@ export default function App() {
     // live gesture readout, and gesture readouts never leave stale hints
     let hintShown = ''
     let hoverTierIdx = -1
+    // Until the first pointer event we do not know where the cursor IS, so
+    // the reticle sits parked off-screen. Hiding the native cursor before
+    // that point leaves the page with NO cursor until the user happens to
+    // move the mouse — which is exactly what "the cursor is not visible"
+    // looks like on load, after a reload, or on re-entering the window.
+    let armed = false
+    const armCursor = (x: number, y: number) => {
+      cur.tx = x
+      cur.ty = y
+      if (armed) return
+      armed = true
+      cur.x = x // snap on first sighting, or it slides in from off-screen
+      cur.y = y
+      appRef.current?.classList.add('cursor-armed')
+    }
+    const onCurEnter = (e: PointerEvent) => armCursor(e.clientX, e.clientY)
+    const onCurLeave = (e: PointerEvent) => {
+      // the pointer really left the window (not just crossed onto a child)
+      if (e.relatedTarget) return
+      armed = false
+      appRef.current?.classList.remove('cursor-armed')
+      if (reticleRef.current) reticleRef.current.style.opacity = '0'
+    }
+
     const onCurMove = (e: PointerEvent) => {
-      cur.tx = e.clientX
-      cur.ty = e.clientY
-      cur.overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
+      armCursor(e.clientX, e.clientY)
+      cur.overUi = !!(e.target as Element | null)?.closest?.('.rail, .cn-hdr, .cn-ftr, button, a, input, [role="slider"]')
       if (!reducedMotion) {
         // Hover aims the instrument (fine pointers only — touch has no
         // hover); a held pointer grabs and spins it on EVERY device.
@@ -612,7 +635,7 @@ export default function App() {
       cur.down = 1
       cur.lx = e.clientX
       cur.ly = e.clientY
-      const overUi = !!(e.target as Element | null)?.closest?.('.rail, .spec, .ctl-row, button, a, input')
+      const overUi = !!(e.target as Element | null)?.closest?.('.rail, .cn-hdr, .cn-ftr, button, a, input, [role="slider"]')
       if (overUi || !startedRef.current) return
       const hit = scene.bodyHit((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1)
       const dis = scene.dissect
@@ -741,6 +764,11 @@ export default function App() {
       }
     }
     window.addEventListener('pointermove', onCurMove)
+    // seed the position without waiting for a move: entering the window, or
+    // pressing, is enough to know where the pointer is
+    window.addEventListener('pointerover', onCurEnter)
+    window.addEventListener('pointerdown', onCurEnter)
+    document.addEventListener('pointerout', onCurLeave)
     window.addEventListener('pointerdown', onCurDown)
     window.addEventListener('pointerup', onCurUp)
     window.addEventListener('pointercancel', onCurUp)
@@ -935,8 +963,9 @@ export default function App() {
         const sc = 1 + cur.down * 0.5
         reticleRef.current.style.transform = `translate(${cur.x}px, ${cur.y}px) translate(-50%, -50%) scale(${sc})`
         // visible over the console as well as the stage: one pointer,
-        // everywhere, or the hand gets lost the moment it leaves the star
-        reticleRef.current.style.opacity = '1'
+        // everywhere, or the hand gets lost the moment it leaves the star.
+        // Only once we actually know where the pointer is.
+        reticleRef.current.style.opacity = armed ? '1' : '0'
       }
 
       // Self-profiler: a slow EMA of real frame time. Two seconds of
@@ -1245,6 +1274,9 @@ export default function App() {
       window.removeEventListener('pointerup', pinchUp)
       window.removeEventListener('pointercancel', pinchUp)
       window.removeEventListener('pointermove', onCurMove)
+      window.removeEventListener('pointerover', onCurEnter)
+      window.removeEventListener('pointerdown', onCurEnter)
+      document.removeEventListener('pointerout', onCurLeave)
       window.removeEventListener('pointerdown', onCurDown)
       window.removeEventListener('pointerup', onCurUp)
       window.removeEventListener('pointercancel', onCurUp)
@@ -1788,7 +1820,7 @@ export default function App() {
 
           {/* 3 · LAYERS — every ring's visible twin. */}
           <div className={`railfold${layerUi ? ' open' : ''}`}>
-            <div className="cn-mod"><span>05 · layers</span><i>//each row is a ring_</i></div>
+            <div className="cn-mod"><span>03 · layers</span><i>//each row is a ring_</i></div>
             <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
               {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
@@ -1820,7 +1852,7 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
-          <div className="cn-mod"><span>03 · visuals</span><i>//how the star reacts_</i></div>
+          <div className="cn-mod"><span>04 · visuals</span><i>//how the star reacts_</i></div>
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             {/* The SAME dial the landing ships. These were UA-default range
                 inputs rendering the same three parameters in a second
@@ -1846,7 +1878,7 @@ export default function App() {
 
           {/* 4 · SPECTRUM — docked into the panel. It carried real content
               while hovering over the star, which is what made it a card. */}
-          <div className="cn-mod"><span>04 · spectrum</span><i>//24 bands_</i></div>
+          <div className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></div>
           <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <canvas ref={specRef} width={400} height={144} />
             <div className="spec-hz">

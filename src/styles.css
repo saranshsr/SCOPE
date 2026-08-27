@@ -118,7 +118,6 @@ body {
 .x-v { left: var(--cx, 50%); top: 0; bottom: 0; width: 1px; transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1); }
 .x-h { top: 50%; left: 0; right: 0; height: 1px; }
 
-
 /* --- the instrument's bracket frame ------------------------------------------ */
 
 .frame {
@@ -156,17 +155,6 @@ body {
   height: 1px;
   background: var(--pl-line);
 }
-
-/* flickering readout block, top-left inside the frame */
-.readout {
-  position: absolute;
-  left: 10px;
-  top: -14px;
-  display: grid;
-  gap: 3px;
-}
-.ro-label { margin-bottom: 10px; color: var(--ink); }
-.ro-band { color: var(--dim); transition: opacity 320ms steps(2); min-height: 12px; }
 
 /* --- top-right source id ----------------------------------------------------- */
 
@@ -208,14 +196,6 @@ body {
 }
 .src-dot.live { background: var(--ink); border-color: var(--ink); }
 
-/* --- bottom-left deck --------------------------------------------------------- */
-
-.deck {
-  position: absolute;
-  left: var(--edge);
-  bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
-  pointer-events: none;
-}
 .deck-name {
   color: var(--ink);
   border-bottom: 1px solid var(--pl-line);
@@ -243,10 +223,7 @@ body {
 .spec {
   margin-top: 8px;
 }
-.spec-label {
-  color: var(--ink);
-  margin-bottom: 4px;
-}
+
 .spec canvas { display: block; width: 100%; height: 60px; border: 1px solid var(--pl-line); padding: 2px; }
 .spec-hz {
   display: flex;
@@ -255,30 +232,6 @@ body {
   margin-top: 3px;
   font-size: 9px;
 }
-
-/* --- source controls ------------------------------------------------------------ */
-
-.ctl-row {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--edge) + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  display: flex;
-  gap: 18px;
-}
-.ctl-row button {
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  background: none;
-  border: none;
-  border-radius: 0;
-  padding: 6px 2px;
-  color: var(--dim);
-  cursor: pointer;
-}
-.ctl-row button:hover { color: var(--ink); }
-.ctl-row button.power { color: var(--red); }
 
 :focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
 
@@ -300,14 +253,12 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .grain { animation: none; }
-  .ro-band { transition: none; }
 }
 
 /* phones: the side clusters stack above each other instead of colliding */
 @media (max-width: 560px) {
   :root { --edge: 14px; }
   .spec { right: auto; left: var(--edge); bottom: calc(var(--edge) + 118px + env(safe-area-inset-bottom, 0px)); }
-  .ctl-row { bottom: calc(var(--edge) + 40px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* ===========================================================================
@@ -315,50 +266,6 @@ body {
    The pieces the audit found missing: macro-typography, visible
    compartmentalization, scanlines, industrial markers.
    ------------------------------------------------------------------------ */
-
-/* §3.1 Macro-typography: the one structural header, standby only.
-   Heavy neo-grotesque, viewport-bleeding, compressed leading, negative
-   tracking — glyphs as architecture against the disc's negative space. */
-.macro {
-  position: absolute;
-  left: var(--edge);
-  bottom: calc(var(--edge) + 44px + env(safe-area-inset-bottom, 0px));
-  pointer-events: none;
-  z-index: 2;
-}
-
-.macro-name {
-  margin: 0;
-  font-family: var(--font-display);
-  font-weight: 400;
-  font-size: clamp(4rem, 13vw, 15rem);
-  line-height: 0.85;
-  letter-spacing: -0.04em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-/* §6 industrial marker: ® as a structural element, not legal text. */
-.macro-reg {
-  font-size: 0.16em;
-  font-weight: 700;
-  vertical-align: 2.2em;
-  letter-spacing: 0;
-  color: var(--dim);
-}
-
-.macro-unit {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--dim);
-  margin-bottom: 10px;
-}
-
-.macro-sub {
-  margin: 12px 0 0;
-  color: var(--dim);
-}
 
 /* §6 technical asset: barcode — repeating vertical lines. */
 .barcode {
@@ -379,7 +286,6 @@ body {
 
 /* §5 visible compartmentalization: the live console blocks are bordered
    zones, not floating clusters. */
-.deck,
 .spec {
   border: 1px solid var(--pl-line);
   padding: 8px 10px 9px;
@@ -411,7 +317,6 @@ body {
 
 /* phones: the wordmark yields to the width, the unit line wraps under it */
 @media (max-width: 560px) {
-  .macro-name { font-size: clamp(3.4rem, 19vw, 7rem); }
 }
 
 /* ===========================================================================
@@ -477,11 +382,6 @@ body {
 
 .barcode-s { width: 44px; height: 9px; }
 
-.rail .readout {
-  position: static;
-  padding: 18px 0 0;
-}
-
 .rail-src {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -521,21 +421,6 @@ body {
   margin-top: auto;
   padding-top: 16px;
   border-top: 1px solid var(--pl-line);
-}
-
-.rail-foot .deck-name {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 15px;
-  letter-spacing: 0.01em;
-  line-height: 1.25;
-  margin-bottom: 10px;
-  color: var(--ink);
-}
-
-.rail-foot .deck-wave {
-  width: 100%;
-  height: 52px; /* buffer is 2x — retina-crisp bars */
 }
 
 /* THE ANNOUNCEMENT — display type enters hard, holds, exits clean.
@@ -601,7 +486,7 @@ body {
     animation: none;
     opacity: 0; /* the rail already carries the title */
   }
-  .x-v, .x-tag-top, .frame {
+  .x-v, .frame {
     transition: none;
   }
 }
@@ -660,8 +545,12 @@ body {
    reduced-motion and on touch, below.) */
 @media (pointer: fine) {
   /* !important is the point: a dozen component rules set their own
-     pointer/text cursors — this policy deliberately outranks them all */
-  .app, .app * { cursor: none !important; }
+     pointer/text cursors — this policy deliberately outranks them all.
+     Gated on .cursor-armed, which JS sets the moment it first knows where
+     the pointer IS: before that the reticle is parked off-screen, so
+     hiding the native cursor left the page with no cursor at all until
+     you happened to move the mouse. Native cursor until we can replace it. */
+  .app.cursor-armed, .app.cursor-armed * { cursor: none !important; }
 }
 
 @media (pointer: coarse) {
@@ -765,9 +654,7 @@ body {
   .rail-foot { order: 1; margin-top: 14px; }
   .rail-src { order: 2; }
   .transport { order: 3; }
-  .statgrid { order: 4; }
   .level { order: 5; }
-  .readout { order: 6; }
   .tuning { order: 7; }
 
   /* The spectrum was absolutely positioned onto the bottom console,
@@ -799,7 +686,6 @@ body {
    1px grid-gap dividers, real values, one red held in reserve.
    ------------------------------------------------------------------------ */
 
-
 .level {
   display: flex;
   align-items: center;
@@ -815,12 +701,6 @@ body {
   border: 1px solid var(--pl-line);
 }
 .level-meter i.on { background: var(--ink); border-color: var(--ink); }
-.level-fill {
-  height: 100%;
-  width: 0%;
-  background: var(--ink);
-  transition: width 120ms linear;
-}
 
 .transport {
   display: flex;
@@ -925,7 +805,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient .frame,
 .app.ambient .x-v,
 .app.ambient .x-h,
-.app.ambient .x-tag,
 .app.ambient .reticle {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -934,8 +813,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient { cursor: none; }
 
 /* A cell in a non-default state — the machine admitting it. */
-.titleblock .armed dt, .statgrid .armed dt { color: rgba(225, 59, 42, 0.75); }
-.titleblock .armed dd, .statgrid .armed dd { color: var(--red); }
+.titleblock .armed dt { color: rgba(225, 59, 42, 0.75); }
+.titleblock .armed dd { color: var(--red); }
 
 /* Mixing: the reticle's dot goes red — you are holding the audio. */
 .app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
@@ -956,34 +835,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 2px 5px;
 }
 .ret-label:empty { background: none; padding: 0; }
-
-/* --- the stem strips: each separated part, live level, one-tap mute -------- */
-.stemstrip {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--pl-line);
-  display: grid;
-  gap: 6px;
-}
-.stem {
-  display: grid;
-  grid-template-columns: 58px 1fr 44px;
-  align-items: center;
-  gap: 8px;
-  background: none;
-  border: 1px solid var(--pl-line);
-  padding: 6px 8px;
-  cursor: pointer;
-  font: inherit;
-  color: var(--ink);
-}
-.stem-role { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; text-align: left; }
-.stem-bar { height: 5px; border: 1px solid var(--pl-line); display: block; }
-.stem-bar i { display: block; height: 100%; background: var(--ink); transition: width 100ms linear; }
-.stem-ms { font-size: 8px; letter-spacing: 0.12em; color: var(--dim); text-transform: uppercase; text-align: right; }
-.stem-muted { border-color: rgba(225, 59, 42, 0.5); }
-.stem-muted .stem-role, .stem-muted .stem-ms { color: var(--red); }
-.stem-muted .stem-bar i { background: rgba(225, 59, 42, 0.4); }
 
 .stemhint {
   font-size: 8px;
@@ -1028,12 +879,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border: 1px solid var(--pl-line);
   border-top: 1px solid var(--pl-line);
 }
-.layers-tag {
-  font-size: 8px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  opacity: 0.34;
-}
+
 .layer {
   display: grid;
   grid-template-columns: 74px 1fr 28px 28px;
@@ -1415,14 +1261,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .console-dials .pl-dial { background: #0a0a0a; }
 .console-dials .pl-dial + .pl-dial { border-left: 0; }
-
-/* visuals group label */
-.visuals-tag {
-  font-size: 8px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  opacity: 0.34;
-}
 
 /* diagnostics: for those who ask */
 .diag { display: flex; gap: 8px; align-items: baseline; }
@@ -1862,7 +1700,6 @@ a:focus-visible {
   .pl-leads li { animation: none; opacity: 1; }
 }
 
-
 /* ══ LAW 7 · THE TOUCH FLOOR ═══════════════════════════════════════════
    The audit measured 1 of ~10 console controls at ≥44px; range thumbs were
    8×8. These live at the end of the sheet deliberately: the component rules
@@ -1895,7 +1732,6 @@ input[type='range'] { height: 32px; }
   input[type='range']::-webkit-slider-thumb { width: 16px; height: 16px; }
   input[type='range']::-moz-range-thumb { width: 16px; height: 16px; }
 }
-
 
 /* ══ THE CONSOLE PLATE ═════════════════════════════════════════════════
    The console is the same sheet the landing is. The star canvas stays
@@ -2007,7 +1843,6 @@ input[type='range'] { height: 32px; }
 .cn-plate .deck-meta > div:first-child { border-top: 0; }
 .cn-plate .deck-wave { width: 100%; height: 52px; display: block; }
 .cn-plate .deck-time { padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
-
 
 /* ══ THE CONSOLE PLATE ON A PHONE ══════════════════════════════════════
    The old console flipped .rail from a left column to a bottom sheet by
