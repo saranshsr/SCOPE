@@ -54,7 +54,11 @@
 <label>Q2 · capture + environment findings</label>
 <pre id="env">click capture to populate</pre>
 
-<label>Q3 · event log (watch for "Stop sharing")</label>
+<label>Q3 · measured round-trip latency (needs capture live)</label>
+<div><button id="lat">② measure latency (emits 8 clicks)</button></div>
+<pre id="latout">run capture first</pre>
+
+<label>Q4 · event log (watch for "Stop sharing")</label>
 <pre id="log"></pre>
 
 <script>
@@ -156,8 +160,15 @@ $('cap').onclick = async () => {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   srcNode = ctx.createMediaStreamSource(stream);
   analyser = ctx.createAnalyser();
+  // MATCH THE APP EXACTLY (src/audio/features.ts:117-122). The app runs
+  // smoothing 0 on purpose — "the built-in one just adds latency and
+  // mushes transients" — and does its own envelope following. The first
+  // version of this lab used 0.7, which made the capture path look far
+  // laggier than it is.
   analyser.fftSize = 2048;
-  analyser.smoothingTimeConstant = 0.7;
+  analyser.smoothingTimeConstant = 0;
+  analyser.minDecibels = -90;
+  analyser.maxDecibels = -10;
   // NOT connected to ctx.destination — that is what would feed back,
   // since we are capturing the very tab we would be outputting into.
   srcNode.connect(analyser);
@@ -186,6 +197,64 @@ function teardown() {
   const g = $('spec').getContext('2d');
   g.fillStyle = '#000'; g.fillRect(0, 0, 420, 120);
 }
+
+/* ── Q3 · objective latency ──────────────────────────────────────────
+   Emit a short click through our OWN output, then time how long until the
+   analyser — which is listening to the captured tab — sees it. That round
+   trip IS the capture pipeline's latency. Deliberately re-introduces the
+   feedback path for a few milliseconds; safe because each click is one
+   short burst, not a sustained tone. */
+$('lat').onclick = async () => {
+  if (!ctx || !analyser) { $('latout').textContent = 'capture is not live — press ① first'; return; }
+  const out = ctx.createGain();
+  out.gain.value = 0.25;
+  out.connect(ctx.destination);
+  const bins = new Uint8Array(analyser.frequencyBinCount);
+  const results = [];
+
+  for (let n = 0; n < 8; n++) {
+    // a short 3kHz blip, easy to spot above music
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.frequency.value = 3000;
+    env.gain.setValueAtTime(0, ctx.currentTime);
+    env.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.002);
+    env.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.03);
+    osc.connect(env); env.connect(out);
+    const fired = performance.now();
+    osc.start(); osc.stop(ctx.currentTime + 0.05);
+
+    // watch the 3kHz bin until it spikes
+    const bin = Math.round(3000 / (ctx.sampleRate / analyser.fftSize));
+    const seen = await new Promise(res => {
+      const t0 = performance.now();
+      const poll = () => {
+        analyser.getByteFrequencyData(bins);
+        if (bins[bin] > 150) return res(performance.now() - fired);
+        if (performance.now() - t0 > 600) return res(null);
+        requestAnimationFrame(poll);
+      };
+      poll();
+    });
+    if (seen != null) results.push(seen);
+    await new Promise(r => setTimeout(r, 250));
+  }
+  out.disconnect();
+
+  if (!results.length) {
+    $('latout').innerHTML = '<span class="bad">no clicks detected — is tab audio actually shared?</span>';
+    return;
+  }
+  results.sort((a, b) => a - b);
+  const med = results[Math.floor(results.length / 2)];
+  $('latout').innerHTML =
+    `<span class="${med < 120 ? 'ok' : med < 250 ? 'warn' : 'bad'}">median ${med.toFixed(0)} ms` +
+    `  (min ${results[0].toFixed(0)} · max ${results[results.length-1].toFixed(0)} · n=${results.length})</span>` +
+    `\n\nIncludes one rAF of polling granularity (~16ms) and the 2048-sample` +
+    `\nFFT window (~43ms at 48k), both of which the app already lives with` +
+    `\non its own sources. Anything beyond that is capture overhead.`;
+  log('latency median ' + med.toFixed(0) + 'ms');
+};
 
 function draw() {
   if (!analyser) return;
