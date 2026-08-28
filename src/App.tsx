@@ -21,7 +21,7 @@ import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './aud
  * to the DOM from the frame loop — React state only handles mode changes.
  */
 
-const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]', stems: '[04]' }
+const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]', stems: '[04]', tube: '[05]' }
 
 /** Track time the way every player on earth writes it. */
 const fmtTime = (s: number) => {
