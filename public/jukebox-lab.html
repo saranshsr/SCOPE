@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>jukebox lab</title>
+<style>
+  /* Deliberately ugly. This page exists to answer questions, not to look
+     like anything. Nothing here is design work. */
+  body { background:#111; color:#ddd; font:13px/1.5 ui-monospace,monospace; margin:0; padding:16px; }
+  h1 { font-size:14px; margin:0 0 12px; color:#e13b2a; }
+  .row { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
+  #player { width:400px; height:225px; background:#000; }
+  button { font:inherit; background:#222; color:#ddd; border:1px solid #555; padding:8px 12px; cursor:pointer; }
+  button:hover { background:#333; }
+  pre { background:#000; border:1px solid #333; padding:10px; margin:8px 0; white-space:pre-wrap;
+        max-width:560px; font-size:12px; }
+  canvas { background:#000; border:1px solid #333; display:block; }
+  .ok { color:#6f6; } .bad { color:#f66; } .warn { color:#fd6; }
+  input { font:inherit; background:#000; color:#ddd; border:1px solid #555; padding:6px; width:280px; }
+  label { display:block; margin:10px 0 4px; color:#888; }
+</style>
+</head>
+<body>
+<h1>jukebox lab — does any of this actually work?</h1>
+
+<div class="row">
+  <div>
+    <div id="player"></div>
+    <label>video id (all verified embeddable via oEmbed)</label>
+    <input id="vid" value="N0jnLZxYwYc" />
+    <button id="load">load</button>
+    <div style="margin-top:8px">
+      <button id="play">play</button>
+      <button id="pause">pause</button>
+    </div>
+  </div>
+
+  <div>
+    <div>
+      <button id="cap">① capture this tab's audio</button>
+      <button id="stop">stop capture</button>
+    </div>
+    <label>analyser bins — moving bars mean the signal is REAL</label>
+    <canvas id="spec" width="420" height="120"></canvas>
+    <label>rms / peak (proves it is not a still image)</label>
+    <pre id="live">idle</pre>
+  </div>
+</div>
+
+<label>Q1 · what the YT API gives us (only these may be shown in the app)</label>
+<pre id="meta">not loaded</pre>
+
+<label>Q2 · capture + environment findings</label>
+<pre id="env">click capture to populate</pre>
+
+<label>Q3 · event log (watch for "Stop sharing")</label>
+<pre id="log"></pre>
+
+<script>
+const $ = id => document.getElementById(id);
+const log = (m, cls) => { const t = new Date().toISOString().slice(11,19);
+  $('log').innerHTML = `<span class="${cls||''}">${t}  ${m}</span>\n` + $('log').innerHTML; };
+
+/* ── Q1 · the YouTube IFrame API ─────────────────────────────────────── */
+let player = null, apiReady = false;
+window.onYouTubeIframeAPIReady = () => { apiReady = true; log('YT API ready', 'ok'); build($('vid').value.trim()); };
+const s = document.createElement('script');
+s.src = 'https://www.youtube.com/iframe_api';
+document.head.appendChild(s);
+
+function build(id) {
+  if (!apiReady) return;
+  if (player) { player.destroy(); player = null; }
+  player = new YT.Player('player', {
+    videoId: id,
+    playerVars: { controls: 1, rel: 0, playsinline: 1 },
+    events: {
+      onReady: () => log('player ready: ' + id, 'ok'),
+      // -1 unstarted · 0 ended · 1 playing · 2 paused · 3 buffering · 5 cued
+      onStateChange: e => log('state ' + e.data),
+      onError: e => log('PLAYER ERROR ' + e.data +
+        (e.data === 101 || e.data === 150 ? '  ← EMBEDDING DISABLED for this video' : ''), 'bad'),
+    },
+  });
+}
+$('load').onclick = () => build($('vid').value.trim());
+$('play').onclick = () => player?.playVideo();
+$('pause').onclick = () => player?.pauseVideo();
+
+setInterval(() => {
+  if (!player?.getPlayerState) return;
+  let d = {};
+  try { d = player.getVideoData() || {}; } catch (e) { /* not ready */ }
+  const known = {
+    title: d.title ?? '(unknown)',
+    author: d.author ?? '(unknown)',
+    videoId: d.video_id ?? '(unknown)',
+    currentTime: safe(() => player.getCurrentTime().toFixed(1)),
+    duration: safe(() => player.getDuration().toFixed(1)),
+    state: safe(() => player.getPlayerState()),
+  };
+  $('meta').textContent =
+    JSON.stringify(known, null, 1) +
+    '\n\nNOT AVAILABLE from this API — must never be shown:' +
+    '\n  musical key, genre, declared bpm, waveform peaks';
+}, 500);
+const safe = f => { try { return f(); } catch (e) { return '(n/a)'; } };
+
+/* ── Q2 · tab audio capture → analyser ───────────────────────────────── */
+let ctx = null, analyser = null, srcNode = null, stream = null, raf = 0, t0 = 0;
+
+$('cap').onclick = async () => {
+  const env = {
+    hasGetDisplayMedia: !!navigator.mediaDevices?.getDisplayMedia,
+    userAgentData: navigator.userAgentData?.brands?.map(b => b.brand).join(', ') || navigator.userAgent.slice(0, 60),
+    secureContext: window.isSecureContext,
+  };
+  if (!env.hasGetDisplayMedia) {
+    $('env').innerHTML = `<span class="bad">getDisplayMedia UNAVAILABLE — capture impossible in this browser</span>\n` +
+      JSON.stringify(env, null, 1);
+    return;
+  }
+  try {
+    t0 = performance.now();
+    // video is mandatory in Chrome even when only audio is wanted; keep it
+    // tiny and never render it. preferCurrentTab pre-selects this tab.
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: 1, height: 1 },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      preferCurrentTab: true,
+    });
+  } catch (err) {
+    $('env').innerHTML = `<span class="bad">DENIED / FAILED: ${err.name} — ${err.message}</span>\n` +
+      JSON.stringify(env, null, 1);
+    log('capture failed: ' + err.name, 'bad');
+    return;
+  }
+
+  const aTracks = stream.getAudioTracks();
+  env.grantMs = Math.round(performance.now() - t0);
+  env.audioTracks = aTracks.length;
+  env.videoTracks = stream.getVideoTracks().length;
+  env.audioLabel = aTracks[0]?.label ?? null;
+  env.audioSettings = aTracks[0]?.getSettings?.() ?? null;
+
+  if (!aTracks.length) {
+    $('env').innerHTML =
+      `<span class="bad">NO AUDIO TRACK — the user did not tick "Also share tab audio".</span>\n` +
+      `<span class="warn">This is THE drop-off point the real UI has to solve.</span>\n` +
+      JSON.stringify(env, null, 1);
+    log('granted but no audio track', 'bad');
+    return;
+  }
+
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  srcNode = ctx.createMediaStreamSource(stream);
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.7;
+  // NOT connected to ctx.destination — that is what would feed back,
+  // since we are capturing the very tab we would be outputting into.
+  srcNode.connect(analyser);
+
+  env.sampleRate = ctx.sampleRate;
+  env.connectedToDestination = false;
+  $('env').innerHTML = `<span class="ok">CAPTURE LIVE — analyser attached, output deliberately not connected</span>\n` +
+    JSON.stringify(env, null, 1);
+  log('capture live, ' + aTracks.length + ' audio track(s)', 'ok');
+
+  aTracks[0].addEventListener('ended', () => {
+    log('AUDIO TRACK ENDED — user pressed "Stop sharing"', 'warn');
+    teardown();
+  });
+  draw();
+};
+
+$('stop').onclick = () => { log('stopped by button'); teardown(); };
+
+function teardown() {
+  cancelAnimationFrame(raf); raf = 0;
+  srcNode?.disconnect(); srcNode = null;
+  stream?.getTracks().forEach(t => t.stop()); stream = null;
+  ctx?.close(); ctx = null; analyser = null;
+  $('live').textContent = 'idle — capture released';
+  const g = $('spec').getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, 420, 120);
+}
+
+function draw() {
+  if (!analyser) return;
+  const bins = new Uint8Array(analyser.frequencyBinCount);
+  const time = new Uint8Array(analyser.fftSize);
+  const g = $('spec').getContext('2d');
+  let peak = 0;
+  const tick = () => {
+    analyser.getByteFrequencyData(bins);
+    analyser.getByteTimeDomainData(time);
+    g.fillStyle = '#000'; g.fillRect(0, 0, 420, 120);
+    const n = 96, step = Math.floor(bins.length / n);
+    for (let i = 0; i < n; i++) {
+      const v = bins[i * step] / 255;
+      g.fillStyle = v > 0.02 ? '#eaeaea' : '#333';
+      g.fillRect(i * 4.3, 120 - v * 118, 3.4, v * 118 || 1);
+    }
+    let sum = 0;
+    for (let i = 0; i < time.length; i++) { const d = (time[i] - 128) / 128; sum += d * d; }
+    const rms = Math.sqrt(sum / time.length);
+    peak = Math.max(peak * 0.995, rms);
+    $('live').textContent =
+      `rms   ${rms.toFixed(4)}\npeak  ${peak.toFixed(4)}\n` +
+      (rms > 0.001 ? 'SIGNAL PRESENT — the star could ride this'
+                   : 'silence — audio is playing but not reaching us');
+    raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+</script>
+</body>
+</html>
