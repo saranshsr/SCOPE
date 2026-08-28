@@ -1072,6 +1072,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 9px;
 }
 .transport .dial-pitch data.armed { color: #e13b2a; }
+/* with the pitch dial gone, vol takes the whole row rather than leaving
+   column 3 unfilled — in a gap:1px grid an empty cell paints the line
+   colour through, reading as a gap in the plate. */
+.transport.no-pitch .vol { grid-column: 1 / -1; }
 
 /* contextual chips: states speak only while non-default */
 .chips { display: flex; flex-wrap: wrap; gap: var(--gap-tight); min-height: 0; }

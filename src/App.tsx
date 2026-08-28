@@ -1856,7 +1856,11 @@ export default function App() {
             </div>
             )}
             <div className={`railfold${source !== 'mic' ? ' open' : ''}`}>
-              <div className="transport">
+              {/* no-pitch: YouTube exposes no rate control, so the dial is not
+                  rendered at all in jukebox mode. vol then has to span the
+                  full row — an unfilled cell in a gap:1px grid is a hole
+                  showing the line colour, not empty space. */}
+              <div className={`transport${source === 'tube' ? ' no-pitch' : ''}`}>
                 <button
                   className="t-btn"
                   onClick={() => {
@@ -1927,17 +1931,18 @@ export default function App() {
                     aria-label="volume"
                   />
                 </div>
-                <label className="dial dial-pitch">
-                  <span>pitch</span>
-                  <input
-                    type="range" min={0.5} max={1.5} step={0.01} value={rate}
-                    disabled={source === 'tube'}
-                    onChange={(ev) => setRate(Number(ev.target.value))}
-                    onDoubleClick={() => setRate(1)}
-                    aria-label="pitch (playback speed, bends like vinyl)"
-                  />
-                  <data className={rate !== 1 ? 'armed' : ''}>{Math.round(rate * 100)}</data>
-                </label>
+                {source !== 'tube' && (
+                  <label className="dial dial-pitch">
+                    <span>pitch</span>
+                    <input
+                      type="range" min={0.5} max={1.5} step={0.01} value={rate}
+                      onChange={(ev) => setRate(Number(ev.target.value))}
+                      onDoubleClick={() => setRate(1)}
+                      aria-label="pitch (playback speed, bends like vinyl)"
+                    />
+                    <data className={rate !== 1 ? 'armed' : ''}>{Math.round(rate * 100)}</data>
+                  </label>
+                )}
               </div>
             </div>
             <div className={`railfold${(source === 'radio' || source === 'file') && track ? ' open' : ''}`}>
