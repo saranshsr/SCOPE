@@ -67,6 +67,9 @@ interface YTPlayer {
   playVideo(): void
   pauseVideo(): void
   loadVideoById(id: string): void
+  mute(): void
+  unMute(): void
+  isMuted(): boolean
   getVideoData(): { title?: string; author?: string; video_id?: string }
   getCurrentTime(): number
   getDuration(): number
@@ -141,6 +144,11 @@ export class Tube {
 
   play() { this.player?.playVideo() }
   pause() { this.player?.pauseVideo() }
+  /** Muting YouTube also silences what we capture, so the star stops
+   *  reacting — which is correct: no sound, no reaction. */
+  mute() { this.player?.mute() }
+  unMute() { this.player?.unMute() }
+  isMuted(): boolean { try { return !!this.player?.isMuted() } catch { return false } }
 
   next() {
     if (!this.list.length) return

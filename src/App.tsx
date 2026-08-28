@@ -133,6 +133,14 @@ export default function App() {
     sceneRef.current?.setTuning(tuning.turb, tuning.expo, tuning.spin)
   }, [tuning])
 
+  // The jukebox plate only exists while source === 'tube', so mounting is
+  // driven by its presence rather than by the click that caused it —
+  // otherwise the ref is still null when enterTube() runs.
+  useEffect(() => {
+    if (source !== 'tube' || !tubeHostRef.current || !tubeRef.current) return
+    void tubeRef.current.mount(tubeHostRef.current)
+  }, [source])
+
   // any input during the flight skips straight to the console: a cinematic
   // you cannot interrupt is a cinematic people learn to resent
   useEffect(() => {
@@ -1377,7 +1385,8 @@ export default function App() {
         }
       }
     }
-    if (tubeHostRef.current) await tubeRef.current.mount(tubeHostRef.current)
+    // Do NOT mount here: the host only exists once source === 'tube', and
+    // that render has not happened yet. The effect below owns mounting.
     eng.enterTube()
   }
 
@@ -1834,6 +1843,13 @@ export default function App() {
                   onClick={() => {
                     const e = engineRef.current
                     if (!e) return
+                    // in jukebox mode our element is silent by design; the
+                    // transport must drive the player that actually sounds
+                    if (e.kind === 'tube') {
+                      if (tubeState?.playing) tubeRef.current?.pause()
+                      else tubeRef.current?.play()
+                      return
+                    }
                     if (e.kind === 'stems') {
                       const d = stemDeckRef.current
                       if (d) d.playing ? d.pause() : d.play()
@@ -1843,13 +1859,15 @@ export default function App() {
                     else e.el.pause()
                   }}
                 >
-                  {paused ? 'play' : 'pause'}
+                  {source === 'tube' ? (tubeState?.playing ? 'pause' : 'play') : paused ? 'play' : 'pause'}
                 </button>
                 <button
                   className="t-btn"
                   onClick={() => {
                     const e = engineRef.current
                     if (!e) return
+                    // without this, skip left the jukebox for the radio
+                    if (e.kind === 'tube') { tubeRef.current?.next(); return }
                     if (e.kind === 'radio') void e.next()
                     else void e.playRadio()
                   }}
@@ -1862,6 +1880,15 @@ export default function App() {
                   onClick={() => {
                     const next = !muted
                     setMuted(next)
+                    // our own gain is already 0 in jukebox mode, so muting
+                    // it would do nothing audible — mute the player that
+                    // actually sounds. The star stops reacting too, which
+                    // is correct: no sound, no reaction.
+                    if (engineRef.current?.kind === 'tube') {
+                      if (next) tubeRef.current?.mute()
+                      else tubeRef.current?.unMute()
+                      return
+                    }
                     engineRef.current?.setMuted(next)
                   }}
                 >
@@ -1908,7 +1935,6 @@ export default function App() {
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
             <div className="tube rail-sec">
               <h2 className="cn-mod"><span>06 · jukebox</span><i>//youtube_</i></h2>
-              <div ref={tubeHostRef} className="tube-player" />
 
               {/* only what the API actually reports */}
               {tubeState?.title && (
@@ -2178,6 +2204,32 @@ export default function App() {
             <div className="cn-stage">
               <i className="cn-brk tl" /><i className="cn-brk tr" />
               <i className="cn-brk bl" /><i className="cn-brk br" />
+
+              {/* The jukebox is the subject while it plays, so it takes the
+                  stage as a framed plate — the same treatment the landing
+                  gives its particle field. The star burns on around it.
+                  Visible by policy: YouTube's embed terms require it. */}
+              {source === 'tube' && (
+                <figure className="tube-fig">
+                  <div ref={tubeHostRef} className="tube-player" />
+                  <i className="brk tl" /><i className="brk tr" />
+                  <i className="brk bl" /><i className="brk br" />
+                  <svg className="reg a" width="13" height="13" aria-hidden="true">
+                    <g stroke="var(--red)" strokeWidth="1">
+                      <line x1="6.5" y1="0" x2="6.5" y2="13" /><line x1="0" y1="6.5" x2="13" y2="6.5" />
+                    </g>
+                  </svg>
+                  <svg className="reg b" width="13" height="13" aria-hidden="true">
+                    <g stroke="var(--red)" strokeWidth="1">
+                      <line x1="6.5" y1="0" x2="6.5" y2="13" /><line x1="0" y1="6.5" x2="13" y2="6.5" />
+                    </g>
+                  </svg>
+                  <figcaption className="tube-figcap">
+                    <span>fig.02 · jukebox</span>
+                    <span>{listening ? 'star listening' : 'star idle'}</span>
+                  </figcaption>
+                </figure>
+              )}
             </div>
           </div>
 

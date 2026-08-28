@@ -1776,15 +1776,52 @@ input[type='range'] { height: 32px; }
    actions, .cn-hint for the explanations. Only the player cell and the
    track list are new, and both follow the 8/12 rhythm. */
 .tube { display: block; }
-/* The player stays VISIBLE — YouTube's embed policies require it, and a
-   hidden player makes "what am I listening to" unanswerable. */
-.tube-player {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-bottom: 1px solid var(--pl-line);
+
+/* ── the jukebox plate, on the stage ────────────────────────────────────
+   Same image-cell treatment the landing gives its particle field: a red
+   keyline, corner brackets, register crosses, a caption row. The star
+   keeps burning behind it. Visible by policy — YouTube's embed terms
+   require the player on screen, and a hidden one would make "what am I
+   listening to" unanswerable. */
+.tube-fig {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  /* comfortably past YouTube's 200x200 floor at every breakpoint */
+  width: min(62%, 720px);
+  min-width: 260px;
+  margin: 0;
+  border: 1px solid var(--red-dim);
   background: #000;
+  pointer-events: auto;
 }
+.tube-player { width: 100%; aspect-ratio: 16 / 9; background: #000; }
 .tube-player iframe { display: block; width: 100%; height: 100%; border: 0; }
+
+.tube-fig .brk {
+  position: absolute; width: 13px; height: 13px;
+  border: 1px solid var(--ink); opacity: 0.85;
+}
+.tube-fig .brk.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.tube-fig .brk.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
+.tube-fig .brk.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
+.tube-fig .brk.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.tube-fig .reg { position: absolute; opacity: 0.9; }
+.tube-fig .reg.a { top: 14px; left: -7px; }
+.tube-fig .reg.b { bottom: 14px; right: -7px; }
+
+.tube-figcap {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-top: 1px solid var(--pl-line);
+  background: var(--bg);
+  color: var(--ink-dim);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
 /* the one step people miss gets the accent, nothing else in the copy does */
