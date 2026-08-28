@@ -268,6 +268,7 @@ export default function App() {
 
     const scene = new Scene(canvas)
     sceneRef.current = scene
+    if (import.meta.env.DEV) (window as unknown as { __sc?: unknown }).__sc = scene
     const tracker = new FingerprintTracker()
     const beatClock = new BeatClock()
 
@@ -902,10 +903,24 @@ export default function App() {
       let lo = f.low
       let mi = f.mid
       let hi = f.high
-      if (!startedRef.current) {
+      // The breath is not just a standby effect. Inside the console it keeps
+      // the star present whenever nothing is arriving — and in jukebox mode
+      // our own bus is silent BY DESIGN (youtube makes the sound, we capture
+      // it), so without this the star vanished completely and the console
+      // read as broken rather than waiting.
+      //
+      // Faded by how quiet it actually is rather than switched at a
+      // threshold, so there is no pop as audio comes and goes; max() below
+      // still does the handover once real signal outgrows it.
+      const quiet = startedRef.current ? 1 - Math.min(1, f.rms / 0.05) : 1
+      if (quiet > 0.002) {
         const b = performance.now() / 1000
-        // the wake-up surge: the machine strains before it lets you in
-        const amt = bootRef.current ? 2.6 : 1
+        // the wake-up surge: the machine strains before it lets you in.
+        // The console frames the star closer than standby does (dolly 1 vs
+        // ~1.58), so an identical breath spreads over more screen and reads
+        // dimmer — measured as a faint smudge where standby shows a defined
+        // body. More amplitude inside, to land at the same apparent presence.
+        const amt = (bootRef.current ? 2.6 : startedRef.current ? 1.8 : 1) * quiet
         // 1.1636 rad/s = a 5.4s cycle, the SAME period the sheet's chrome
         // breathes on (styles.css, idle life). Star and plate inhale
         // together, so the screen reads as one organism, not as parts.

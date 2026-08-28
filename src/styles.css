@@ -1812,9 +1812,13 @@ input[type='range'] { height: 32px; }
    listening to" unanswerable. */
 .tube-fig {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  /* NOT centred. The star's core sits dead centre at console framing, so a
+     centred player eclipsed it — at full drive the star was reduced to a
+     thin speckle around the frame's edges, and at idle it vanished. The
+     star is the instrument; the player is here because YouTube's embed
+     terms require it. Corner-anchored, clear of the stage brackets. */
+  right: 28px;
+  bottom: 28px;
   /* Width alone cannot size this. The stage is short on laptops and shorter
      still in the mobile stack, so a purely width-driven frame grew TALLER
      than the stage and climbed into the running header and down into the
@@ -1822,7 +1826,7 @@ input[type='range'] { height: 32px; }
      caption and borders (~32px) plus clearance from the stage's corner
      brackets (~24px), then convert back through 16/9.
      No min-width — a small player beats one that covers the header. */
-  width: min(62%, 720px, (100cqh - 56px) * 16 / 9);
+  width: min(42%, 460px, (100cqh - 56px) * 16 / 9);
   margin: 0;
   border: 1px solid var(--red-dim);
   background: #000;
