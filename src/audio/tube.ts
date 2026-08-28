@@ -70,6 +70,7 @@ interface YTPlayer {
   mute(): void
   unMute(): void
   isMuted(): boolean
+  setVolume(v: number): void
   getVideoData(): { title?: string; author?: string; video_id?: string }
   getCurrentTime(): number
   getDuration(): number
@@ -149,6 +150,8 @@ export class Tube {
   mute() { this.player?.mute() }
   unMute() { this.player?.unMute() }
   isMuted(): boolean { try { return !!this.player?.isMuted() } catch { return false } }
+  /** 0..1 — the volume slider has something real to drive after all. */
+  setVolume(v: number) { try { this.player?.setVolume(Math.round(v * 100)) } catch { /* not ready */ } }
 
   next() {
     if (!this.list.length) return

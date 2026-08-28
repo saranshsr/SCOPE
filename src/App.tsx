@@ -1220,12 +1220,16 @@ export default function App() {
           else if (eng.kind !== 'mic') (eng.el.paused ? void eng.el.play() : eng.el.pause())
           break
         case 'KeyN':
-          if (eng.kind === 'radio') void eng.next()
+          // without the tube case this left the jukebox for the radio
+          if (eng.kind === 'tube') tubeRef.current?.next()
+          else if (eng.kind === 'radio') void eng.next()
           else void eng.playRadio() // file AND stems: back to the radio
           break
         case 'ArrowRight':
         case 'ArrowLeft': {
           e.preventDefault()
+          // our element is silent in jukebox mode; seeking it moves nothing
+          if (eng.kind === 'tube') break
           const dt5 = e.code === 'ArrowRight' ? 5 : -5
           if (deck) {
             deck.seek(Math.max(0, Math.min(deck.duration, deck.currentTime() + dt5)))
@@ -1239,7 +1243,11 @@ export default function App() {
         case 'ArrowUp':
         case 'ArrowDown':
           e.preventDefault()
-          setVolume((v) => Math.max(0, Math.min(1, v + (e.code === 'ArrowUp' ? 0.05 : -0.05))))
+          setVolume((v) => {
+            const nv = Math.max(0, Math.min(1, v + (e.code === 'ArrowUp' ? 0.05 : -0.05)))
+            if (eng.kind === 'tube') tubeRef.current?.setVolume(nv)
+            return nv
+          })
           break
         case 'Digit1': setTuning({ turb: 0.6, expo: 0.8, spin: 0.5 }); break
         case 'Digit2': setTuning({ turb: 1, expo: 1, spin: 1 }); break
@@ -1267,6 +1275,7 @@ export default function App() {
         case 'BracketLeft':
         case 'BracketRight': {
           e.preventDefault()
+          if (eng.kind === 'tube') break
           const d = e.code === 'BracketRight' ? 0.12 : -0.12
           latch.sweep = Math.max(-1, Math.min(1, Number((latch.sweep + d).toFixed(2))))
           mixState.sweep = latch.sweep
@@ -1275,6 +1284,7 @@ export default function App() {
         }
         case 'Backslash':
           e.preventDefault()
+          if (eng.kind === 'tube') break
           latch.sweep = 0
           latch.echo = 0
           mixState.sweep = 0
@@ -1285,6 +1295,7 @@ export default function App() {
         // echo depth, latched: e adds, shift+E removes. ( echo ) shows it.
         case 'KeyE': {
           e.preventDefault()
+          if (eng.kind === 'tube') break
           const d = e.shiftKey ? -0.2 : 0.2
           latch.echo = Math.max(0, Math.min(1, Number((latch.echo + d).toFixed(2))))
           mix.echo = latch.echo
@@ -1741,7 +1752,9 @@ export default function App() {
               //src_ <span>{SOURCE_ID[source]}</span>
               <i className={`src-dot${playing ? ' live' : ''}`} />
             </div>
-            <div className={`k${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
+            {source !== 'tube' && (
+              <div className={`k${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
+            )}
             <button
               className="rail-help"
               onClick={() => setOnboard(true)}
@@ -1761,11 +1774,13 @@ export default function App() {
               rail because it is the most-used. */}
           <h2 className="cn-mod"><span>01 · now playing</span><i>//deck_</i></h2>
           <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
+            {source !== 'tube' && (
             <div className="pl-row cn-track">
               <span className="k">//track_</span>
               <samp className="deck-name" role="status" aria-live="polite"><Decode text={name} duration={700} /></samp>
             </div>
-            {track && (
+            )}
+            {track && source !== 'tube' && (
               /* §5 phase 2: track meta as plate rows. As inline spans it
                  wrapped mid-value in a 272px rail ("BPM - /73"). */
               <dl className="deck-meta">
@@ -1786,6 +1801,7 @@ export default function App() {
                 )}
               </dl>
             )}
+            {source !== 'tube' && (
             <canvas
               ref={waveRef}
               className="deck-wave"
@@ -1832,10 +1848,13 @@ export default function App() {
                 el.currentTime = frac * el.duration
               }}
             />
+            )}
+            {source !== 'tube' && (
             <div className="deck-time">
               <data ref={cElapsedRef}>0:00</data>
               <data ref={cTotalRef}>0:00</data>
             </div>
+            )}
             <div className={`railfold${source !== 'mic' ? ' open' : ''}`}>
               <div className="transport">
                 <button
@@ -1898,7 +1917,13 @@ export default function App() {
                   <span>vol</span>
                   <input
                     type="range" min={0} max={1} step={0.01} value={volume}
-                    onChange={(ev) => setVolume(Number(ev.target.value))}
+                    onChange={(ev) => {
+                      const v = Number(ev.target.value)
+                      setVolume(v)
+                      // in jukebox mode our gain is 0, so drive the player
+                      // that actually sounds
+                      if (engineRef.current?.kind === 'tube') tubeRef.current?.setVolume(v)
+                    }}
                     aria-label="volume"
                   />
                 </div>
@@ -1906,6 +1931,7 @@ export default function App() {
                   <span>pitch</span>
                   <input
                     type="range" min={0.5} max={1.5} step={0.01} value={rate}
+                    disabled={source === 'tube'}
                     onChange={(ev) => setRate(Number(ev.target.value))}
                     onDoubleClick={() => setRate(1)}
                     aria-label="pitch (playback speed, bends like vinyl)"

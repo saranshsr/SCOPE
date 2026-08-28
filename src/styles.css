@@ -965,10 +965,20 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
 .railfold {
   display: grid;
-  grid-template-rows: 0fr;
+  /* minmax(0, …) not bare 0fr: `0fr` resolves as minmax(AUTO, 0fr), so the
+     row keeps its content's automatic minimum and a collapsed fold stayed
+     18px tall — enough to show a control in a mode where it does nothing.
+     overflow on the fold itself makes the clip independent of the child. */
+  grid-template-rows: minmax(0, 0fr);
+  /* clip, not hidden, and never `visible` on .open: flipping to visible the
+     instant the class lands let the child paint 7px past the fold for the
+     whole 450ms expand. The clip margin is the focus ring's reach
+     (1px outline + 2px offset), so keyboard focus still shows a full ring. */
+  overflow: clip;
+  overflow-clip-margin: 3px;
   transition: grid-template-rows 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.railfold.open { grid-template-rows: 1fr; }
+.railfold.open { grid-template-rows: minmax(0, 1fr); }
 .railfold > * {
   overflow: hidden;
   min-height: 0;
@@ -1532,6 +1542,12 @@ a:focus-visible {
 .tuner-find input, .tuner-find button { min-height: 40px; }
 .presets button { min-height: 36px; }
 .diag-toggle { min-height: 32px; padding: 0 4px; }
+
+/* A collapsed fold must win over these floors. grid-template-rows: 0fr
+   cannot shrink past a child's min-height, so .deck-split's 40px was
+   holding its fold open at 40px even when closed — a control visible in a
+   mode where it does nothing. (0,2,0) beats the (0,1,0) floors above. */
+.railfold:not(.open) > * { min-height: 0; }
 input[type='range'] { height: 32px; }
 .layer input[type='range'] { height: 28px; }
 
@@ -1586,7 +1602,14 @@ input[type='range'] { height: 32px; }
   min-height: 0;
 }
 /* the stage is a HOLE in the plate: no background, just brackets */
-.cn-stage { position: relative; pointer-events: none; }
+.cn-stage {
+  position: relative;
+  pointer-events: none;
+  /* a size container so the jukebox frame can be capped by the height the
+     stage actually has. Safe here: the stage holds only the corner brackets
+     and the frame — the star canvas is painted on .app, not in this box. */
+  container-type: size;
+}
 .cn-brk {
   position: absolute;
   width: 13px; height: 13px;
@@ -1788,9 +1811,14 @@ input[type='range'] { height: 32px; }
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  /* comfortably past YouTube's 200x200 floor at every breakpoint */
-  width: min(62%, 720px);
-  min-width: 260px;
+  /* Width alone cannot size this. The stage is short on laptops and shorter
+     still in the mobile stack, so a purely width-driven frame grew TALLER
+     than the stage and climbed into the running header and down into the
+     rail. Third term caps the width by the height available: subtract the
+     caption and borders (~32px) plus clearance from the stage's corner
+     brackets (~24px), then convert back through 16/9.
+     No min-width — a small player beats one that covers the header. */
+  width: min(62%, 720px, (100cqh - 56px) * 16 / 9);
   margin: 0;
   border: 1px solid var(--red-dim);
   background: #000;
