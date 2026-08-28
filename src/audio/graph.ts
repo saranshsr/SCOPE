@@ -365,6 +365,25 @@ export class AudioEngine {
     return true
   }
 
+  /**
+   * Hand the stage to the jukebox. The iframe owns playback from here, so
+   * our element steps aside — but capture is NOT started by this. Listening
+   * is a separate, explained opt-in.
+   */
+  enterTube() {
+    this.el.pause()
+    this.stopMic()
+    this.pendingAnnounce = null
+    this.kind = 'tube'
+    this.onTrackChange?.({ title: 'jukebox', artist: 'youtube', src: '' })
+  }
+
+  /** Speak through the existing announce channel — a designed failure,
+   *  never a dead click. */
+  announce(title: string, artist: string) {
+    this.onTrackChange?.({ title, artist, src: '' })
+  }
+
   /** Fired when the user ends the share from the browser's own control. */
   onTabAudioEnded: (() => void) | null = null
 

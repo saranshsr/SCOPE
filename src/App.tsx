@@ -9,6 +9,7 @@ import { fetchAudiusRadio, fetchVibe } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
+import { Tube, HINDI, parseVideoId, type TubeState } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 
 /**
@@ -62,6 +63,13 @@ export default function App() {
   /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
+  /** jukebox: the YouTube player, and whether the star is listening */
+  const tubeRef = useRef<Tube | null>(null)
+  const tubeHostRef = useRef<HTMLDivElement>(null)
+  const [tubeState, setTubeState] = useState<TubeState | null>(null)
+  const [listening, setListening] = useState(false)
+  const [tubePaste, setTubePaste] = useState('')
+
   /** the power-on flight: 'rev' while the machine spins up, 'dive' going in */
   const [boot, setBoot] = useState<'rev' | 'dive' | null>(null)
   const bootRef = useRef<'rev' | 'dive' | null>(null)
@@ -693,7 +701,10 @@ export default function App() {
         appRef.current?.classList.add('grabbing')
         return
       }
-      if (hit && pts.size < 2) {
+      // In jukebox mode the sound comes out of YouTube's own pipeline and
+      // our copy is silent, so EQ/filter/echo would move nothing. Bending
+      // the star anyway would draw a curve that isn't happening.
+      if (hit && pts.size < 2 && engineRef.current?.kind !== 'tube') {
         mix.on = true
         mix.sx = e.clientX
         mix.sy = e.clientY
@@ -1088,6 +1099,17 @@ export default function App() {
           el2.textContent = `${'abcde'[i]} :: ${v}`
           el2.style.opacity = Math.sin(t * (0.7 + i * 0.31) + i * 2.1) > -0.35 ? '1' : '0'
         }
+        // the jukebox reports itself on the same 6Hz tick as everything else
+        if (engine.kind === 'tube' && tubeRef.current) {
+          const st = tubeRef.current.read()
+          setTubeState((p) =>
+            p && p.title === st.title && p.channel === st.channel &&
+            Math.round(p.elapsed) === Math.round(st.elapsed) &&
+            p.playing === st.playing && p.error === st.error
+              ? p
+              : st,
+          )
+        }
         if (startedRef.current) {
           const deckT = engine.kind === 'stems' && stemDeckRef.current
             ? { t: stemDeckRef.current.currentTime(), d: stemDeckRef.current.duration }
@@ -1337,6 +1359,39 @@ export default function App() {
    *   track is exactly the "it revs, then a new track starts" jump. The
    *   playlist still swaps, so the NEXT track comes from the vibe.
    */
+  /**
+   * Enter the jukebox. Playing and listening are deliberately two steps:
+   * the catalogue works immediately, and the star's reaction is a separate,
+   * explained opt-in. Asking for a screen share the instant someone clicks
+   * a source button would read as an ambush.
+   */
+  const enterTube = async () => {
+    const eng = engineRef.current
+    if (!eng) return
+    if (!tubeRef.current) {
+      tubeRef.current = new Tube()
+      tubeRef.current.onError = (code) => {
+        if (code === 101 || code === 150) {
+          eng.announce('embedding blocked', 'the owner disabled it for this video')
+          tubeRef.current?.next()
+        }
+      }
+    }
+    if (tubeHostRef.current) await tubeRef.current.mount(tubeHostRef.current)
+    eng.enterTube()
+  }
+
+  /** The star listens to this tab. Separate ask, plainly explained. */
+  const startListening = async () => {
+    const ok = (await engineRef.current?.useTabAudio()) ?? false
+    setListening(ok)
+  }
+
+  const stopListening = () => {
+    engineRef.current?.stopTabAudio()
+    setListening(false)
+  }
+
   const setVibe = async (prompt: string, play = true) => {
     const eng = engineRef.current
     if (!eng || !prompt.trim()) return
@@ -1847,6 +1902,100 @@ export default function App() {
             </div>
           </div>
 
+          {/* 06 · JUKEBOX — visible only in tube mode. The player is
+              deliberately on screen: YouTube's embed policies require it,
+              and a hidden player makes "what am I listening to" unanswerable. */}
+          <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
+            <div className="tube rail-sec">
+              <h2 className="cn-mod"><span>06 · jukebox</span><i>//youtube_</i></h2>
+              <div ref={tubeHostRef} className="tube-player" />
+
+              {/* only what the API actually reports */}
+              {tubeState?.title && (
+                <div className="pl-row"><span className="k">//track_</span><span className="v">{tubeState.title}</span></div>
+              )}
+              {tubeState?.channel && (
+                <div className="pl-row"><span className="k">//channel_</span><span className="v">{tubeState.channel}</span></div>
+              )}
+              {tubeState && tubeState.duration > 0 && (
+                <div className="pl-row">
+                  <span className="k">{fmtTime(tubeState.elapsed)}</span>
+                  <span className="v">{fmtTime(tubeState.duration)}</span>
+                </div>
+              )}
+
+              {/* the consent moment: said before the dialog, not after */}
+              <div className="tube-listen">
+                {!listening ? (
+                  <>
+                    <p className="cn-hint">
+                      the star can react to this tab. nothing is recorded, nothing
+                      leaves your machine — scope only reads the levels.
+                    </p>
+                    <div className="cells c1">
+                      <button onClick={() => void startListening()}>let the star listen</button>
+                    </div>
+                    <p className="cn-hint tube-step">
+                      chrome will ask what to share. pick <b>this tab</b>, then tick
+                      <b> also share tab audio</b> — that checkbox is the one that matters.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="pl-row">
+                      <span className="k">//listening_</span>
+                      <span className="v listening-dot">this tab</span>
+                    </div>
+                    <div className="cells c1">
+                      <button onClick={stopListening}>stop listening</button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* the mix gestures genuinely cannot reach youtube's output */}
+              <p className="cn-hint">
+                grabbing the star is off here — youtube owns the sound, so eq,
+                filter and echo would move nothing. the visual dials still work.
+              </p>
+
+              <div className="vibe tube-paste">
+                <input
+                  value={tubePaste}
+                  onChange={(e) => setTubePaste(e.target.value)}
+                  placeholder="paste a youtube link or id"
+                  aria-label="play a youtube link"
+                  spellCheck={false}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return
+                    const id = parseVideoId(tubePaste)
+                    if (id) { tubeRef.current?.load(id); setTubePaste('') }
+                    else engineRef.current?.announce('not a youtube link', 'paste a watch url or an 11-character id')
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const id = parseVideoId(tubePaste)
+                    if (id) { tubeRef.current?.load(id); setTubePaste('') }
+                    else engineRef.current?.announce('not a youtube link', 'paste a watch url or an 11-character id')
+                  }}
+                >go</button>
+              </div>
+
+              <div className="tube-list">
+                {HINDI.map((t) => (
+                  <button
+                    key={t.id}
+                    className={tubeState?.videoId === t.id ? 'on' : ''}
+                    onClick={() => tubeRef.current?.load(t.id)}
+                  >
+                    <span>{t.title}</span><i>{t.channel}</i>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <h2 className="cn-mod"><span>02 · feed</span><i>//source_</i></h2>
           <div className="rail-src rail-sec" role="radiogroup" aria-label="audio source" style={{ '--i': 2 } as React.CSSProperties}>
             <button role="radio" aria-checked={source === 'radio'} className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
@@ -1857,6 +2006,14 @@ export default function App() {
             </button>
             <button role="radio" aria-checked={source === 'mic'} className={source === 'mic' ? 'on' : ''} onClick={() => void engineRef.current?.useMic()}>
               <Decode text="mic" duration={380} replayOnHover />
+            </button>
+            <button
+              role="radio"
+              aria-checked={source === 'tube'}
+              className={source === 'tube' ? 'on' : ''}
+              onClick={() => void enterTube()}
+            >
+              <Decode text="tube" duration={380} replayOnHover />
             </button>
           </div>
 
@@ -1896,7 +2053,16 @@ export default function App() {
           </div>
 
           {/* 3 · LAYERS — every ring's visible twin. */}
-          <h2 className="cn-mod"><span>03 · layers</span><i>//each row is a ring_</i></h2>
+          <h2 className="cn-mod">
+            <span>03 · layers</span>
+            <i>{source === 'tube' ? '//meters only_' : '//each row is a ring_'}</i>
+          </h2>
+          {source === 'tube' && layerUi && (
+            <p className="cn-hint">
+              the meters are live — the faders are not. youtube owns the sound
+              in jukebox mode, so moving them would change nothing.
+            </p>
+          )}
           {!layerUi && (
             <p className="cn-hint">pull the star apart (or press d) to mix its rings</p>
           )}
@@ -1922,11 +2088,13 @@ export default function App() {
                     onChange={(ev) => tierCtlRef.current?.gain(L.i, Number(ev.target.value))}
                     onDoubleClick={() => tierCtlRef.current?.gain(L.i, 1)}
                     aria-label={`${L.label} level`}
+                    disabled={source === 'tube'}
                   />
                   <button
                     className={`layer-btn${L.solo ? ' on' : ''}`}
                     aria-label={`solo ${L.label}`}
                     aria-pressed={L.solo}
+                    disabled={source === 'tube'}
                     onClick={() => tierCtlRef.current?.solo(L.i)}
                   >
                     <span aria-hidden="true">s</span>
@@ -1935,6 +2103,7 @@ export default function App() {
                     className={`layer-btn layer-btn-m${L.muted ? ' on' : ''}`}
                     aria-label={`mute ${L.label}`}
                     aria-pressed={L.muted}
+                    disabled={source === 'tube'}
                     onClick={() => tierCtlRef.current?.mute(L.i)}
                   >
                     <span aria-hidden="true">m</span>

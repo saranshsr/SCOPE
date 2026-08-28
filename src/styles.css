@@ -1769,3 +1769,65 @@ input[type='range'] { height: 32px; }
   font-size: 8px;
   letter-spacing: 0.1em;
 }
+
+
+/* ══ THE JUKEBOX ═══════════════════════════════════════════════════════
+   Reuses the sheet's primitives: .pl-row for the readouts, .cells for the
+   actions, .cn-hint for the explanations. Only the player cell and the
+   track list are new, and both follow the 8/12 rhythm. */
+.tube { display: block; }
+/* The player stays VISIBLE — YouTube's embed policies require it, and a
+   hidden player makes "what am I listening to" unanswerable. */
+.tube-player {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-bottom: 1px solid var(--pl-line);
+  background: #000;
+}
+.tube-player iframe { display: block; width: 100%; height: 100%; border: 0; }
+
+.tube-listen { border-bottom: 1px solid var(--pl-line); }
+/* the one step people miss gets the accent, nothing else in the copy does */
+.tube-step b { color: var(--red); font-weight: 400; }
+.listening-dot::before {
+  content: '';
+  display: inline-block;
+  width: 6px; height: 6px;
+  margin-right: 6px;
+  background: var(--red);
+  animation: pill-breathe 5.4s ease-in-out infinite;
+}
+
+.tube-list { display: grid; }
+.tube-list button {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--gap-related);
+  padding: 8px 12px;
+  min-height: 44px;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--dim);
+  background: var(--bg);
+  border: 0;
+  border-bottom: 1px solid var(--pl-line);
+  cursor: pointer;
+}
+.tube-list button i { font-style: normal; color: var(--ink-dim); font-size: 8px; }
+.tube-list button:hover { color: var(--red); background: rgba(225, 59, 42, 0.12); }
+.tube-list button.on { color: var(--ink); }
+.tube-list button.on span::before { content: '▸ '; color: var(--red); }
+.tube-paste { border-bottom: 1px solid var(--pl-line); }
+
+@media (prefers-reduced-motion: reduce) {
+  .listening-dot::before { animation: none; }
+}
+
+/* Dead controls must look dead. The meters beside them stay at full
+   strength because they are real analyser readings. */
+.layer input:disabled,
+.layer-btn:disabled { opacity: 0.35; cursor: not-allowed; }
