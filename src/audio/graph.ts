@@ -416,6 +416,13 @@ export class AudioEngine {
 
   /** The head of the performance desk — external sources (the stem deck)
    *  plug in here so EQ/sweep/echo/solo and the analyser hear them. */
+  /** True while a display-capture stream is actually wired into the bus.
+   *  The UI asks the engine rather than remembering, so "listening" can
+   *  never drift from what is really connected. */
+  get capturing(): boolean {
+    return !!this.tabSource
+  }
+
   get busHead(): AudioNode {
     return this.eqLow
   }

@@ -68,7 +68,14 @@ export default function App() {
   const tubeHostRef = useRef<HTMLDivElement>(null)
   const [tubeState, setTubeState] = useState<TubeState | null>(null)
   const [listening, setListening] = useState(false)
+  /** What the captured stream is actually delivering — not what the browser
+   *  said it granted. 'silent' is the common failure: chrome hands over a
+   *  perfectly valid stream with no audio track content when the "also share
+   *  tab audio" checkbox is missed, and nothing else on screen shows that. */
+  const [signal, setSignal] = useState<'idle' | 'silent' | 'live'>('idle')
   const [tubePaste, setTubePaste] = useState('')
+  /** read by the render loop, which must not close over tubeState */
+  const tubePlayingRef = useRef(false)
 
   /** the power-on flight: 'rev' while the machine spins up, 'dive' going in */
   const [boot, setBoot] = useState<'rev' | 'dive' | null>(null)
@@ -203,6 +210,7 @@ export default function App() {
 
     const engine = new AudioEngine()
     engineRef.current = engine
+    if (import.meta.env.DEV) (window as unknown as { __scope?: unknown }).__scope = engine
     engine.setPlaylist(playlist)
     // Radio priority: the owner's local library (dev machine only), then
     // the Audius trending stream (real released club music, legal to
@@ -822,6 +830,8 @@ export default function App() {
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
+    let silentFor = 0
+    let sigNow: 'idle' | 'silent' | 'live' = 'idle'
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
@@ -1008,9 +1018,31 @@ export default function App() {
         }
       }
 
+      // Is captured audio actually arriving? Ask the engine what is wired up,
+      // and the analyser what is coming through it. A granted-but-silent
+      // stream looks identical to a working one everywhere else.
+      //
+      // Only counted while the player says it is playing: a paused video is
+      // also pure silence, and accusing someone of missing the checkbox
+      // because they hit pause would be worse than saying nothing.
+      //
+      // The threshold is deliberately near zero rather than the star's own
+      // liveness floor (instrument.ts). The fault being detected is a track
+      // with NO audio content — exactly 0.0 — and real music never sustains
+      // that, however quiet the passage.
+      if (engine.capturing && tubePlayingRef.current)
+        silentFor = f.rms > 0.0015 ? 0 : silentFor + dt
+      else silentFor = 0
+
       chromeAcc += dt
       if (chromeAcc > 0.16) {
         chromeAcc = 0
+        // 2s of silence, not one quiet frame — real music has rests
+        const sig = !engine.capturing ? 'idle' : silentFor > 2 ? 'silent' : 'live'
+        if (sig !== sigNow) {
+          sigNow = sig
+          setSignal(sig)
+        }
         drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress)
         drawSpectrum(specRef.current, f.bands, mix.on ? mix.band : null, mixState.eq)
         const el = engine.el
@@ -1110,6 +1142,7 @@ export default function App() {
         // the jukebox reports itself on the same 6Hz tick as everything else
         if (engine.kind === 'tube' && tubeRef.current) {
           const st = tubeRef.current.read()
+          tubePlayingRef.current = st.playing
           setTubeState((p) =>
             p && p.title === st.title && p.channel === st.channel &&
             Math.round(p.elapsed) === Math.round(st.elapsed) &&
@@ -2001,8 +2034,21 @@ export default function App() {
                   <>
                     <div className="pl-row">
                       <span className="k">//listening_</span>
-                      <span className="v listening-dot">this tab</span>
+                      {signal === 'silent' ? (
+                        <span className="v sig-silent">no audio</span>
+                      ) : (
+                        <span className="v listening-dot">this tab</span>
+                      )}
                     </div>
+                    {/* the share is live but carrying no sound — say what to
+                        do about it here, where the person is looking */}
+                    {signal === 'silent' && (
+                      <p className="cn-hint tube-step" role="status">
+                        this tab is shared but no sound is coming through. stop,
+                        share again, and tick <b>also share tab audio</b> in the
+                        chrome dialog — it is off by default.
+                      </p>
+                    )}
                     <div className="cells c1">
                       <button onClick={stopListening}>stop listening</button>
                     </div>
@@ -2257,7 +2303,13 @@ export default function App() {
                   </svg>
                   <figcaption className="tube-figcap">
                     <span>fig.02 · jukebox</span>
-                    <span>{listening ? 'star listening' : 'star idle'}</span>
+                    <span className={signal === 'silent' ? 'sig-silent' : undefined}>
+                    {signal === 'live'
+                      ? 'star listening'
+                      : signal === 'silent'
+                        ? 'no audio shared'
+                        : 'star idle'}
+                  </span>
                   </figcaption>
                 </figure>
               )}

@@ -1856,6 +1856,9 @@ input[type='range'] { height: 32px; }
 }
 
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
+/* granted but silent is a fault state, so it takes the accent — and no
+   breathing dot, because nothing is arriving to breathe with. */
+.sig-silent { color: var(--red); }
 /* the one step people miss gets the accent, nothing else in the copy does */
 .tube-step b { color: var(--red); font-weight: 400; }
 .listening-dot::before {
