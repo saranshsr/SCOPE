@@ -17,25 +17,47 @@
 export interface TubeTrack {
   id: string
   title: string
-  channel: string
+  /** film or session — verified, unlike a singer credit would be */
+  from: string
 }
 
 /**
- * Curated starting point. Every id below was verified embeddable through
- * YouTube's oEmbed endpoint, which returns 401 when a rights holder has
- * disabled embedding — see JUKEBOX-READINESS.md.
+ * Individual songs, not mixtapes. Every id below was resolved from a real
+ * YouTube search and then confirmed through the oEmbed endpoint, which
+ * returns the canonical title and channel — so each entry is verified twice
+ * over: that it embeds at all (oEmbed 401s when a rights holder disables
+ * embedding) and that the id is genuinely the song it claims to be.
  *
  * Official label channels ONLY. Fan reuploads of the same songs are
  * usually unlicensed and get pulled, and curating them into a product
  * would be both fragile and wrong.
+ *
+ * `from` is the film or session, taken from the verified oEmbed title.
+ * Singers are deliberately NOT listed: unlike the title and the channel,
+ * they are not in anything we fetched, and asserting them from memory is
+ * exactly the kind of unverified value DESIGN.md law 3 forbids.
  */
 export const HINDI: TubeTrack[] = [
-  { id: 'xZDDOwGqLFY', title: 'best of t-series mixtape', channel: 't-series' },
-  { id: 'sqfHiNiRmug', title: 'bollywood soulful hits', channel: 't-series' },
-  { id: 'ND4V-wgtGZ8', title: 'best hindi songs 2022', channel: 'saregama' },
-  { id: '0XTJdt90Yf0', title: 'top hits of arijit & shreya', channel: 'saregama' },
-  { id: 'N0jnLZxYwYc', title: 'mujhse mohabbat ka izhaar', channel: 'shemaroo' },
-  { id: 'sivn5BX3Lic', title: 'uff', channel: 't-series' },
+  { id: '6mr4cYJ7yew', title: 'kesariya', from: 'brahmastra' },
+  { id: '81qmmlsIE3k', title: 'tum hi ho', from: 'aashiqui 2' },
+  { id: 'bzSTpdcs-EI', title: 'channa mereya', from: 'ae dil hai mushkil' },
+  { id: 'GLGuLXKT9Ng', title: 'raataan lambiyan', from: 'shershaah' },
+  { id: 'ElZfdU54Cp8', title: 'apna bana le', from: 'bhediya' },
+  { id: 'VAdGW7QDJiU', title: 'chaleya', from: 'jawan' },
+  { id: 'RLzC55ai0eo', title: 'heeriye', from: 'jasleen royal' },
+  { id: 'X7WXHhokylc', title: 'tere vaaste', from: 'zara hatke zara bachke' },
+  { id: 'fdubeMFwuGs', title: 'ilahi', from: 'yeh jawaani hai deewani' },
+  { id: 'npwn6KVMtFI', title: 'o bedardeya', from: 'tu jhoothi main makkaar' },
+  { id: 'jHNNMj5bNQw', title: 'kabira', from: 'yeh jawaani hai deewani' },
+  { id: 'sK7riqg2mr4', title: 'agar tum saath ho', from: 'tamasha' },
+  { id: 'T94PHkuydcw', title: 'kun faya kun', from: 'rockstar' },
+  { id: 'k3g_WjLCsXM', title: 'sajni', from: 'laapataa ladies' },
+  { id: 'hxMNYkLN7tI', title: 'aaj ki raat', from: 'stree 2' },
+  { id: 'mNuhKUOD_A0', title: 'deva deva', from: 'brahmastra' },
+  { id: '9JDSGhhiOwI', title: 'tere bina', from: 'guru' },
+  { id: '5Eqb_-j3FDA', title: 'pasoori', from: 'coke studio 14' },
+  { id: '-2RAq5o5pwc', title: 'jhol', from: 'coke studio 15' },
+  { id: 'YxWlaYCA8MU', title: 'jhoome jo pathaan', from: 'pathaan' },
 ]
 
 /** Accepts a full watch/share/embed URL or a bare 11-character id. */
@@ -140,6 +162,12 @@ export class Tube {
 
   load(id: string) {
     this.lastError = null
+    // Keep the cursor with what is actually playing, or SKIP resumes from
+    // wherever the list was last left — pick track 14, press skip, land on
+    // track 2. Unknown ids (a pasted link) leave the cursor alone, so skip
+    // continues from the last curated song rather than jumping to the top.
+    const at = this.list.findIndex((t) => t.id === id)
+    if (at >= 0) this.index = at
     this.player?.loadVideoById(id)
   }
 

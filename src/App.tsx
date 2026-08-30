@@ -74,6 +74,8 @@ export default function App() {
    *  tab audio" checkbox is missed, and nothing else on screen shows that. */
   const [signal, setSignal] = useState<'idle' | 'silent' | 'live'>('idle')
   const [tubePaste, setTubePaste] = useState('')
+  /** the curated entry for whatever is playing, if it is one of ours */
+  const curated = HINDI.find((t) => t.id === tubeState?.videoId) ?? null
   /** read by the render loop, which must not close over tubeState */
   const tubePlayingRef = useRef(false)
 
@@ -2015,12 +2017,21 @@ export default function App() {
             <div className="tube rail-sec">
               <h2 className="cn-mod"><span>06 · jukebox</span><i>//youtube_</i></h2>
 
-              {/* only what the API actually reports */}
-              {tubeState?.title && (
-                <div className="pl-row"><span className="k">//track_</span><span className="v">{tubeState.title}</span></div>
+              {/* Only what we actually know. For a curated song the id→song
+                  mapping was verified, so the clean name is a fact and reads
+                  in the sheet's own voice; a pasted link falls back to
+                  YouTube's raw title, which is all we have for it. */}
+              {(curated?.title ?? tubeState?.title) && (
+                <div className="pl-row">
+                  <span className="k">//track_</span>
+                  <span className="v">{curated?.title ?? tubeState?.title}</span>
+                </div>
               )}
-              {tubeState?.channel && (
-                <div className="pl-row"><span className="k">//channel_</span><span className="v">{tubeState.channel}</span></div>
+              {(curated?.from ?? tubeState?.channel) && (
+                <div className="pl-row">
+                  <span className="k">{curated ? '//from_' : '//channel_'}</span>
+                  <span className="v">{curated?.from ?? tubeState?.channel}</span>
+                </div>
               )}
               {tubeState && tubeState.duration > 0 && (
                 <div className="pl-row">
@@ -2107,7 +2118,7 @@ export default function App() {
                     className={tubeState?.videoId === t.id ? 'on' : ''}
                     onClick={() => tubeRef.current?.load(t.id)}
                   >
-                    <span>{t.title}</span><i>{t.channel}</i>
+                    <span>{t.title}</span><i>{t.from}</i>
                   </button>
                 ))}
               </div>
@@ -2302,31 +2313,12 @@ export default function App() {
                   gives its particle field. The star burns on around it.
                   Visible by policy: YouTube's embed terms require it. */}
               {source === 'tube' && (
-                <figure className="tube-fig">
-                  <div ref={tubeHostRef} className="tube-player" />
-                  <i className="brk tl" /><i className="brk tr" />
-                  <i className="brk bl" /><i className="brk br" />
-                  <svg className="reg a" width="13" height="13" aria-hidden="true">
-                    <g stroke="var(--red)" strokeWidth="1">
-                      <line x1="6.5" y1="0" x2="6.5" y2="13" /><line x1="0" y1="6.5" x2="13" y2="6.5" />
-                    </g>
-                  </svg>
-                  <svg className="reg b" width="13" height="13" aria-hidden="true">
-                    <g stroke="var(--red)" strokeWidth="1">
-                      <line x1="6.5" y1="0" x2="6.5" y2="13" /><line x1="0" y1="6.5" x2="13" y2="6.5" />
-                    </g>
-                  </svg>
-                  <figcaption className="tube-figcap">
-                    <span>fig.02 · jukebox</span>
-                    <span className={signal === 'silent' ? 'sig-silent' : undefined}>
-                    {signal === 'live'
-                      ? 'star listening'
-                      : signal === 'silent'
-                        ? 'no audio shared'
-                        : 'star idle'}
-                  </span>
-                  </figcaption>
-                </figure>
+                /* Audio only: the player is kept alive but not shown, so the
+                   star is the whole visual. Clipped to 1px at zero opacity
+                   rather than display:none or visibility:hidden — a player
+                   removed from rendering gets throttled or paused by the
+                   browser, and this is the pattern that survives it. */
+                <div ref={tubeHostRef} className="tube-host" aria-hidden="true" />
               )}
             </div>
           </div>

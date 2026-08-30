@@ -1606,14 +1606,7 @@ input[type='range'] { height: 32px; }
   min-height: 0;
 }
 /* the stage is a HOLE in the plate: no background, just brackets */
-.cn-stage {
-  position: relative;
-  pointer-events: none;
-  /* a size container so the jukebox frame can be capped by the height the
-     stage actually has. Safe here: the stage holds only the corner brackets
-     and the frame — the star canvas is painted on .app, not in this box. */
-  container-type: size;
-}
+.cn-stage { position: relative; pointer-events: none; }
 .cn-brk {
   position: absolute;
   width: 13px; height: 13px;
@@ -1810,53 +1803,17 @@ input[type='range'] { height: 32px; }
    keeps burning behind it. Visible by policy — YouTube's embed terms
    require the player on screen, and a hidden one would make "what am I
    listening to" unanswerable. */
-.tube-fig {
+/* The player, alive but unseen. Same shape saloon.wtf uses: clipped to a
+   1px box at zero opacity, NOT display:none or visibility:hidden — those
+   let the browser throttle or pause the media. pointer-events off so the
+   invisible frame can never swallow a click meant for the star. */
+.tube-host {
   position: absolute;
-  /* NOT centred. The star's core sits dead centre at console framing, so a
-     centred player eclipsed it — at full drive the star was reduced to a
-     thin speckle around the frame's edges, and at idle it vanished. The
-     star is the instrument; the player is here because YouTube's embed
-     terms require it. Corner-anchored, clear of the stage brackets. */
-  right: 28px;
-  bottom: 28px;
-  /* Width alone cannot size this. The stage is short on laptops and shorter
-     still in the mobile stack, so a purely width-driven frame grew TALLER
-     than the stage and climbed into the running header and down into the
-     rail. Third term caps the width by the height available: subtract the
-     caption and borders (~32px) plus clearance from the stage's corner
-     brackets (~24px), then convert back through 16/9.
-     No min-width — a small player beats one that covers the header. */
-  width: min(42%, 460px, (100cqh - 56px) * 16 / 9);
-  margin: 0;
-  border: 1px solid var(--red-dim);
-  background: #000;
-  pointer-events: auto;
-}
-.tube-player { width: 100%; aspect-ratio: 16 / 9; background: #000; }
-.tube-player iframe { display: block; width: 100%; height: 100%; border: 0; }
-
-.tube-fig .brk {
-  position: absolute; width: 13px; height: 13px;
-  border: 1px solid var(--ink); opacity: 0.85;
-}
-.tube-fig .brk.tl { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-.tube-fig .brk.tr { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
-.tube-fig .brk.bl { bottom: -1px; left: -1px; border-right: 0; border-top: 0; }
-.tube-fig .brk.br { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
-.tube-fig .reg { position: absolute; opacity: 0.9; }
-.tube-fig .reg.a { top: 14px; left: -7px; }
-.tube-fig .reg.b { bottom: 14px; right: -7px; }
-
-.tube-figcap {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border-top: 1px solid var(--pl-line);
-  background: var(--bg);
-  color: var(--ink-dim);
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
