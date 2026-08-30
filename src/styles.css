@@ -154,29 +154,6 @@ body {
   .spec { right: auto; left: var(--edge); bottom: calc(var(--edge) + 118px + env(safe-area-inset-bottom, 0px)); }
 }
 
-/* ===========================================================================
-   SKILL EXECUTION — industrial-brutalist-ui, tactical telemetry mode.
-   The pieces the audit found missing: macro-typography, visible
-   compartmentalization, scanlines, industrial markers.
-   ------------------------------------------------------------------------ */
-
-/* §6 technical asset: barcode — repeating vertical lines. */
-.barcode {
-  display: inline-block;
-  width: 72px;
-  height: 12px;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--ink) 0 1px,
-    transparent 1px 3px,
-    var(--ink) 3px 6px,
-    transparent 6px 7px,
-    var(--ink) 7px 8px,
-    transparent 8px 12px
-  );
-  opacity: 0.7;
-}
-
 /* §5 visible compartmentalization: the live console blocks are bordered
    zones, not floating clusters. */
 .spec {
@@ -208,10 +185,6 @@ body {
   );
 }
 
-/* phones: the wordmark yields to the width, the unit line wraps under it */
-@media (max-width: 560px) {
-}
-
 /* ===========================================================================
    THE CONSOLE — live-state architecture.
    One engineered rail instead of four floating corners; the disc yields
@@ -235,7 +208,6 @@ body {
 }
 
 /* Boot cascade: each section rises in on its own indexed delay. */
-.rail-brand,
 .rail-sec {
   animation: rail-in 600ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
   animation-delay: calc(var(--i) * 110ms + 120ms);
@@ -247,25 +219,6 @@ body {
     transform: translateY(14px);
   }
 }
-
-.rail-word {
-  /* law 2: the announcement owns the one display moment; the wordmark
-     steps down to the mono tier so the rail whispers. */
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
-
-.rail-reg {
-  font-size: 9px;
-  vertical-align: 1em;
-  color: var(--dim);
-}
-
-.barcode-s { width: 44px; height: 9px; }
 
 .rail-src {
   display: grid;
@@ -363,7 +316,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rail-brand,
   .rail-sec {
     animation: none;
   }
@@ -462,12 +414,12 @@ body {
 .ret-dot { transition: transform 120ms ease; }
 
 @media (max-width: 720px) {
-  .titleblock { grid-template-columns: 1fr 1fr; }
+
   /* Priorities invert on the phone sheet: identity, then what's playing
      and its scrubber, then sources and transport — stats and tuning live
      below the fold for the curious thumb. Desktop keeps the pinned foot. */
   .rail { display: flex; }
-  .rail-brand { order: 0; }
+
   .rail-foot { order: 1; margin-top: 14px; }
   .rail-src { order: 2; }
   .transport { order: 3; }
@@ -614,7 +566,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
    The announce stays (a track change on a TV should still say its name).
    ------------------------------------------------------------------------ */
 .app.ambient .rail,
-.app.ambient .titleblock,
 .app.ambient .spec,
 .app.ambient .x-v,
 .app.ambient .x-h,
@@ -628,10 +579,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   transition: opacity 500ms ease, visibility 0s linear 500ms;
 }
 .app.ambient { cursor: none; }
-
-/* A cell in a non-default state — the machine admitting it. */
-.titleblock .armed dt { color: rgba(225, 59, 42, 0.75); }
-.titleblock .armed dd { color: var(--red); }
 
 /* Mixing: the reticle's dot goes red — you are holding the audio. */
 .app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
@@ -670,17 +617,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   height: 100%;
   z-index: 1;
   pointer-events: none;
-}
-
-/* The spectrum and title plate used to float over the stage, so they had
-   to yield when the rings opened underneath them. They are cells in the
-   panel now — hiding them would blank out real content, not free the view. */
-@media (max-width: 720px) {
-  .app.dissected .survey-legend {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s;
-  }
 }
 
 /* One mode, one manual: the keyline teaches only the state you're in. */
@@ -1164,8 +1100,6 @@ a:focus-visible {
    gated to an active drag. */
 .x-v,
 .x-h { display: none; }
-.app.dragging .x-v,
-.app.dragging .x-h { display: block; }
 
 /* ── running header ── */
 .pl-hdr {
@@ -1801,7 +1735,6 @@ input[type='range'] { height: 32px; }
   font-size: 8px;
   letter-spacing: 0.1em;
 }
-
 
 /* ══ THE JUKEBOX ═══════════════════════════════════════════════════════
    Reuses the sheet's primitives: .pl-row for the readouts, .cells for the

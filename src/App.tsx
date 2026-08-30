@@ -2014,7 +2014,11 @@ export default function App() {
               deliberately on screen: YouTube's embed policies require it,
               and a hidden player makes "what am I listening to" unanswerable. */}
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
-            <div className="tube rail-sec">
+            {/* 1.5: the jukebox sits between the deck and the feed in DOM
+                order, so it takes a delay between theirs. Without an --i at
+                all, var(--i) is invalid, the whole calc() is invalid, and the
+                section snapped in on beat 0 while every other one staggered. */}
+            <div className="tube rail-sec" style={{ '--i': 1.5 } as React.CSSProperties}>
               <h2 className="cn-mod"><span>06 · jukebox</span><i>//youtube_</i></h2>
 
               {/* Only what we actually know. For a curated song the id→song
