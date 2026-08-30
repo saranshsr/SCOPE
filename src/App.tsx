@@ -281,7 +281,14 @@ export default function App() {
     // phones center on the viewport; the live desktop centers in the area
     // right of the rail. Camera and DOM crosshair share one value, and it
     // must stay in step with --rail-w in styles.css.
-    const RAIL = 320
+    // Read from the sheet, never hardcoded: --rail-w changes at the 1200px
+    // breakpoint where the rail becomes two columns, and a stale 320 here
+    // would centre the star against a rail width that no longer exists.
+    const railW = () => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue('--rail-w')
+      const n = parseFloat(v)
+      return Number.isFinite(n) ? n : 320
+    }
     /**
      * Standby aims the star into the poster's image cell (measured from the
      * DOM, so it stays right at every breakpoint); live returns it to the
@@ -289,6 +296,7 @@ export default function App() {
      */
     const focus = (snap = false) => {
       const live = startedRef.current && w > 720
+      const RAIL = railW()
       let fx = live ? (RAIL + (w - RAIL) / 2) / w : 0.5
       let fy = 0.5
       let dolly = 1
@@ -1823,6 +1831,7 @@ export default function App() {
               it, in the order every music player taught the world: title,
               artist, scrubber + time, transport. The loudest block in the
               rail because it is the most-used. */}
+          <section className="mod">
           <h2 className="cn-mod"><span>01 · now playing</span><i>//deck_</i></h2>
           <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
             {source !== 'tube' && (
@@ -2017,6 +2026,12 @@ export default function App() {
           {/* 06 · JUKEBOX — visible only in tube mode. The player is
               deliberately on screen: YouTube's embed policies require it,
               and a hidden player makes "what am I listening to" unanswerable. */}
+          </section>
+          {/* A collapsed module still occupies a grid cell, so in radio mode
+              the jukebox left a module-sized hole in the left column and
+              pushed everything after it across. Out of flow entirely when
+              it has nothing to say. */}
+          <section className={`mod${source === 'tube' ? '' : ' mod-off'}`}>
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
             {/* 1.5: the jukebox sits between the deck and the feed in DOM
                 order, so it takes a delay between theirs. Without an --i at
@@ -2141,6 +2156,8 @@ export default function App() {
             </div>
           </div>
 
+          </section>
+          <section className="mod">
           <h2 className="cn-mod"><span>02 · feed</span><i>//source_</i></h2>
           <div className="rail-src rail-sec" role="radiogroup" aria-label="audio source" style={{ '--i': 2 } as React.CSSProperties}>
             <button role="radio" aria-checked={source === 'radio'} className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
@@ -2198,6 +2215,8 @@ export default function App() {
           </div>
 
           {/* 3 · LAYERS — every ring's visible twin. */}
+          </section>
+          <section className="mod">
           <h2 className="cn-mod">
             <span>03 · layers</span>
             <i>{source === 'tube' ? '//meters only_' : '//each row is a ring_'}</i>
@@ -2260,6 +2279,8 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
+          </section>
+          <section className="mod">
           <h2 className="cn-mod"><span>04 · visuals</span><i>//how the star reacts_</i></h2>
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             {/* The SAME dial the landing ships. These were UA-default range
@@ -2286,6 +2307,8 @@ export default function App() {
 
           {/* 4 · SPECTRUM — docked into the panel. It carried real content
               while hovering over the star, which is what made it a card. */}
+          </section>
+          <section className="mod">
           <h2 className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></h2>
           <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
             <canvas ref={specRef} width={400} height={144} aria-hidden="true" />
@@ -2296,6 +2319,8 @@ export default function App() {
 
           {/* 5 · FOOT — the level meter, states that only speak when armed,
               the legend, and diagnostics for those who ask. */}
+          </section>
+          <section className="mod">
           <div className="rail-foot rail-sec" style={{ '--i': 7 } as React.CSSProperties}>
             <div className="level">
               <span className="level-tag">level</span>
@@ -2315,6 +2340,7 @@ export default function App() {
             <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · [ ] filter · e/E echo · \ flat · r/shift+f/shift+m src · +/-/0 zoom · shift+h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
           </div>
+          </section>
         </main>
 
             {/* the stage: the star burns through this cell, framed by
@@ -2340,6 +2366,16 @@ export default function App() {
           </div>
 
           <footer className="pl-ftr cn-ftr">
+            {/* An attribution in the sheet's own voice, NOT a reproduction of
+                the wordmark — the real asset is not in the repo, and setting
+                noon's logo in JetBrains Mono would be a worse lie than
+                leaving it out. Swap for the licensed mark when it lands. */}
+            <span className="ftr-mark">
+              <svg width="11" height="11" viewBox="0 0 42 42" aria-hidden="true">
+                <path d={dialArc(-0.9, 15, 74)} fill="none" stroke="currentColor" strokeWidth="6" />
+              </svg>
+              noon
+            </span>
             <span>/ webgl · 108k particles</span>
             <span>/ grab the star to mix · [?] for the full legend</span>
             <span className="diag">
@@ -2464,6 +2500,24 @@ const DIAL_MAX = 2
  * use the arrows: the star reshapes under the frame while the instrument is
  * still on standby, which is the whole point of showing it there.
  */
+/**
+ * The dial face: noon's mark, rotated to the value.
+ *
+ * A ring of radius 13 with a wedge missing. The wedge is centred on the
+ * value angle, so the notch points the way a needle used to — the gap
+ * carries the reading and the mark at the same time.
+ */
+function dialArc(a: number, r = 13, gapDeg = 58) {
+  const g = (gapDeg * Math.PI) / 180
+  // screen coords: x = sin, y = -cos, so a = 0 points straight up
+  const pt = (ang: number) =>
+    [(21 + Math.sin(ang) * r).toFixed(2), (21 - Math.cos(ang) * r).toFixed(2)]
+  const [sx, sy] = pt(a + g / 2)
+  const [ex, ey] = pt(a - g / 2)
+  // the long way round: everything except the wedge
+  return `M ${sx} ${sy} A ${r} ${r} 0 1 1 ${ex} ${ey}`
+}
+
 function Dial({
   v,
   cap,
@@ -2513,13 +2567,13 @@ function Dial({
     >
       <svg width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
         <rect x=".5" y=".5" width="41" height="41" fill="none" stroke="currentColor" opacity=".5" />
-        <circle cx="21" cy="21" r="13" fill="none" stroke="currentColor" />
-        <line
-          x1="21" y1="21"
-          x2={(21 + Math.sin(a) * 12).toFixed(1)}
-          y2={(21 - Math.cos(a) * 12).toFixed(1)}
-          stroke="var(--ink)" strokeWidth="1.5"
-        />
+        {/* noon's logomark is a ring with a notch cut out of it. A knob's
+            indicator is also a notch. So the ring IS the mark and the gap
+            IS the pointer — the same shape doing both jobs, which is why
+            there is no separate needle any more. Brand as structure: every
+            dial in the instrument is quietly the mark, and nothing is
+            pasted on to say so. */}
+        <path d={dialArc(a)} fill="none" stroke="var(--ink)" strokeWidth="2.5" strokeLinecap="butt" />
         <circle cx="21" cy="21" r="1.6" fill="var(--accent)" />
       </svg>
       <span className="cap">{cap} <b>{Math.round(v * 100)}</b></span>

@@ -723,9 +723,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   background: var(--ink);
   border-color: var(--ink);
 }
+/* Type, not a fill. Every layer has its own mute, so several can be lit at
+   once — and a fill is the inverted form that says "this is THE subject",
+   which cannot be true of four things simultaneously. Accent type carries
+   the state without claiming to be the one thing that matters. */
 .layer-btn-m.on {
-  color: var(--bg);
-  background: var(--accent);
+  color: var(--accent);
+  background: none;
   border-color: var(--accent);
 }
 .layer-muted .layer-name { color: var(--accent); }
@@ -975,6 +979,23 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .deck-split:hover:not(:disabled) { color: var(--bg); background: var(--ink); border-color: var(--ink); }
 .deck-split:disabled { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.5); cursor: wait; }
+
+.mod { display: block; min-width: 0; }
+.mod-off { display: none; }
+
+/* the footer credit: the notch mark beside a plain-text attribution. Set in
+   the sheet's own face on purpose — it reads as scope crediting noon, not as
+   noon's wordmark badly reproduced. */
+.ftr-mark {
+  /* the band uppercases everything; noon is lowercase, always. A credit may
+     be set in our own face but it does not get to restyle their name. */
+  text-transform: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+.ftr-mark svg { display: block; }
 
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
 .railfold {
@@ -1671,6 +1692,10 @@ input[type='range'] { height: 32px; }
   text-transform: uppercase;
 }
 .cn-mod i { color: var(--ink-dim); font-style: normal; }
+/* at a 310px column the descriptor no longer fits beside the title. Let the
+   pair wrap as a unit, but never break "03 · layers" across two lines. */
+.cn-mod { flex-wrap: wrap; }
+.cn-mod span { white-space: nowrap; }
 .cn-track .k { color: var(--ink-dim); }
 .cn-track .deck-name { max-width: none; }
 
@@ -1922,3 +1947,37 @@ input[type='range'] { height: 32px; }
    strength because they are real analyser readings. */
 .layer input:disabled,
 .layer-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ══ the rail as a grid of modules ══════════════════════════════════════
+   At 1440x900 the rail held 1325px of content in 763px — 562px, 42% of the
+   console's controls, below the fold — while the stage kept 1070px of
+   width that was mostly empty black around the star.
+
+   Header and body used to be siblings, so the rail could not become
+   columns without separating a module from its own title; they are grouped
+   into .mod now. Above 1200px the rail runs two columns.
+
+   This lives at the END of the sheet deliberately. `.cn-plate .rail` sets
+   display:block at (0,2,0) and sits later in the file, so it beat an
+   earlier `.rail` rule on both counts. Same reason the touch-target floors
+   are down here. */
+@media (min-width: 1200px) {
+  /* two columns need roughly twice the width. .cn-body sizes its rail
+     column from this, and App.tsx reads the same value to keep the star
+     centred in what is left. */
+  :root { --rail-w: 620px; }
+  .cn-plate .rail {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    /* 1px over the line colour: the two columns SHARE one hairline instead
+       of each carrying its own with a gutter between (law 1) */
+    gap: 1px;
+    background: var(--pl-line);
+    align-content: start;
+  }
+  /* the plate's translucency moves to the modules so the seam stays line-
+     coloured rather than showing the rail's own near-black through it */
+  .cn-plate .rail > .mod { background: rgba(var(--bg-rgb), 0.94); }
+  /* the deck is the subject of the console — it keeps a full row */
+  .cn-plate .rail > .mod:first-of-type { grid-column: 1 / -1; }
+}
