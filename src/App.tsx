@@ -2033,6 +2033,14 @@ export default function App() {
                   <span className="v">{curated?.from ?? tubeState?.channel}</span>
                 </div>
               )}
+              {/* only for curated songs: a pasted link carries no credit we
+                  fetched, and the row simply does not appear */}
+              {curated && (
+                <div className="pl-row pl-row-wrap">
+                  <span className="k">//singer_</span>
+                  <span className="v">{curated.singers}</span>
+                </div>
+              )}
               {tubeState && tubeState.duration > 0 && (
                 <div className="pl-row">
                   <span className="k">{fmtTime(tubeState.elapsed)}</span>

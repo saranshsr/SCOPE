@@ -789,12 +789,18 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   background: var(--red);
   border-color: #eaeaea;
 }
-.tuner-find {
+/* One primitive, two users: the vibe tuner's find row and the jukebox's
+   paste-a-link row are the same thing — a text field with a small commit
+   button. `.vibe` was in the markup but had no rules anywhere, so the
+   paste field rendered as a white UA input with a grey button sitting in
+   the middle of the plate. Shared rather than duplicated. */
+.tuner-find, .vibe {
   display: grid;
+  align-items: stretch;
   grid-template-columns: 1fr 34px;
   gap: var(--gap-tight);
 }
-.tuner-find input {
+.tuner-find input, .vibe input {
   font: inherit;
   font-size: 10px;
   color: #eaeaea;
@@ -803,9 +809,9 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 8px 12px;
   outline: none;
 }
-.tuner-find input:focus { border-color: var(--pl-line); }
-.tuner-find input::placeholder { color: rgba(234, 234, 234, 0.55); }
-.tuner-find button {
+.tuner-find input:focus, .vibe input:focus { border-color: var(--pl-line); }
+.tuner-find input::placeholder, .vibe input::placeholder { color: rgba(234, 234, 234, 0.55); }
+.tuner-find button, .vibe button {
   font: inherit;
   font-size: 9px;
   text-transform: uppercase;
@@ -814,7 +820,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border: 1px solid var(--pl-line);
   cursor: pointer;
 }
-.tuner-find button:hover { color: #0a0a0a; background: #eaeaea; }
+.tuner-find button:hover, .vibe button:hover { color: #0a0a0a; background: #eaeaea; }
 .tuner-state {
   font-size: 9px;
   letter-spacing: 0.12em;
@@ -1320,6 +1326,12 @@ a:focus-visible {
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
 }
+/* Four-name credits do not fit one line at the rail's 320px. Let the value
+   wrap and sit against the key's top rather than pushing the row wider or
+   truncating a person's name away. */
+.pl-row-wrap { align-items: flex-start; }
+.pl-row-wrap .v { text-align: right; text-wrap: pretty; }
+
 .pl-dials {
   display: grid; grid-template-columns: repeat(3, 1fr);
   border-bottom: 1px solid var(--pl-line);
@@ -1815,6 +1827,33 @@ input[type='range'] { height: 32px; }
   opacity: 0;
   pointer-events: none;
 }
+
+/* The action-cell row. This was referenced by the jukebox markup and by a
+   comment claiming it reused a sheet primitive — but it was never defined,
+   so both consent buttons fell back to the UA's own button chrome: a pale
+   rounded box in the middle of a plate that has no radii and no pale
+   anything. gap:1px over the line colour so cells share one hairline. */
+.cells {
+  display: grid;
+  gap: 1px;
+  background: var(--pl-line);
+  border-bottom: 1px solid var(--pl-line);
+}
+.cells.c1 { grid-template-columns: 1fr; }
+.cells button {
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--bg);
+  border: 0;
+  padding: 8px 12px;
+  min-height: 40px;
+  cursor: pointer;
+}
+.cells button:hover { color: var(--bg); background: var(--ink); }
+.cells button:active { transform: translateY(1px); }
 
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
 /* granted but silent is a fault state, so it takes the accent — and no

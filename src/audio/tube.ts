@@ -17,8 +17,17 @@
 export interface TubeTrack {
   id: string
   title: string
-  /** film or session — verified, unlike a singer credit would be */
+  /** film or session, from the verified oEmbed title */
   from: string
+  /**
+   * Singers, taken from the LABEL'S OWN credit in the upload description —
+   * the "Singer -" line, or the ARTIST/Vocals block on the Coke Studio
+   * uploads. Not from memory: the film version of Kesariya credits Antara
+   * Mitra alongside Arijit Singh, which a from-memory list would have
+   * missed. Two spellings are normalised to the artists' own — the
+   * descriptions write "Chinmaye" and "Sheykhar".
+   */
+  singers: string
 }
 
 /**
@@ -38,26 +47,26 @@ export interface TubeTrack {
  * exactly the kind of unverified value DESIGN.md law 3 forbids.
  */
 export const HINDI: TubeTrack[] = [
-  { id: '6mr4cYJ7yew', title: 'kesariya', from: 'brahmastra' },
-  { id: '81qmmlsIE3k', title: 'tum hi ho', from: 'aashiqui 2' },
-  { id: 'bzSTpdcs-EI', title: 'channa mereya', from: 'ae dil hai mushkil' },
-  { id: 'GLGuLXKT9Ng', title: 'raataan lambiyan', from: 'shershaah' },
-  { id: 'ElZfdU54Cp8', title: 'apna bana le', from: 'bhediya' },
-  { id: 'VAdGW7QDJiU', title: 'chaleya', from: 'jawan' },
-  { id: 'RLzC55ai0eo', title: 'heeriye', from: 'jasleen royal' },
-  { id: 'X7WXHhokylc', title: 'tere vaaste', from: 'zara hatke zara bachke' },
-  { id: 'fdubeMFwuGs', title: 'ilahi', from: 'yeh jawaani hai deewani' },
-  { id: 'npwn6KVMtFI', title: 'o bedardeya', from: 'tu jhoothi main makkaar' },
-  { id: 'jHNNMj5bNQw', title: 'kabira', from: 'yeh jawaani hai deewani' },
-  { id: 'sK7riqg2mr4', title: 'agar tum saath ho', from: 'tamasha' },
-  { id: 'T94PHkuydcw', title: 'kun faya kun', from: 'rockstar' },
-  { id: 'k3g_WjLCsXM', title: 'sajni', from: 'laapataa ladies' },
-  { id: 'hxMNYkLN7tI', title: 'aaj ki raat', from: 'stree 2' },
-  { id: 'mNuhKUOD_A0', title: 'deva deva', from: 'brahmastra' },
-  { id: '9JDSGhhiOwI', title: 'tere bina', from: 'guru' },
-  { id: '5Eqb_-j3FDA', title: 'pasoori', from: 'coke studio 14' },
-  { id: '-2RAq5o5pwc', title: 'jhol', from: 'coke studio 15' },
-  { id: 'YxWlaYCA8MU', title: 'jhoome jo pathaan', from: 'pathaan' },
+  { id: '6mr4cYJ7yew', title: 'kesariya', from: 'brahmastra', singers: 'arijit singh, antara mitra' },
+  { id: '81qmmlsIE3k', title: 'tum hi ho', from: 'aashiqui 2', singers: 'arijit singh' },
+  { id: 'bzSTpdcs-EI', title: 'channa mereya', from: 'ae dil hai mushkil', singers: 'arijit singh' },
+  { id: 'GLGuLXKT9Ng', title: 'raataan lambiyan', from: 'shershaah', singers: 'jubin nautiyal, asees kaur' },
+  { id: 'ElZfdU54Cp8', title: 'apna bana le', from: 'bhediya', singers: 'arijit singh, sachin-jigar' },
+  { id: 'VAdGW7QDJiU', title: 'chaleya', from: 'jawan', singers: 'arijit singh, shilpa rao' },
+  { id: 'RLzC55ai0eo', title: 'heeriye', from: 'jasleen royal', singers: 'arijit singh, jasleen royal' },
+  { id: 'X7WXHhokylc', title: 'tere vaaste', from: 'zara hatke zara bachke', singers: 'varun jain, sachin-jigar, shadab faridi, altamash faridi' },
+  { id: 'fdubeMFwuGs', title: 'ilahi', from: 'yeh jawaani hai deewani', singers: 'arijit singh' },
+  { id: 'npwn6KVMtFI', title: 'o bedardeya', from: 'tu jhoothi main makkaar', singers: 'arijit singh' },
+  { id: 'jHNNMj5bNQw', title: 'kabira', from: 'yeh jawaani hai deewani', singers: 'tochi raina, rekha bhardwaj' },
+  { id: 'sK7riqg2mr4', title: 'agar tum saath ho', from: 'tamasha', singers: 'alka yagnik, arijit singh' },
+  { id: 'T94PHkuydcw', title: 'kun faya kun', from: 'rockstar', singers: 'a.r. rahman, javed ali, mohit chauhan' },
+  { id: 'k3g_WjLCsXM', title: 'sajni', from: 'laapataa ladies', singers: 'arijit singh' },
+  { id: 'hxMNYkLN7tI', title: 'aaj ki raat', from: 'stree 2', singers: 'madhubanti bagchi, divya kumar, sachin-jigar' },
+  { id: 'mNuhKUOD_A0', title: 'deva deva', from: 'brahmastra', singers: 'arijit singh, jonita gandhi' },
+  { id: '9JDSGhhiOwI', title: 'tere bina', from: 'guru', singers: 'a.r. rahman, chinmayi, murtuza khan, qadir khan' },
+  { id: '5Eqb_-j3FDA', title: 'pasoori', from: 'coke studio 14', singers: 'ali sethi, shae gill' },
+  { id: '-2RAq5o5pwc', title: 'jhol', from: 'coke studio 15', singers: 'maanu, annural khalid' },
+  { id: 'YxWlaYCA8MU', title: 'jhoome jo pathaan', from: 'pathaan', singers: 'arijit singh, sukriti kakar, vishal-shekhar' },
 ]
 
 /** Accepts a full watch/share/embed URL or a bare 11-character id. */
