@@ -15,8 +15,8 @@
      CSS is tokenised. App.tsx reads these once at init. */
   --ink-rgb: 234, 234, 234;
   --bg-rgb: 10, 10, 10;
-  --red-rgb: 225, 59, 42;
-  --line-rgb: 141, 144, 168;
+  --accent-rgb: 254, 238, 0;   /* noon brand-primary #feee00 */
+  --line-rgb: 102, 109, 133;   /* noon grey-600 #666d85 */
   /* the grain/scanline stack paints a hair bluer than ink (239 vs 234 on
      blue). Declared rather than folded into --ink-rgb: merging them is a
      visible change, and this pass is structural only. */
@@ -31,25 +31,25 @@
   --ink: rgb(var(--ink-rgb));
   /* chrome tier: the blueprint-grey of the CHANNEL sheet — module labels,
      decorative data, diagrams. Functional text stays on --ink. */
-  --ink-dim: #9a9db4;
-  --red-dim: rgba(var(--red-rgb), 0.78);
+  --ink-dim: #989fb3;          /* noon grey-500 */
+  --accent-dim: rgba(var(--accent-rgb), 0.78);
   /* The interaction tier of red. It was live on POWER ON's hover as a bare
      #f04a37 with nothing declaring it, so a re-tint would have missed it
      and left one control the old colour. */
-  --red-hot: #f04a37;
+  --accent-hot: #ffd91a;       /* noon-500, the interaction tier */
   /* the plate's shared cell border — one weight, one colour, everywhere */
   /* 0.68, not 0.5: at 0.5 this measured 2.37:1 and it is the border of
      every control in the app. 1.4.11 wants 3:1 — this reads 3.05:1. */
-  --pl-line: rgba(var(--line-rgb), 0.68);
+  --pl-line: rgb(var(--line-rgb));
   /* NOTE for the new language: --dim is neutral grey while --ink-dim is
      blue-grey, so the console's chrome and the landing's are different hue
      families. Left as-is here deliberately — collapsing them is a visible
      change, and this pass is structural only. */
   --dim: rgba(var(--ink-rgb), 0.55);
   --faint: rgba(var(--ink-rgb), 0.14);
-  --red: rgb(var(--red-rgb));
+  --accent: rgb(var(--accent-rgb));
   /* was a bare #141414 in two places */
-  --bg-lift: #141414;
+  --bg-lift: #101628;          /* noon grey-1000, the raised surface */
   /* the scrim behind overlays — a cooler black than --bg, undeclared until now */
   --scrim: rgba(8, 8, 13, 0.72);
   --edge: 24px;
@@ -61,6 +61,21 @@
   --gap-tight: 4px;   /* parts of one unit: meter cells, icon + label */
   --gap-related: 8px; /* siblings inside a group */
   --gap-sep: 12px;    /* distinct groups */
+  /* ── type ramp ───────────────────────────────────────────────────────
+     Two complaints, one cause. Body sat at 8-9px against a 16px standard —
+     half the normal reading size. And a label and its value were the SAME
+     size, separated only by colour, so nothing read as more important than
+     anything else; visual hierarchy needs >=1.5x to register as a level at
+     all, and the ratio here was 1.0x.
+     `value` is the tier that did not exist: 12px -> 52px was a 4x void with
+     nothing in it, which is exactly where a reading belongs. */
+  --t-micro: 11px;   /* axis marks, registration, the smallest chrome */
+  --t-label: 13px;   /* //key_ labels and module headers, caps + tracked */
+  --t-body: 16px;    /* prose and controls — anything actually read */
+  --t-data: 20px;    /* inline values inside dense rows */
+  --t-value: 40px;   /* THE reading: 3.1x its label, so it wins outright */
+  --t-hero: 64px;    /* one per view */
+
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
   font-family: var(--font-mono);
@@ -88,7 +103,7 @@ body {
      control in it refuse browser pan/zoom so the star's drag is never
      hijacked. Tap targets still click; nothing here scrolls. */
   touch-action: none;
-  font-size: 10px;
+  font-size: var(--t-body);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -154,10 +169,10 @@ body {
   justify-content: space-between;
   color: var(--dim);
   margin-top: var(--gap-tight);
-  font-size: 9px;
+  font-size: var(--t-micro);
 }
 
-:focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 /* --- film ------------------------------------------------------------------------ */
 
@@ -402,7 +417,7 @@ body {
   width: 4px;
   height: 4px;
   transform: translate(-50%, -50%);
-  background: var(--red);
+  background: var(--accent);
   box-shadow: 0 0 0 1.5px rgba(var(--bg-rgb), 0.85);
 }
 
@@ -492,7 +507,7 @@ body {
   gap: var(--gap-related);
   margin-top: 10px;
 }
-.level-tag { color: var(--dim); font-size: 8px; letter-spacing: 0.14em; }
+.level-tag { color: var(--dim); font-size: var(--t-micro); letter-spacing: 0.14em; }
 /* §3.4 block meter: discrete cells, not a continuous bar. */
 .level-meter { flex: 1; display: flex; gap: var(--gap-tight); }
 .level-meter i {
@@ -523,7 +538,7 @@ body {
 .transport button:hover { color: var(--ink); }
 .transport button:active { transform: translateY(1px); }
 .vol { display: flex; align-items: center; gap: 8px; flex: 1; }
-.vol span { color: var(--dim); font-size: 8px; letter-spacing: 0.14em; }
+.vol span { color: var(--dim); font-size: var(--t-label); letter-spacing: 0.14em; }
 
 .tuning {
   margin-top: 14px;
@@ -534,12 +549,12 @@ body {
 }
 .dial {
   display: grid;
-  grid-template-columns: 74px 1fr 30px;
+  grid-template-columns: minmax(74px, auto) 1fr minmax(30px, auto);
   align-items: center;
   gap: 8px;
 }
-.dial span { color: var(--dim); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
-.dial data { color: var(--ink); font-size: 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.dial span { color: var(--dim); font-size: var(--t-label); letter-spacing: 0.12em; text-transform: uppercase; }
+.dial data { color: var(--ink); font-size: var(--t-data); text-align: right; font-variant-numeric: tabular-nums; }
 .presets { display: flex; gap: 1px; background: var(--faint); border: 1px solid var(--pl-line); margin-top: 0; }
 .presets button {
   flex: 1;
@@ -547,7 +562,7 @@ body {
   border: none;
   color: var(--dim);
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   padding: 8px 0;
@@ -557,7 +572,7 @@ body {
 
 /* brutalist range inputs: hairline track, square white thumb */
 input[type='range'] {
-  font-size: 9px;
+  font-size: var(--t-body);
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
@@ -584,7 +599,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   display: block;
   margin-top: 10px;
   font-family: inherit;
-  font-size: 8px;
+  font-size: var(--t-micro);
   letter-spacing: 0.1em;
   color: var(--dim);
   text-transform: uppercase;
@@ -612,8 +627,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient { cursor: none; }
 
 /* Mixing: the reticle's dot goes red — you are holding the audio. */
-.app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
-.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(var(--red-rgb), 0.7); }
+.app.mixing .ret-dot { width: 7px; height: 7px; background: var(--accent); }
+.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(var(--accent-rgb), 0.7); }
 
 /* the live parameter riding the reticle while you hold audio */
 .ret-label {
@@ -621,10 +636,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   left: 20px;
   top: -4px;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--t-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--red);
+  color: var(--accent);
   /* the readout sits over live matter: keep it readable on white */
   background: rgba(var(--bg-rgb), 0.82);
   padding: 4px 6px;
@@ -632,7 +647,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .ret-label:empty { background: none; padding: 0; }
 
 .stemhint {
-  font-size: 8px;
+  font-size: var(--t-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   opacity: 0.62;
@@ -666,7 +681,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 
 .layer {
   display: grid;
-  grid-template-columns: 74px 1fr 28px 28px;
+  grid-template-columns: minmax(74px, auto) 1fr auto auto;
   gap: var(--gap-related);
   align-items: center;
   border: 0;
@@ -676,7 +691,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-hot { border-color: var(--pl-line); }
 .layer-name {
-  font-size: 9px;
+  font-size: var(--t-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   display: grid;
@@ -695,7 +710,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-btn {
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
   text-transform: uppercase;
   color: var(--dim);
   background: none;
@@ -710,11 +725,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-btn-m.on {
   color: var(--bg);
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--accent);
+  border-color: var(--accent);
 }
-.layer-muted .layer-name { color: var(--red); }
-.layer-muted .layer-meter b { background: var(--red); }
+.layer-muted .layer-name { color: var(--accent); }
+.layer-muted .layer-meter b { background: var(--accent); }
 .layer-solo { border-color: var(--pl-line); }
 
 /* ── the tuner: the radio is a dial ─────────────────────────────────── */
@@ -741,7 +756,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
    through as a pale fill and every chip doubled the hairline. */
 .tuner-chips button {
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--dim);
@@ -750,10 +765,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 8px 12px;
   cursor: pointer;
 }
-.tuner-chips button:hover { color: var(--red); background: rgba(var(--red-rgb), 0.12); }
+.tuner-chips button:hover { color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
 .tuner-chips button.on {
   color: var(--bg);
-  background: var(--red);
+  background: var(--accent);
   border-color: var(--ink);
 }
 /* One primitive, two users: the vibe tuner's find row and the jukebox's
@@ -764,12 +779,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .tuner-find, .vibe {
   display: grid;
   align-items: stretch;
-  grid-template-columns: 1fr 34px;
+  grid-template-columns: 1fr auto;
   gap: var(--gap-tight);
 }
 .tuner-find input, .vibe input {
   font: inherit;
-  font-size: 10px;
+  font-size: var(--t-body);
   color: var(--ink);
   background: rgba(var(--ink-rgb), 0.05);
   border: 1px solid var(--pl-line);
@@ -780,7 +795,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .tuner-find input::placeholder, .vibe input::placeholder { color: var(--dim); }
 .tuner-find button, .vibe button {
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
+  padding: 0 12px;
   text-transform: uppercase;
   color: rgba(var(--ink-rgb), 0.7);
   background: none;
@@ -789,7 +805,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .tuner-find button:hover, .vibe button:hover { color: var(--bg); background: var(--ink); }
 .tuner-state {
-  font-size: 9px;
+  font-size: var(--t-label);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   opacity: 0.6;
@@ -800,7 +816,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-meta {
   display: grid;
   margin: 8px 0 0;
-  font-size: 8px;
+  font-size: var(--t-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   border: 1px solid var(--pl-line);
@@ -815,9 +831,34 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-meta > div + div { border-top: 1px solid var(--pl-line); }
 .deck-meta dt { color: var(--ink-dim); }
 .deck-meta dd { margin: 0; color: var(--ink); text-align: right; }
-.deck-meta .deck-bpm.locked { color: var(--red); }
+
+/* ── the readout ────────────────────────────────────────────────────────
+   A label and its value used to be the same size, separated only by
+   colour — so nothing on the screen claimed to matter more than anything
+   else, which is what people meant by "I can't tell what's important".
+   Stacked, not side by side: the label states the unit, the value owns the
+   row at 3x its size, well past the 1.5x where two things start reading as
+   different levels at all. */
+.deck-meta .readout {
+  display: block;
+  padding: 10px 12px 12px;
+}
+.deck-meta .readout dt {
+  display: block;
+  margin-bottom: 2px;
+}
+.deck-meta .readout dd {
+  display: block;
+  text-align: left;
+  font-size: var(--t-value);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+}
+.deck-meta .deck-bpm.locked { color: var(--accent); }
 .deck-meta a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--pl-line); }
-.deck-meta a:hover { border-color: var(--red); color: var(--red); }
+.deck-meta a:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── first-contact calibration ──────────────────────────────────────── */
 .onboard {
@@ -833,14 +874,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   height: 100%;
 }
 .onboard-wire line {
-  stroke: rgba(var(--red-rgb), 0.75);
+  stroke: rgba(var(--accent-rgb), 0.75);
   stroke-width: 1;
   stroke-dasharray: 3 4;
 }
-.onboard-wire circle { fill: var(--red); }
+.onboard-wire circle { fill: var(--accent); }
 .onboard-wire .onboard-ping {
   fill: none;
-  stroke: var(--red);
+  stroke: var(--accent);
   animation: onb-ping 1.5s ease-out infinite;
 }
 @keyframes onb-ping {
@@ -862,14 +903,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   from { opacity: 0; transform: translateY(14px); }
 }
 .onboard-n {
-  font-size: 9px;
+  font-size: var(--t-data);
   letter-spacing: 0.18em;
-  color: var(--red);
+  color: var(--accent);
 }
 .onboard-n i { font-style: normal; color: var(--dim); }
 .onboard-card h2 {
   font-family: 'Archivo Black', sans-serif;
-  font-size: 20px;
+  font-size: var(--t-hero);
   line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.01em;
@@ -877,7 +918,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   margin: 0;
 }
 .onboard-card p {
-  font-size: 11px;
+  font-size: var(--t-body);
   line-height: 1.55;
   color: rgba(var(--ink-rgb), 0.72);
   margin: 0;
@@ -889,7 +930,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .onboard-row button {
   font: inherit;
-  font-size: 10px;
+  font-size: var(--t-body);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   background: none;
@@ -900,7 +941,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .onboard-row .onboard-skip { color: var(--dim); }
 .onboard-row .onboard-skip:hover { color: var(--ink); }
 .onboard-row .onboard-next { color: var(--bg); background: var(--ink); border-color: var(--ink); }
-.onboard-row .onboard-next:hover { background: var(--red); border-color: var(--red); color: var(--bg); }
+.onboard-row .onboard-next:hover { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 @media (prefers-reduced-motion: reduce) {
   .onboard-card { animation: none; }
 }
@@ -908,7 +949,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* help is not a consumable: the manual reopens from the brand row */
 .rail-help {
   font: inherit;
-  font-size: 11px;
+  font-size: var(--t-body);
   color: var(--dim);
   background: none;
   border: 1px solid var(--pl-line);
@@ -922,7 +963,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* SPLIT: any track becomes stems, right where the track is named */
 .deck-split {
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink);
@@ -933,7 +974,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   justify-self: start;
 }
 .deck-split:hover:not(:disabled) { color: var(--bg); background: var(--ink); border-color: var(--ink); }
-.deck-split:disabled { color: var(--red); border-color: rgba(var(--red-rgb), 0.5); cursor: wait; }
+.deck-split:disabled { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.5); cursor: wait; }
 
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
 .railfold {
@@ -977,7 +1018,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-time {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: var(--t-data);
   letter-spacing: 0.08em;
   opacity: 0.7;
   margin-top: -4px;
@@ -1002,7 +1043,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .transport .t-btn {
   font: inherit;
-  font-size: 11px;
+  font-size: var(--t-body);
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1016,16 +1057,16 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .t-btn:active { transform: translateY(1px); }
 .transport .t-mute.on {
   color: var(--bg);
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .transport .vol {
   grid-column: 1 / 3;
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: var(--gap-related);
-  font-size: 9px;
+  font-size: var(--t-data);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   /* a cell in the shared-border grid, not something floating on the line */
@@ -1036,15 +1077,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .dial-pitch {
   grid-column: 3 / 4;
   display: grid;
-  grid-template-columns: 30px 1fr 24px;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: var(--gap-tight);
   background: var(--bg);
   padding: 8px 12px;
   min-height: 40px;
-  font-size: 9px;
+  font-size: var(--t-data);
 }
-.transport .dial-pitch data.armed { color: var(--red); }
+.transport .dial-pitch data.armed { color: var(--accent); }
 /* with the pitch dial gone, vol takes the whole row rather than leaving
    column 3 unfilled — in a gap:1px grid an empty cell paints the line
    colour through, reading as a gap in the plate. */
@@ -1054,11 +1095,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .chips { display: flex; flex-wrap: wrap; gap: var(--gap-tight); min-height: 0; }
 .chip {
   display: none;
-  font-size: 9px;
+  font-size: var(--t-label);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--red);
-  border: 1px solid var(--red-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
   padding: 4px 8px;
 }
 .chip.on { display: inline-block; }
@@ -1078,7 +1119,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .diag { display: flex; gap: var(--gap-related); align-items: baseline; }
 .diag-toggle {
   font: inherit;
-  font-size: 8px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--dim);
@@ -1088,13 +1129,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   cursor: pointer;
 }
 .diag-toggle:hover { color: rgba(var(--ink-rgb), 0.8); }
-.diag-line { font-size: 8px; letter-spacing: 0.1em; opacity: 0.62; }
+.diag-line { font-size: var(--t-micro); letter-spacing: 0.1em; opacity: 0.62; }
 
 /* keyboard reach: every control shows where focus is (WCAG 2.4.7) */
 button:focus-visible,
 input:focus-visible,
 a:focus-visible {
-  outline: 1px solid var(--red);
+  outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1110,7 +1151,7 @@ a:focus-visible {
   border: 1px solid var(--pl-line);
   display: grid;
   grid-template-rows: auto 1fr auto;
-  font-size: 10px;
+  font-size: var(--t-body);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink);
@@ -1139,9 +1180,23 @@ a:focus-visible {
   border-bottom: 1px solid var(--pl-line);
 }
 .pl-hdr > * { padding: 8px 12px; display: flex; align-items: center; gap: var(--gap-related); }
+/* the running header is one line, always — at the ramp's label size the
+   title was wrapping and doubling the band's height */
+.pl-hdr > * { white-space: nowrap; }
 .pl-hdr b { white-space: nowrap; }
+
+.scale-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--gap-related);
+  font-size: var(--t-micro);
+  color: var(--ink-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
 .pl-hdr > * + * { border-left: 1px solid var(--pl-line); }
-.pl-hdr b { font-weight: 400; color: var(--red); }
+.pl-hdr b { font-weight: 400; color: var(--accent); }
 .pl-hdr .k span { color: var(--ink); }
 
 /* ── body: image cell + dense data column ── */
@@ -1163,14 +1218,14 @@ a:focus-visible {
   gap: var(--gap-sep);
   color: var(--ink-dim);
 }
-.pl-morse .lbl { font-size: 8px; }
+.pl-morse .lbl { font-size: var(--t-micro); }
 
 /* THE IMAGE CELL — a window onto the instrument itself */
 .pl-figwrap { position: relative; padding: 16px; min-height: 0; }
 .pl-fig {
   position: relative;
   height: 100%;
-  border: 1px solid var(--red-dim);
+  border: 1px solid var(--accent-dim);
   background: transparent;
 }
 .pl-figcap {
@@ -1179,7 +1234,7 @@ a:focus-visible {
   display: flex;
   justify-content: space-between;
   padding: 6px 8px;
-  font-size: 8px;
+  font-size: var(--t-label);
   color: var(--ink-dim);
   background: var(--scrim);
 }
@@ -1202,22 +1257,22 @@ a:focus-visible {
   position: absolute; left: 0; top: 0;
   padding: 8px 12px;
   background: var(--scrim);
-  color: var(--ink-dim); font-size: 7px; letter-spacing: 0.18em;
+  color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: 0.18em;
 }
 
 /* leader rows */
 .pl-leads { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--pl-line); }
 .pl-leads li {
   display: flex; align-items: center; gap: 12px;
-  padding: 8px 12px; font-size: 10px;
+  padding: 8px 12px; font-size: var(--t-body);
   opacity: 0;
   animation: p-lead-in 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   animation-delay: calc(var(--i) * 140ms + 400ms);
 }
 .pl-leads li + li { border-top: 1px solid var(--pl-line); }
-.pl-leads .no { color: var(--ink-dim); font-size: 8px; }
+.pl-leads .no { color: var(--ink-dim); font-size: var(--t-micro); }
 .pl-leads .ln { flex: 1; height: 1px; background: var(--pl-line); }
-.pl-leads .dot { width: 9px; height: 9px; background: var(--red); }
+.pl-leads .dot { width: 9px; height: 9px; background: var(--accent); }
 @keyframes p-lead-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1239,7 +1294,7 @@ a:focus-visible {
   letter-spacing: -0.04em;
   text-transform: uppercase;
 }
-.pl-reg { font-size: 0.15em; vertical-align: 2.4em; color: var(--red); font-family: var(--font-mono); }
+.pl-reg { font-size: 0.15em; vertical-align: 2.4em; color: var(--accent); font-family: var(--font-mono); }
 .pl-echo {
   position: absolute; left: 14px; bottom: 2px;
   font-family: var(--font-display);
@@ -1248,7 +1303,7 @@ a:focus-visible {
   letter-spacing: -0.04em;
   text-transform: uppercase;
   color: transparent;
-  -webkit-text-stroke: 1px var(--red-dim);
+  -webkit-text-stroke: 1px var(--accent-dim);
   clip-path: inset(56% 0 0 0);
   pointer-events: none;
 }
@@ -1256,7 +1311,7 @@ a:focus-visible {
   align-self: stretch;
   margin: 0 12px;
   background:
-    repeating-conic-gradient(var(--red) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+    repeating-conic-gradient(var(--accent) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
   opacity: 0.85;
   min-height: 14px;
   max-height: 14px;
@@ -1267,7 +1322,7 @@ a:focus-visible {
 /* the one loud action, as a filled cell */
 .pl-act .power {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--t-data);
   font-weight: 700;
   letter-spacing: 0.24em;
   text-transform: uppercase;
@@ -1275,14 +1330,14 @@ a:focus-visible {
      on the one action that matters. Ink reads 4.6:1 here, 5.4:1 on hover,
      and keeps the language's single accent hue. */
   color: var(--bg);
-  background: var(--red);
+  background: var(--accent);
   border: 0;
   padding: 0 34px;
   height: 100%;
   min-height: 64px;
   cursor: pointer;
 }
-.pl-act .power:hover { background: var(--red-hot); }
+.pl-act .power:hover { background: var(--accent-hot); }
 
 /* ── right column: the sheet's one primitive, repeated ── */
 .pl-row {
@@ -1302,7 +1357,7 @@ a:focus-visible {
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
 }
-.pl-dials > div { padding: 10px 6px; text-align: center; font-size: 8px; }
+.pl-dials > div { padding: 10px 6px; text-align: center; font-size: var(--t-label); }
 .pl-dials > div + div { border-left: 1px solid var(--pl-line); }
 .pl-dials .cap { display: block; margin-top: 6px; }
 .pl-peak { display: grid; grid-template-columns: 1fr; gap: var(--gap-tight); }
@@ -1311,39 +1366,39 @@ a:focus-visible {
 /* the chain: the same row, indexed. The unbroken border down the index
    gutter IS the signal spine — no arrows, no boxes, no second language. */
 .pl-prow {
-  display: grid; grid-template-columns: 36px 1fr auto; align-items: stretch;
+  display: grid; grid-template-columns: auto 1fr auto; align-items: stretch;
   border-bottom: 1px solid var(--pl-line);
   cursor: help;
 }
 .pl-prow .ix {
   display: flex; align-items: center; padding: 8px 0 8px 12px;
   border-right: 1px solid var(--pl-line);
-  color: var(--ink-dim); font-size: 8px;
+  color: var(--ink-dim); font-size: var(--t-micro);
 }
 .pl-prow .nm { display: flex; align-items: center; padding: 8px 12px; color: var(--ink); }
-.pl-prow .dt { display: flex; align-items: center; padding: 8px 12px; color: var(--ink-dim); font-size: 8px; }
-.pl-prow:hover { background: rgba(var(--red-rgb), 0.12); }
-.pl-prow:hover .nm { color: var(--red); }
-.pl-prow.sub .nm { position: relative; padding-left: 24px; color: var(--red); }
+.pl-prow .dt { display: flex; align-items: center; padding: 8px 12px; color: var(--ink-dim); font-size: var(--t-label); }
+.pl-prow:hover { background: rgba(var(--accent-rgb), 0.12); }
+.pl-prow:hover .nm { color: var(--accent); }
+.pl-prow.sub .nm { position: relative; padding-left: 24px; color: var(--accent); }
 .pl-prow.sub .nm::before {
   content: '';
   position: absolute; left: 10px; top: 50%;
   width: 6px; height: 6px;
-  border-left: 1px solid var(--red-dim);
-  border-bottom: 1px solid var(--red-dim);
+  border-left: 1px solid var(--accent-dim);
+  border-bottom: 1px solid var(--accent-dim);
   transform: translateY(-6px);
 }
 .pl-pathcap {
   padding: 8px 12px; min-height: 32px;
   /* prose, not a micro-label: it gets a readable size */
-  color: var(--ink-dim); font-size: 10px;
+  color: var(--ink-dim); font-size: var(--t-body);
   line-height: 1.5; text-transform: none; letter-spacing: 0.06em;
   border-bottom: 1px solid var(--pl-line);
 }
 
 .pl-pills { display: flex; gap: var(--gap-tight); padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
-.pl-pills .pill { border: 1px solid var(--pl-line); color: var(--ink-dim); padding: 4px 8px; font-size: 8px; }
-.pl-pills .pill.on { border-color: var(--red); color: var(--red); }
+.pl-pills .pill { border: 1px solid var(--pl-line); color: var(--ink-dim); padding: 4px 8px; font-size: var(--t-label); }
+.pl-pills .pill.on { border-color: var(--accent); color: var(--accent); }
 .pl-strip {
   height: 12px;
   background: repeating-conic-gradient(var(--ink-dim) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
@@ -1355,7 +1410,7 @@ a:focus-visible {
   display: grid; grid-template-columns: auto 1fr auto;
   border-top: 1px solid var(--pl-line);
   color: var(--ink-dim);
-  font-size: 8px;
+  font-size: var(--t-label);
 }
 .pl-ftr > * { padding: 8px 12px; }
 .pl-ftr > * + * { border-left: 1px solid var(--pl-line); }
@@ -1383,7 +1438,7 @@ a:focus-visible {
   content: '';
   position: absolute; right: 0; top: -3px;
   width: 4px; height: 6px;
-  background: var(--red);
+  background: var(--accent);
 }
 @keyframes sig-tx { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 
@@ -1401,8 +1456,8 @@ a:focus-visible {
 
 .pl-fig { animation: frame-breathe 5.4s ease-in-out infinite; }
 @keyframes frame-breathe {
-  0%, 100% { border-color: var(--red-dim); }
-  50% { border-color: var(--red); }
+  0%, 100% { border-color: var(--accent-dim); }
+  50% { border-color: var(--accent); }
 }
 
 /* the machine self-checks while it waits: one faint pass, rarely */
@@ -1431,11 +1486,11 @@ a:focus-visible {
   transition: background 120ms ease, color 120ms ease;
 }
 .pl-dial:hover,
-.pl-dial:focus-visible { background: rgba(var(--red-rgb), 0.1); color: var(--ink); }
-.pl-dial:focus-visible { outline: 1px solid var(--red); outline-offset: -1px; }
+.pl-dial:focus-visible { background: rgba(var(--accent-rgb), 0.1); color: var(--ink); }
+.pl-dial:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .pl-dial:hover circle:last-of-type,
 .pl-dial:focus-visible circle:last-of-type { r: 2.6; }
-.pl-dial:active { background: rgba(var(--red-rgb), 0.18); }
+.pl-dial:active { background: rgba(var(--accent-rgb), 0.18); }
 .pl-dial .cap b { font-weight: 400; color: var(--ink); }
 
 /* ── THE POWER-ON FLIGHT ────────────────────────────────────────────────
@@ -1448,20 +1503,20 @@ a:focus-visible {
   position: absolute;
   left: 0; right: 0; top: 0;
   height: 2px;
-  background: var(--red);
+  background: var(--accent);
   animation: rev-scan 900ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes rev-scan { from { top: 0; } to { top: 100%; } }
 
-.plate.rev .pl-pills .pill { border-color: var(--red); color: var(--red); }
+.plate.rev .pl-pills .pill { border-color: var(--accent); color: var(--accent); }
 .plate.rev .pl-carrier { animation-duration: 460ms; }
 .plate.rev .pl-leads .dot { animation-duration: 420ms; }
 .plate.rev .pl-pills .pill.on { animation-duration: 380ms; }
 .plate.rev .pl-fig { animation-duration: 400ms; }
 .plate.rev .pl-mark h1 { animation: rev-load 300ms steps(2) 3; }
 @keyframes rev-load { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
-.plate.rev .pl-act .power { background: var(--red-hot); }
-.plate.rev .pl-fig { border-color: var(--red); }
+.plate.rev .pl-act .power { background: var(--accent-hot); }
+.plate.rev .pl-fig { border-color: var(--accent); }
 
 /* the sheet flies past you, it does not politely fade */
 .plate.dive {
@@ -1565,7 +1620,7 @@ input[type='range'] { height: 32px; }
 }
 .cn-plate > * { pointer-events: auto; }
 .cn-hdr { background: rgba(var(--bg-rgb), 0.94); }
-.cn-hdr .armed span { color: var(--red); }
+.cn-hdr .armed span { color: var(--accent); }
 .cn-hdr .rail-help {
   border: 0;
   border-left: 1px solid var(--pl-line);
@@ -1575,7 +1630,7 @@ input[type='range'] { height: 32px; }
   cursor: pointer;
   padding: 0 12px;
 }
-.cn-hdr .rail-help:hover { color: var(--red); }
+.cn-hdr .rail-help:hover { color: var(--accent); }
 
 .cn-body {
   display: grid;
@@ -1610,8 +1665,8 @@ input[type='range'] { height: 32px; }
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
-  color: var(--red);
-  font-size: 8px;
+  color: var(--accent);
+  font-size: var(--t-label);
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
@@ -1722,8 +1777,8 @@ input[type='range'] { height: 32px; }
 /* ══ BROWSER SURFACES ══════════════════════════════════════════════════
    Selection, caret, scrollbars and numerals ship with browser defaults
    that belong to no design system. They are part of the sheet. */
-::selection { background: var(--red); color: var(--bg); }
-.app input { caret-color: var(--red); }
+::selection { background: var(--accent); color: var(--bg); }
+.app input { caret-color: var(--accent); }
 
 /* The rail scrolls. Hiding its scrollbar entirely hid the fact that there
    is more panel below the fold; a hairline in the chrome ink says so
@@ -1763,7 +1818,7 @@ input[type='range'] { height: 32px; }
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
   color: var(--dim);
-  font-size: 8px;
+  font-size: var(--t-body);
   letter-spacing: 0.1em;
 }
 
@@ -1806,7 +1861,7 @@ input[type='range'] { height: 32px; }
 .cells.c1 { grid-template-columns: 1fr; }
 .cells button {
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink);
@@ -1822,15 +1877,15 @@ input[type='range'] { height: 32px; }
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
 /* granted but silent is a fault state, so it takes the accent — and no
    breathing dot, because nothing is arriving to breathe with. */
-.sig-silent { color: var(--red); }
+.sig-silent { color: var(--accent); }
 /* the one step people miss gets the accent, nothing else in the copy does */
-.tube-step b { color: var(--red); font-weight: 400; }
+.tube-step b { color: var(--accent); font-weight: 400; }
 .listening-dot::before {
   content: '';
   display: inline-block;
   width: 6px; height: 6px;
   margin-right: 6px;
-  background: var(--red);
+  background: var(--accent);
   animation: pill-breathe 5.4s ease-in-out infinite;
 }
 
@@ -1843,7 +1898,7 @@ input[type='range'] { height: 32px; }
   padding: 8px 12px;
   min-height: 44px;
   font: inherit;
-  font-size: 9px;
+  font-size: var(--t-body);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   text-align: left;
@@ -1853,10 +1908,10 @@ input[type='range'] { height: 32px; }
   border-bottom: 1px solid var(--pl-line);
   cursor: pointer;
 }
-.tube-list button i { font-style: normal; color: var(--ink-dim); font-size: 8px; }
-.tube-list button:hover { color: var(--red); background: rgba(var(--red-rgb), 0.12); }
+.tube-list button i { font-style: normal; color: var(--ink-dim); font-size: var(--t-label); }
+.tube-list button:hover { color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
 .tube-list button.on { color: var(--ink); }
-.tube-list button.on span::before { content: '▸ '; color: var(--red); }
+.tube-list button.on span::before { content: '▸ '; color: var(--accent); }
 .tube-paste { border-bottom: 1px solid var(--pl-line); }
 
 @media (prefers-reduced-motion: reduce) {

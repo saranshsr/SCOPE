@@ -12,7 +12,7 @@
  * Fallbacks are the literals these replaced, so a missing token degrades to
  * today's colours rather than to black.
  */
-let cache: { ink: string; red: string; grain: string } | null = null
+let cache: { ink: string; accent: string; grain: string } | null = null
 
 function channels() {
   if (cache) return cache
@@ -21,7 +21,7 @@ function channels() {
     cs.getPropertyValue(name).trim() || fallback
   cache = {
     ink: pick('--ink-rgb', '234, 234, 234'),
-    red: pick('--red-rgb', '225, 59, 42'),
+    accent: pick('--accent-rgb', '254, 238, 0'),
     grain: pick('--grain-rgb', '234, 234, 239'),
   }
   return cache
@@ -30,7 +30,7 @@ function channels() {
 /** Functional ink — follows the theme. */
 export const INK = (al: number | string) => `rgba(${channels().ink},${al})`
 /** The accent — follows the theme. */
-export const RED = (al: number | string) => `rgba(${channels().red},${al})`
+export const ACCENT = (al: number | string) => `rgba(${channels().accent},${al})`
 /** Grain and scanlines: a hair bluer than ink, declared separately. */
 export const GRAIN = (al: number | string) => `rgba(${channels().grain},${al})`
 

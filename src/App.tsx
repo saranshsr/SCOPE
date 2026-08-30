@@ -10,7 +10,7 @@ import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
 import { Tube, HINDI, parseVideoId, type TubeState } from './audio/tube'
-import { INK, RED, GRAIN } from './theme'
+import { INK, ACCENT, GRAIN } from './theme'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 
 /**
@@ -1835,7 +1835,10 @@ export default function App() {
               /* §5 phase 2: track meta as plate rows. As inline spans it
                  wrapped mid-value in a 272px rail ("BPM - /73"). */
               <dl className="deck-meta">
-                <div><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
+                {/* THE reading, and the only number here scope derives itself
+                    rather than reads off metadata — so it gets the value tier
+                    instead of sitting at label size like everything else. */}
+                <div className="readout"><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
                 {track.musicalKey && (
                   <div><dt>//key_</dt><dd>{track.musicalKey.toLowerCase()}</dd></div>
                 )}
@@ -2431,7 +2434,7 @@ const PATH: { ix: string; n: string; d: string; i: string; sub?: boolean }[] = [
 function Reg({ className }: { className: string }) {
   return (
     <svg className={className} width="13" height="13" aria-hidden="true">
-      <g stroke="var(--red)" strokeWidth="1">
+      <g stroke="var(--accent)" strokeWidth="1">
         <line x1="6.5" y1="0" x2="6.5" y2="13" />
         <line x1="0" y1="6.5" x2="13" y2="6.5" />
       </g>
@@ -2517,7 +2520,7 @@ function Dial({
           y2={(21 - Math.cos(a) * 12).toFixed(1)}
           stroke="var(--ink)" strokeWidth="1.5"
         />
-        <circle cx="21" cy="21" r="1.6" fill="var(--red)" />
+        <circle cx="21" cy="21" r="1.6" fill="var(--accent)" />
       </svg>
       <span className="cap">{cap} <b>{Math.round(v * 100)}</b></span>
     </div>
@@ -2528,16 +2531,23 @@ function Dial({
 /** The spectrum ruler. Drawn scale, no needle: standby has no signal. */
 function Scale() {
   return (
-    <svg width="100%" height="22" preserveAspectRatio="none" viewBox="0 0 280 22" aria-hidden="true">
-      <g stroke="currentColor">
-        <line x1="0" y1="11.5" x2="280" y2="11.5" opacity=".5" />
-        {[1, 36, 71, 106, 141, 176, 211, 246, 279].map((x, i) => (
-          <line key={x} x1={x} y1={i % 3 === 0 ? 3 : 7} x2={x} y2="11" />
-        ))}
-      </g>
-      <text x="0" y="21" fill="currentColor" fontSize="6" fontFamily="monospace">20HZ</text>
-      <text x="259" y="21" fill="currentColor" fontSize="6" fontFamily="monospace">20KHZ</text>
-    </svg>
+    /* The labels used to live inside the svg. With preserveAspectRatio="none"
+       the box stretches from 280 units to whatever width it gets, so the text
+       stretched with it — distorted glyphs at an effective 6px, smaller than
+       anything else in the app. Only the RULE should stretch; the labels are
+       html now, on the type ramp, undistorted. */
+    <div className="scale-row">
+      <span>20hz</span>
+      <svg width="100%" height="12" preserveAspectRatio="none" viewBox="0 0 280 12" aria-hidden="true">
+        <g stroke="currentColor">
+          <line x1="0" y1="11.5" x2="280" y2="11.5" opacity=".5" />
+          {[1, 36, 71, 106, 141, 176, 211, 246, 279].map((x, i) => (
+            <line key={x} x1={x} y1={i % 3 === 0 ? 3 : 7} x2={x} y2="11" />
+          ))}
+        </g>
+      </svg>
+      <span>20khz</span>
+    </div>
   )
 }
 
@@ -2612,7 +2622,7 @@ function drawWave(
     }
     // The playhead — the same red as the crosshair tags; one instrument.
     // 2 buffer px = 1 CSS px on the retina buffer.
-    g.fillStyle = RED(1)
+    g.fillStyle = ACCENT(1)
     g.fillRect(px, 0, 2, H)
     return
   }
@@ -2673,7 +2683,7 @@ function drawSurvey(
     g.lineTo(b.x, b.y)
     g.stroke()
     g.setLineDash([])
-    g.fillStyle = RED(Math.min(1, sa + 0.25))
+    g.fillStyle = ACCENT(Math.min(1, sa + 0.25))
     g.beginPath()
     g.moveTo(t.x - 4, t.y - 6)
     g.lineTo(t.x + 4, t.y - 6)
@@ -2693,7 +2703,7 @@ function drawSurvey(
   if (a <= 0.01) return
   const n = tiers.length
   const ink = (al: number) => INK(al * a)
-  const red = (al: number) => RED(al * a)
+  const red = (al: number) => ACCENT(al * a)
   g.textBaseline = 'middle'
   g.lineWidth = 1
 
@@ -2839,7 +2849,7 @@ function drawSpectrum(
     // agreeing with the sculptural one.
     if (mixBand != null) {
       const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
-      if (inBand) g.fillStyle = RED(0.45 + Math.min(0.55, Math.abs(mixDb) / 30))
+      if (inBand) g.fillStyle = ACCENT(0.45 + Math.min(0.55, Math.abs(mixDb) / 30))
     }
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly
