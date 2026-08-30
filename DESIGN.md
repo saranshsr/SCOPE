@@ -1,5 +1,12 @@
 # SCOPE — Design Language: **BLACK PLATE**
 
+> noon-flavoured. The accent is noon's own `brand-primary`, read out of
+> noon's token package rather than sampled by eye, and the dial face is
+> noon's logomark — a ring with a notch, where the notch is also the
+> pointer. Brand as structure: no wordmark is needed for it to read as a
+> noon product. A text credit sits in the footer; the licensed wordmark
+> replaces it when the asset lands.
+
 A design language distilled from a six-piece moodboard (post-punk techno
 posters, blueprint-on-black instrument sheets, data-art plates, glitch
 waveform studies). This document is the constitution: tokens, primitives,
@@ -10,28 +17,70 @@ this file or changes this file first.
 
 ## 1 · Tokens
 
-### Ink (two tiers + one accent)
+### Ink, chrome, and one accent
+
+Every colour derives from a channel token, because canvas paint builds
+`rgba()` strings at runtime and needs the palette as numbers rather than as
+a resolved colour. Change these four lines and the whole instrument
+re-themes, chrome and canvas together.
 
 | token | value | job |
 |---|---|---|
-| `--ink` | `#eaeaea` | primary content: values, titles, controls |
-| `--ink-dim` | `#9a9db4` (used at 0.35–0.8 alpha) | chrome tier: module labels, decorative data, diagrams, borders — the blueprint-grey of the CHANNEL sheet |
-| `--red` | `#e13b2a` | THE accent — the OUTER poster's warm vermillion, not neon. Armed states, the power moment, keylines, grab point |
-| `--red-dim` | `rgba(225, 59, 42, 0.5)` | red keylines / frames |
-| ground | `#0a0a0a` | never flat: always textured (see §4) |
+| `--ink-rgb` / `--ink` | `234, 234, 234` | primary content: values, titles, controls |
+| `--bg-rgb` / `--bg` | `10, 10, 10` | ground — never flat, always textured (§4) |
+| `--accent-rgb` / `--accent` | `254, 238, 0` | noon `brand-primary`. THE accent |
+| `--line-rgb` / `--pl-line` | `102, 109, 133` | noon `grey-600`, every border, solid |
+| `--ink-dim` | `#989fb3` | noon `grey-500`, chrome tier: labels, diagrams |
+| `--bg-lift` | `#101628` | noon `grey-1000`, the raised surface |
+| `--accent-hot` | `#ffd91a` | noon-500, the interaction tier |
+| `--grain-rgb`, `--shade-rgb` | | texture and vignette — declared, not anonymous |
 
-Rules: functional text never below 0.6 alpha of `--ink` (WCAG floor);
-decorative chrome may go as dim as it likes. Red is never tinted, never
-gradiented, and appears at full strength in at most one zone per view.
+**The accent has exactly two forms and they mean different things.**
+
+- **Accent TYPE on dark** — "this is a live reading". Unlimited. The BPM,
+  the playhead, a lit meter cell. It moves with the music.
+- **Accent FILL, dark type on accent ground** — "this is THE subject". A
+  fill may only mark a *single* active selection; anything that can be true
+  on several siblings at once uses type instead. Enforced by
+  `scripts/one-fill.mjs`, which names the standing fills and fails on any
+  new one until it justifies itself there.
+
+Red is gone. It measured 4.58:1 on this ground and spent the whole first
+cycle fighting the contrast floor; the accent measures **16.45:1** —
+identical to ink. Borders are solid rather than alpha, because alpha makes
+contrast depend on whatever happens to sit behind it.
+
+Luminance is not palette: `HOT`/`EMBER` in the instrument and `LUMA_*` in
+the shaders are additive brightness that sums where layers overlap. A theme
+may tint them, but that changes more than colour.
 
 ### Type
 
+A six-step ramp. Body sat at 8–11px for the whole first cycle — half the
+16px reading standard — and a label and its value were the *same size*,
+separated only by colour. Two things need **≥1.5×** to register as
+different levels at all; that ratio was 1.0.
+
+| token | size | job |
+|---|---|---|
+| `--t-micro` | 11px | axis marks, registration, the smallest chrome |
+| `--t-label` | 13px | `//key_` labels and module headers, caps + tracked |
+| `--t-body` | 16px | prose and controls — anything actually read |
+| `--t-data` | 20px | inline values inside dense rows |
+| `--t-value` | 40px | THE reading. 3.1× its label, so it wins outright |
+| `--t-hero` | 64px | one per view |
+
 | role | face | treatment |
 |---|---|---|
-| display | Archivo Black | ONE moment per view. clamp-scaled, tracking −0.04em, may carry an echo ghost (see §3.8) |
-| everything else | JetBrains Mono | 8–11px, uppercase, letter-spacing 0.08–0.18em |
+| display | Archivo Black | ONE moment per view. clamp-scaled, tracking −0.04em, may carry an echo ghost (§3.8) |
+| everything else | JetBrains Mono | the ramp above, uppercase for labels, letter-spacing 0.08–0.18em |
 
-No third face. No italics. Numbers always mono.
+No third face. No italics. Numbers always mono and tabular. Between 12px
+and 52px there used to be nothing at all — `--t-value` is that gap, and it
+is where a reading belongs.
+
+**Uppercase is for labels and captions, never for prose.** We recognise
+words by ascender and descender shape, and caps removes it.
 
 ### Space & line
 
@@ -82,9 +131,9 @@ No third face. No italics. Numbers always mono.
    piece 6), never smooth gradients.
 7. **Accessibility floors are law.** ≥44px touch targets, `:focus-visible`
    outlines, `aria-pressed` on toggles, reduced-motion strips animation
-   and restores native cursors, contrast floors per §1. Filled-red cells
-   carry INK type, never white: white on `--red` measures 4.3:1 and fails
-   AA, ink measures 4.6:1 — and it keeps the one-accent law intact.
+   and restores native cursors, contrast floors per §1. Accent fills carry
+   `--bg` type, never white — and the fill law in §1 keeps the accent rare
+   enough to still mean something.
 8. **A plate is FULL or it is not a plate.** Density ≥60% of the canvas
    carrying composed content. The references measure 31% lit *pixels*;
    round 1 shipped ~4% and read as decoration around emptiness. Sparse
