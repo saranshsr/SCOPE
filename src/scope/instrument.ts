@@ -16,6 +16,7 @@
  */
 
 import type { Features } from '../audio/features'
+import { INK, HOT, EMBER } from '../theme'
 
 const RINGS = 26
 const RAMP = '·.:;=+*x/<>{}#@'
@@ -56,9 +57,9 @@ export class Instrument {
     // --- phosphor bloom under everything ----------------------------------
     const coreR = R * (0.1 + low * 0.3 + beatPulse * 0.04)
     const halo = c.createRadialGradient(cx, cy, 0, cx, cy, R * 1.2)
-    halo.addColorStop(0, `rgba(234,234,234,${0.1 + low * 0.22})`)
-    halo.addColorStop(0.45, `rgba(234,234,234,${0.04 + low * 0.06})`)
-    halo.addColorStop(1, 'rgba(234,234,234,0)')
+    halo.addColorStop(0, INK(0.1 + low * 0.22))
+    halo.addColorStop(0.45, INK(0.04 + low * 0.06))
+    halo.addColorStop(1, INK(0))
     c.fillStyle = halo
     c.beginPath()
     c.arc(cx, cy, R * 1.2, 0, Math.PI * 2)
@@ -110,6 +111,8 @@ export class Instrument {
         }
 
         const a = (0.38 + 0.55 * Math.max(k, live ? 0.2 : 0.06)) * ringGlow
+        // A luminance ramp, not ink: each glyph's brightness IS its value,
+        // so it stays greyscale. Left for the new language to rule on.
         const v = Math.round(186 + 68 * k)
         c.fillStyle = `rgba(${v},${v},${v},${Math.min(0.95, a)})`
         c.fillText(ch, x, y)
@@ -119,8 +122,8 @@ export class Instrument {
     // --- the core: bass as boiling matter ----------------------------------
     if (live) {
       const g = c.createRadialGradient(cx, cy, 0, cx, cy, coreR * 1.5)
-      g.addColorStop(0, `rgba(255,255,255,${0.5 + low * 0.5})`)
-      g.addColorStop(1, 'rgba(255,255,255,0)')
+      g.addColorStop(0, HOT(0.5 + low * 0.5))
+      g.addColorStop(1, HOT(0))
       c.fillStyle = g
       c.beginPath()
       c.arc(cx, cy, coreR * 1.5, 0, Math.PI * 2)
@@ -135,7 +138,7 @@ export class Instrument {
         // centre covered by the bloom.
         const rr = coreR * (0.35 + Math.pow(Math.random(), 0.6) * 0.95)
         const hot = Math.random()
-        c.fillStyle = hot > 0.8 ? 'rgba(255,255,255,0.95)' : `rgba(240,240,240,${0.35 + hot * 0.45})`
+        c.fillStyle = hot > 0.8 ? HOT(0.95) : EMBER(0.35 + hot * 0.45)
         c.fillText(
           hot > 0.72 ? '@' : hot > 0.4 ? '#' : '*',
           cx + Math.cos(th) * rr,

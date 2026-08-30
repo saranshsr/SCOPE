@@ -77,6 +77,25 @@ const SNOISE = /* glsl */ `
   }
 `
 
+/**
+ * Particle luminance — brightness, not palette.
+ *
+ * Every star layer multiplies one of these by a per-particle glow, and the
+ * results SUM additively where layers overlap. That summing is where the
+ * star's sense of density comes from, so these are not interchangeable with
+ * UI ink: a theme may tint them, but pushing them off greyscale changes how
+ * the overlaps read, not merely their colour. Named so that is a deliberate
+ * decision rather than six anonymous floats scattered through the shaders.
+ */
+const LUMA = /* glsl */ `
+  const float LUMA_SHELL  = 0.93;  // the 108k-particle body
+  const float LUMA_EJECTA = 0.95;  // sparks thrown off the body
+  const float LUMA_LINK   = 0.90;  // constellation segments
+  const float LUMA_CORE   = 1.00;  // the core, deliberately blown out
+  const float LUMA_CORONA = 0.95;  // the vocal ring
+  const float LUMA_GROUND = 0.85;  // ground under the dissected stack
+`
+
 const SHELL_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uLow;
@@ -237,6 +256,7 @@ const SHELL_VERT = /* glsl */ `
 
 const SHELL_FRAG = /* glsl */ `
   precision mediump float;
+    ${LUMA}
   varying float vGlow;
   varying float vHash;
   void main() {
@@ -247,7 +267,7 @@ const SHELL_FRAG = /* glsl */ `
     if (d > 1.0) discard;
     float core = exp(-d * d * 5.0);
     float halo = smoothstep(1.0, 0.2, d) * (0.22 + vHash * 0.1);
-    gl_FragColor = vec4(vec3(0.93) * vGlow * (core + halo), 1.0);
+    gl_FragColor = vec4(vec3(LUMA_SHELL) * vGlow * (core + halo), 1.0);
   }
 `
 
@@ -290,11 +310,12 @@ const EJECTA_VERT = /* glsl */ `
 
 const EJECTA_FRAG = /* glsl */ `
   precision mediump float;
+    ${LUMA}
   varying float vFade;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
     float m = smoothstep(0.5, 0.12, length(uv));
-    gl_FragColor = vec4(vec3(0.95) * vFade * m, 1.0);
+    gl_FragColor = vec4(vec3(LUMA_EJECTA) * vFade * m, 1.0);
   }
 `
 
@@ -341,9 +362,10 @@ const LINK_VERT = /* glsl */ `
 
 const LINK_FRAG = /* glsl */ `
   precision mediump float;
+    ${LUMA}
   varying float vA;
   void main() {
-    gl_FragColor = vec4(vec3(0.9), vA);
+    gl_FragColor = vec4(vec3(LUMA_LINK), vA);
   }
 `
 
@@ -384,11 +406,12 @@ const CORE_VERT = /* glsl */ `
 
 const CORE_FRAG = /* glsl */ `
   precision mediump float;
+    ${LUMA}
   varying float vHeat;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
     float m = smoothstep(0.5, 0.06, length(uv));
-    gl_FragColor = vec4(vec3(1.0) * vHeat * m, 1.0);
+    gl_FragColor = vec4(vec3(LUMA_CORE) * vHeat * m, 1.0);
   }
 `
 
@@ -427,11 +450,12 @@ const CORONA_VERT = /* glsl */ `
 
 const CORONA_FRAG = /* glsl */ `
   precision mediump float;
+    ${LUMA}
   varying float vA;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
     float m = smoothstep(0.5, 0.1, length(uv));
-    gl_FragColor = vec4(vec3(0.95) * vA * m, 1.0);
+    gl_FragColor = vec4(vec3(LUMA_CORONA) * vA * m, 1.0);
   }
 `
 
@@ -465,11 +489,12 @@ const GROUND_VERT = /* glsl */ `
 
 const GROUND_FRAG = /* glsl */ `
   precision mediump float;
+    ${LUMA}
   varying float vA;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
     float m = smoothstep(0.5, 0.15, length(uv));
-    gl_FragColor = vec4(vec3(0.85) * vA * m, 1.0);
+    gl_FragColor = vec4(vec3(LUMA_GROUND) * vA * m, 1.0);
   }
 `
 

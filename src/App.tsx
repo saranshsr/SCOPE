@@ -10,6 +10,7 @@ import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
 import { Tube, HINDI, parseVideoId, type TubeState } from './audio/tube'
+import { INK, RED, GRAIN } from './theme'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 
 /**
@@ -2523,6 +2524,7 @@ function Dial({
   )
 }
 
+
 /** The spectrum ruler. Drawn scale, no needle: standby has no signal. */
 function Scale() {
   return (
@@ -2567,10 +2569,10 @@ function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head:
     const jag = 0.62 + 0.38 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
     const a = Math.max(0.5, v * jag * (h * 0.46))
     const lit = 0.28 + 0.72 * Math.pow(v, 0.6)
-    g.fillStyle = `rgba(234,234,239,${(lit * (0.4 + Math.random() * 0.6)).toFixed(3)})`
+    g.fillStyle = GRAIN((lit * (0.4 + Math.random() * 0.6)).toFixed(3))
     g.fillRect(i, mid - a, 1, a * 2)
     if (Math.random() < v * 0.5) {
-      g.fillStyle = `rgba(234,234,239,${(lit * 0.5).toFixed(3)})`
+      g.fillStyle = GRAIN((lit * 0.5).toFixed(3))
       g.fillRect(i, mid - a * 1.5, 1, a * 0.4)
     }
   }
@@ -2605,17 +2607,17 @@ function drawWave(
       let a = 0
       for (let i = i0; i < i1; i++) if (peaks.amp[i] > a) a = peaks.amp[i]
       const hh = Math.max(0.75, a * (H / 2 - 2))
-      g.fillStyle = x <= px ? 'rgba(234,234,234,0.92)' : 'rgba(234,234,234,0.28)'
+      g.fillStyle = x <= px ? INK(0.92) : INK(0.28)
       g.fillRect(x, mid - hh, 1, hh * 2)
     }
     // The playhead — the same red as the crosshair tags; one instrument.
     // 2 buffer px = 1 CSS px on the retina buffer.
-    g.fillStyle = '#e13b2a'
+    g.fillStyle = RED(1)
     g.fillRect(px, 0, 2, H)
     return
   }
 
-  g.strokeStyle = 'rgba(234,234,234,0.85)'
+  g.strokeStyle = INK(0.85)
   g.lineWidth = 2
   g.beginPath()
   const n = wave.length
@@ -2663,7 +2665,7 @@ function drawSurvey(
     const sa = 0.55 * (1 - dis * 2)
     const t = scene.projectLocal(0, 0.78, 0)
     const b = scene.projectLocal(0, -0.78, 0)
-    g.strokeStyle = `rgba(234,234,234,${sa})`
+    g.strokeStyle = INK(sa)
     g.lineWidth = 1
     g.setLineDash([3, 6])
     g.beginPath()
@@ -2671,7 +2673,7 @@ function drawSurvey(
     g.lineTo(b.x, b.y)
     g.stroke()
     g.setLineDash([])
-    g.fillStyle = `rgba(225, 59, 42,${Math.min(1, sa + 0.25)})`
+    g.fillStyle = RED(Math.min(1, sa + 0.25))
     g.beginPath()
     g.moveTo(t.x - 4, t.y - 6)
     g.lineTo(t.x + 4, t.y - 6)
@@ -2690,8 +2692,8 @@ function drawSurvey(
   const a = Math.max(0, Math.min(1, (dis - 0.25) / 0.55))
   if (a <= 0.01) return
   const n = tiers.length
-  const ink = (al: number) => `rgba(234,234,234,${al * a})`
-  const red = (al: number) => `rgba(225, 59, 42,${al * a})`
+  const ink = (al: number) => INK(al * a)
+  const red = (al: number) => RED(al * a)
   g.textBaseline = 'middle'
   g.lineWidth = 1
 
@@ -2832,17 +2834,17 @@ function drawSpectrum(
     const v = shown[i]
     peaks[i] = Math.max(v, peaks[i] - 0.012)
     const bh = v * (cv.height - 4)
-    g.fillStyle = 'rgba(234,234,234,0.88)'
+    g.fillStyle = INK(0.88)
     // The HELD EQ range tints red while you bend it — the analytical view
     // agreeing with the sculptural one.
     if (mixBand != null) {
       const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
-      if (inBand) g.fillStyle = `rgba(225, 59, 42,${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
+      if (inBand) g.fillStyle = RED(0.45 + Math.min(0.55, Math.abs(mixDb) / 30))
     }
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly
     const py = cv.height - peaks[i] * (cv.height - 4)
-    g.fillStyle = 'rgba(234,234,234,0.35)'
+    g.fillStyle = INK(0.35)
     g.fillRect(i * bw + 1, py - 2, bw - 2, 2)
   }
 }
