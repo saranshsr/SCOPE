@@ -626,8 +626,9 @@ input[type='range']::-moz-range-track { height: 1px; background: var(--pl-line);
 input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var(--ink); border: none; border-radius: 0; }
 
 /* the fuller rail scrolls on short screens rather than clipping */
-.rail { overflow-y: auto; scrollbar-width: none; }
-.rail::-webkit-scrollbar { display: none; }
+/* the rail scrolls; its bar is styled with every other scroll surface at
+   the foot of this file, rather than hidden here and re-invented there */
+.rail { overflow-y: auto; }
 
 /* the spectrum is playable: the canvas opts back into pointer events that
    its container declines, or a real click never reaches the solo handler. */
@@ -2120,11 +2121,65 @@ input[type='range'] { height: 32px; }
    fade at rest -- measured: 0px of gutter, nothing drawn. It is kept for
    the people who set "always show scroll bars", and the dock's red seam
    is what tells everyone else. */
-.cn-plate .rail-stack { scrollbar-width: thin; scrollbar-color: var(--pl-line) transparent; }
-.cn-plate .rail-stack::-webkit-scrollbar { width: 6px; }
-.cn-plate .rail-stack::-webkit-scrollbar-track { background: transparent; }
-.cn-plate .rail-stack::-webkit-scrollbar-thumb { background: var(--pl-line); }
-.cn-plate .rail-stack::-webkit-scrollbar-thumb:hover { background: var(--ink-dim); }
+/* THE SCROLLBAR IS A CELL LIKE EVERYTHING ELSE.
+   The default thumb is a rounded light pill, and radius 0 is a law with
+   the word forever in it -- so on the one piece of chrome the browser
+   draws for us, the sheet was breaking its own first rule. Rebuilt in the
+   plate's own parts: a hairline track, and a square slug running in it.
+
+   The `border: transparent` plus `background-clip: content-box` is how a
+   webkit thumb is inset without a wrapper. It gives a 4px slug in a 10px
+   gutter, so the bar reads as a marker travelling a rail rather than as a
+   fat handle stuck to the edge.
+
+   No radius, no gradient, no shadow. The ink tiers are the same two the
+   rest of the sheet uses: the track is --pl-line, the slug is --ink-dim,
+   and hovering promotes the slug to --ink the way every other CHOICE
+   surface does.
+
+   Applied to every scrolling surface in the app rather than to the rail
+   alone: the landing plate scrolls below 820px and the phone rail scrolls
+   as one column, and a second scrollbar language would be worse than the
+   default one. */
+/* THE STANDARD PROPERTIES ARE FIREFOX-ONLY, and they have to be, because
+   Chrome 121+ treats `scrollbar-width` as the switch that turns the
+   ::-webkit-scrollbar pseudo-elements OFF. Setting it here is what made
+   the careful rebuild below do nothing: measured, the gutter stayed 0px
+   wide and Chrome kept drawing its own rounded pill, tinted by
+   scrollbar-color and impossible to square off. Firefox has no pseudos at
+   all, so it gets the two properties it does understand. */
+@supports (-moz-appearance: none) {
+  .cn-plate .rail-stack,
+  .cn-plate .rail,
+  .plate {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ink-dim) transparent;
+  }
+}
+.cn-plate .rail-stack::-webkit-scrollbar,
+.cn-plate .rail::-webkit-scrollbar,
+.plate::-webkit-scrollbar { width: 10px; height: 10px; }
+.cn-plate .rail-stack::-webkit-scrollbar-track,
+.cn-plate .rail::-webkit-scrollbar-track,
+.plate::-webkit-scrollbar-track {
+  background: transparent;
+  border-left: 1px solid var(--pl-line);
+}
+.cn-plate .rail-stack::-webkit-scrollbar-thumb,
+.cn-plate .rail::-webkit-scrollbar-thumb,
+.plate::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  background: var(--ink-dim);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  min-height: 24px;
+}
+.cn-plate .rail-stack::-webkit-scrollbar-thumb:hover,
+.cn-plate .rail::-webkit-scrollbar-thumb:hover,
+.plate::-webkit-scrollbar-thumb:hover { background: var(--ink); background-clip: content-box; }
+/* the corner where two bars would meet is ground, not a widget */
+.cn-plate .rail-stack::-webkit-scrollbar-corner,
+.plate::-webkit-scrollbar-corner { background: transparent; }
 
 /* Every live numeral is tabular, or the digits jitter as they update:
    the clock, the bpm, the dial values, the pills and the diagnostics. */
