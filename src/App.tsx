@@ -48,6 +48,11 @@ export default function App() {
   const cTotalRef = useRef<HTMLDataElement>(null)
 
   const [started, setStarted] = useState(false)
+  /** Has the instrument ever been powered on. Once it has, returning to
+   *  the sheet is a standby that is still PLAYING rather than a cold
+   *  splash, so the plate's readings become real and POWER ON becomes a
+   *  way back in rather than a way in. */
+  const [everStarted, setEverStarted] = useState(false)
   const [track, setTrack] = useState<TrackInfo | null>(null)
   const [source, setSource] = useState<SourceKind>('radio')
   const [playing, setPlaying] = useState(false)
@@ -64,13 +69,24 @@ export default function App() {
   /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
+  /** the plate's peak readout, written imperatively at chrome rate */
+  const peakRef = useRef<HTMLSpanElement>(null)
   /** the rail's scrolling half — watched so the dock seam can say "more" */
   const railStackRef = useRef<HTMLDivElement>(null)
   /** jukebox: the YouTube player, and whether the star is listening */
   const tubeRef = useRef<Tube | null>(null)
   const tubeHostRef = useRef<HTMLDivElement>(null)
+  /** The source before the jukebox, so leaving it is a BACK rather than a
+   *  jump to a default. Null on a fresh load, where there is no previous
+   *  mode and radio is the honest answer. State, not a ref: the exit is
+   *  labelled with its destination. */
+  const [prevSource, setPrevSource] = useState<SourceKind | null>(null)
   const [tubeState, setTubeState] = useState<TubeState | null>(null)
   const [listening, setListening] = useState(false)
+  /** Has the star EVER listened to a tab. The consent copy and the setup
+   *  steps only teach something the first time; after that they are 250px
+   *  of the rail explaining a thing you have already done. */
+  const [hasListened, setHasListened] = useState(false)
   /** What the captured stream is actually delivering — not what the browser
    *  said it granted. 'silent' is the common failure: chrome hands over a
    *  perfectly valid stream with no audio track content when the "also share
@@ -211,6 +227,17 @@ export default function App() {
       hist[head % hist.length] = sc ? sc.readMotion() : 0
       head++
       drawMotionStrip(posterWaveRef.current, hist, head)
+      // //peak_ said IDLE unconditionally, which was true on a cold load
+      // and a lie the moment the sheet could be returned to with the music
+      // still playing -- a parked needle beside a star visibly being
+      // driven. It reads the analyser's own spectral centroid now, mapped
+      // back to hertz, and only says idle when there is genuinely nothing.
+      const el = peakRef.current
+      if (el) {
+        const f = engineRef.current?.analyser?.features
+        const live = f && f.rms > 0.02
+        el.textContent = live ? `${fmtHz(20 * Math.pow(1000, f.centroid))}` : 'idle'
+      }
       raf = requestAnimationFrame(tick)
     }
     const aim = () => {
@@ -1498,6 +1525,8 @@ export default function App() {
   const enterTube = async () => {
     const eng = engineRef.current
     if (!eng) return
+    // remember the mode we are leaving, so LEAVE is a back and not a jump
+    if (eng.kind !== 'tube') setPrevSource(eng.kind as SourceKind)
     if (!tubeRef.current) {
       tubeRef.current = new Tube()
       tubeRef.current.onError = (code) => {
@@ -1512,10 +1541,36 @@ export default function App() {
     eng.enterTube()
   }
 
+  /**
+   * Leave the jukebox for whatever was playing before it.
+   *
+   * The way out already existed -- the source switch is four buttons and
+   * one of them is RADIO -- but in jukebox mode the module is 60% of the
+   * rail, so 02 · FEED was pushed below the fold and the exit was
+   * unreachable without discovering that the rail scrolls. A way out you
+   * cannot see is not a way out.
+   *
+   * Radio is the fallback rather than a stored default: on a fresh load
+   * that opens straight into the jukebox there IS no previous mode, and
+   * inventing one would be a lie about where you had been.
+   */
+  const leaveTube = () => {
+    const eng = engineRef.current
+    if (!eng) return
+    tubeRef.current?.pause()
+    stopListening()
+    const back = prevSource
+    setPrevSource(null)
+    if (back === 'mic') void eng.useMic()
+    else if (back === 'file') fileRef.current?.click()
+    else void eng.playRadio()
+  }
+
   /** The star listens to this tab. Separate ask, plainly explained. */
   const startListening = async () => {
     const ok = (await engineRef.current?.useTabAudio()) ?? false
     setListening(ok)
+    if (ok) setHasListened(true)
   }
 
   const stopListening = () => {
@@ -1657,8 +1712,30 @@ export default function App() {
     ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus(false)
   }
 
+  /**
+   * Back to the sheet, with the music still on.
+   *
+   * Not a power off: the engine, the track and the analyser all keep
+   * running, so the plate comes back as a LIVE instrument rather than the
+   * cold splash it is on a first load. The star dollies back into the
+   * image cell, which is the one thing that cell exists to frame, and the
+   * readings on the right column stop being decorative because there is
+   * finally a signal behind them.
+   */
+  const standby = () => {
+    if (!startedRef.current || bootRef.current) return
+    startedRef.current = false
+    setStarted(false)
+    sceneRef.current?.setDissect(0)
+    // the plate has to exist before its cell can be measured
+    requestAnimationFrame(() => {
+      ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus(false)
+    })
+  }
+
   const power = () => {
     if (startedRef.current || bootRef.current) return
+    setEverStarted(true)
     // sound first: the machine revs WITH audio, not after it
     bootRef.current = 'rev'
     setBoot('rev')
@@ -1787,8 +1864,12 @@ export default function App() {
                 </div>
                 <div className="pl-checks" aria-hidden="true" />
                 <div className="pl-act">
-                  <button className="power" onClick={power}>
-                    <Decode text="power on" duration={520} replayOnHover />
+                  {/* On a first load this is the only way in. Once the
+                      instrument has run, the sheet is a live standby you
+                      came back to, so the button is a way back rather
+                      than a way in, and it says so. */}
+                  <button className="power" onClick={everStarted ? endBoot : power}>
+                    <Decode text={everStarted ? 'resume' : 'power on'} duration={520} replayOnHover />
                   </button>
                 </div>
               </div>
@@ -1814,7 +1895,7 @@ export default function App() {
               {/* the scale is drawn; the needle stays parked until there is
                   real audio to read (law 3: texture never fakes a value) */}
               <div className="pl-row pl-peak">
-                <div className="pl-peak-hd"><span className="k">//peak_</span><span className="v">idle</span></div>
+                <div className="pl-peak-hd"><span className="k">//peak_</span><span ref={peakRef} className="v">idle</span></div>
                 <Scale />
               </div>
 
@@ -1836,8 +1917,12 @@ export default function App() {
                 <div className="pl-pathcap">{pathHover ?? 'hover a stage'}</div>
               </div>
 
+              {/* Law 3: these are readings, so on a live standby they
+                  have to say the live thing. `idle` was hardcoded, which
+                  was true on a cold load and a lie the moment the sheet
+                  could be returned to with the music still playing. */}
               <div className="pl-pills">
-                <span className="pill on">( idle )</span>
+                <span className="pill on">( {everStarted ? 'live' : 'idle'} )</span>
                 <span className="pill">( ready )</span>
                 <span className="pill">( 44.1k )</span>
               </div>
@@ -1866,7 +1951,15 @@ export default function App() {
           {/* the brand and the src/pitch plate stop being rail children:
               both are running-header cells now (mockup, header row) */}
           <header className="pl-hdr cn-hdr">
-            <div><b>[scope-02]</b> console</div>
+            {/* The console's own way out. It returns to the standby sheet
+                WITHOUT stopping anything, so the plate comes back as a
+                live instrument: the star dollies into its image cell and
+                keeps reacting to whatever is playing. */}
+            <div>
+              <button className="cn-standby" onClick={standby} aria-label="back to the sheet">
+                <b>[scope-02]</b> console
+              </button>
+            </div>
             <div className="k">
               //src_ <span>{SOURCE_ID[source]}</span>
               <i className={`src-dot${playing ? ' live' : ''}`} />
@@ -2116,7 +2209,17 @@ export default function App() {
               answers "what am I listening to", read from that same player. */}
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
             <div className="tube rail-sec">
-              <h2 className="cn-mod sub"><span>01.1 · jukebox</span><i>//youtube_</i></h2>
+              {/* The exit lives in the header, labelled with where it
+                  goes. The way out already existed -- RADIO is one of four
+                  buttons in 02 · FEED -- but this module is 60% of the
+                  rail, so FEED sat below the fold and the exit was
+                  unreachable without discovering that the rail scrolls. */}
+              <h2 className="cn-mod sub">
+                <span>01.1 · jukebox</span>
+                <button className="cn-mod-back" onClick={leaveTube}>
+                  ← {prevSource ?? 'radio'}
+                </button>
+              </h2>
 
               {/* only what the API actually reports */}
               {tubeState?.title && (
@@ -2136,17 +2239,21 @@ export default function App() {
               <div className="tube-listen">
                 {!listening ? (
                   <>
-                    <p className="cn-hint">
-                      the star can react to this tab. nothing is recorded and
-                      nothing leaves your machine. scope only reads the levels.
-                    </p>
+                    {!hasListened && (
+                      <p className="cn-hint">
+                        the star can react to this tab. nothing is recorded and
+                        nothing leaves your machine. scope only reads the levels.
+                      </p>
+                    )}
                     <div className="cells c1">
                       <button onClick={() => void startListening()}>let the star listen</button>
                     </div>
-                    <p className="cn-hint tube-step">
-                      chrome will ask what to share. pick <b>this tab</b>, then tick{' '}
-                      <b>also share tab audio</b>. that checkbox is the one that matters.
-                    </p>
+                    {!hasListened && (
+                      <p className="cn-hint tube-step">
+                        chrome will ask what to share. pick <b>this tab</b>, then tick{' '}
+                        <b>also share tab audio</b>. that checkbox is the one that matters.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
@@ -2174,11 +2281,15 @@ export default function App() {
                 )}
               </div>
 
-              {/* the mix gestures genuinely cannot reach youtube's output */}
-              <p className="cn-hint">
-                grabbing the star is off here. youtube owns the sound, so eq,
-                filter and echo would move nothing. the visual dials still work.
-              </p>
+              {/* The mix gestures genuinely cannot reach youtube's output.
+                  Said once, in full, while it is news; after the first
+                  listen it is the module header's annotation instead. */}
+              {!hasListened && (
+                <p className="cn-hint">
+                  grabbing the star is off here. youtube owns the sound, so eq,
+                  filter and echo would move nothing. the visual dials still work.
+                </p>
+              )}
 
               <div className="vibe tube-paste">
                 <input
@@ -2203,8 +2314,14 @@ export default function App() {
                 >go</button>
               </div>
 
+              {/* Three, not six. The paste field is the entry; these are
+                  starting points, and six fixed rows of them was 264px of
+                  permanent furniture in a module already taking 60% of the
+                  rail. The jukebox is a portal to a wider library, so what
+                  it ships with should read as a door, not a catalogue. */}
+              <div className="cn-hint tube-or">or start here</div>
               <div className="tube-list">
-                {HINDI.map((t) => (
+                {HINDI.slice(0, 3).map((t) => (
                   <button
                     key={t.id}
                     className={tubeState?.videoId === t.id ? 'on' : ''}
@@ -2234,7 +2351,7 @@ export default function App() {
               className={source === 'tube' ? 'on' : ''}
               onClick={() => void enterTube()}
             >
-              <Decode text="tube" duration={380} replayOnHover />
+              <Decode text="jukebox" duration={380} replayOnHover />
             </button>
           </div>
 
@@ -2267,9 +2384,20 @@ export default function App() {
                 {tuning2 === 'loading'
                   ? 'reading the vibe …'
                   : tuning2 === 'empty'
-                    ? 'nothing playable found · try other words'
+                    ? 'nothing playable on audius for that'
                     : vibeRead ?? 'streaming from audius · artist-owned'}
               </span>
+              {/* Audius is artist-owned and deliberately small, so an empty
+                  result is a normal answer rather than a fault. The jukebox
+                  is the wider library, so this is where it earns its place:
+                  named at the moment the narrow one runs out. */}
+              {tuning2 === 'empty' && (
+                <div className="cells c1">
+                  <button onClick={() => void enterTube()}>
+                    try the jukebox instead
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2632,6 +2760,11 @@ function Scale() {
  * spikes — it is an instrument readout before there is any audio to read,
  * which is why it is labelled MOTION and not SPECTRA.
  */
+/** 20Hz..20kHz in the axis's own vocabulary: 60 · 250 · 1K · 4K · 12K. */
+function fmtHz(hz: number): string {
+  return hz >= 1000 ? `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)}k` : `${Math.round(hz)}hz`
+}
+
 function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head: number) {
   if (!cv) return
   const g = cv.getContext('2d')

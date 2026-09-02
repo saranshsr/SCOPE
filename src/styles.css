@@ -676,7 +676,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .ret-label:empty { background: none; padding: 0; }
 
 .stemhint {
-  /* prose, not a micro-label: lowercase, tracked for lowercase */
+  /* prose, not a micro-label: lowercase, tracked for lowercase.
+     BLOCK, not inline: as an inline box its 8px 12px padding did nothing
+     vertically and its second line started at the parent's edge instead of
+     the gutter, so a two-line hint hung out of alignment with every row
+     around it. */
+  display: block;
   font-size: 9px;
   line-height: 1.5;
   letter-spacing: 0.02em;
@@ -1865,6 +1870,42 @@ input[type='range'] { height: 32px; }
   text-transform: uppercase;
 }
 .cn-mod i { color: var(--ink-dim); font-style: normal; }
+/* the module's own exit, in the slot the source annotation usually holds:
+   same tier as that annotation at rest, and it names its destination
+   rather than saying "back", because "back" from a mode is ambiguous */
+.cn-mod-back {
+  font: inherit;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: none;
+  border: 0;
+  padding: 2px 0 2px 8px;
+  min-height: 24px;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.cn-mod-back:hover { color: var(--ink); }
+
+/* The console's title IS the way back to the sheet. It reads as the
+   running header it already was until you reach for it, which is the
+   right weight for an exit you use once a session. */
+.cn-standby {
+  font: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.cn-standby b { color: var(--red); }
+.cn-standby:hover { color: var(--ink); }
+.cn-standby:hover b { color: #f04a37; }
 /* a sub-module: the same header, indented under its parent and tied to it
    by the elbow the landing's signal chain already uses for .pl-prow.sub.
    Keeps the count monotonic (01 · 01.1 · 02 …) without renumbering a
@@ -2146,6 +2187,8 @@ input[type='range'] { height: 32px; }
 .tube-list button.on { color: var(--ink); }
 .tube-list button.on span::before { content: '▸ '; color: var(--red); }
 .tube-paste { border-bottom: 1px solid var(--pl-line); }
+/* the list's own label: a caption on the rows below it, not a module */
+.tube-or { color: var(--ink-dim); }
 
 @media (prefers-reduced-motion: reduce) {
   .listening-dot::before { animation: none; }
