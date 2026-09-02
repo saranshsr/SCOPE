@@ -500,7 +500,14 @@ export default function App() {
     // Latched row levels, 0..2 — the mixing desk the layer rows drive.
     // Gestures are momentary performance moves that return here.
     const rowGain = new Float32Array(6).fill(1)
-    const dbOf = (g: number) => (g < 1 ? (g - 1) * 30 : (g - 1) * 9)
+    // The ring's radius saturates at 1.4 -- the shader clamps it -- so the
+    // fader stops there too. It used to run to 2.0, which meant the last
+    // 30% of the travel changed the sound and moved nothing: you kept
+    // pulling and the ring you were pulling had already stopped. The boost
+    // slope steepens to match (0.4 * 22.5 = the same +9dB the old top of
+    // the range gave), so nothing is lost but the dead zone.
+    const RING_MAX = 1.4
+    const dbOf = (g: number) => (g < 1 ? (g - 1) * 30 : (g - 1) * 22.5)
     // One resolver for the spectral tiers' whole mix state: each ring owns
     // a REAL peaking filter in the desk (altering the ring alters the
     // music), and mute/solo/level can never fight each other.
@@ -752,7 +759,20 @@ export default function App() {
           if (d.moved) {
             const c = centerPx()
             // Distance from the AXIS is the fader: out = boost, in = kill.
-            const lvl = Math.max(0, Math.min(2, 1 + (Math.abs(e.clientX - c.x) - d.dx0) / 150))
+            // 200px per unit, not 150: with the travel now ending at 1.4 a
+            // tighter scale put the whole boost range inside 60px, which
+            // reads as twitchy rather than fine.
+            //
+            // And SIGNED against the side you grabbed from. The absolute
+            // distance made the fader a V: pull inward to cut, cross the
+            // axis, and the distance starts growing again so the level
+            // climbs back up. Measured on one continuous inward drag --
+            // 1.4 down to 0.86 and back to 1.4, the cut turning into a
+            // boost mid-gesture with nothing to announce it. Signed, going
+            // past the axis simply keeps cutting until it bottoms out,
+            // which is the only monotonic reading of "in = kill".
+            const side = d.sx >= c.x ? 1 : -1
+            const lvl = Math.max(0, Math.min(RING_MAX, 1 + ((e.clientX - c.x) * side - d.dx0) / 200))
             d.lvl = lvl
             const tr = tiers[d.tier]
             const eng2 = engineRef.current
@@ -770,7 +790,7 @@ export default function App() {
               // uTierLvl stayed [1,1,1,1,1,1] for all six. The stem
               // branch above never had the bug because setStemGain feeds
               // tierLevels, which the visual does read.
-              rowGain[d.tier] = Math.max(0, Math.min(2, lvl))
+              rowGain[d.tier] = Math.max(0, Math.min(RING_MAX, lvl))
               eng2?.tierEq(d.tier, dbOf(lvl))
             }
             if (retLabelRef.current) retLabelRef.current.textContent = `${tr.label} ${Math.round(lvl * 100)}%`
@@ -1234,7 +1254,19 @@ export default function App() {
           // VU ballistics: fast attack so hits register, slow release so a
           // playing stem never strobes to a ghost between beats — only a
           // true mute (or silence) lets the ring die.
-          tierVoice[i] += (target - tierVoice[i]) * Math.min(1, dt * (target > tierVoice[i] ? 14 : 2.2))
+          //
+          // EXCEPT under the hand. Those ballistics describe a meter
+          // watching audio, and the moment you grab a ring it stops being
+          // a meter and becomes a fader. Measured: dragging one down and
+          // stopping, the ring took 1101ms to arrive -- release runs at
+          // 2.2/s, a 455ms time constant, so the readout crawled after the
+          // hand for over a second and the gesture felt like pulling
+          // something through syrup. A dragged tier tracks at 26/s, and
+          // symmetrically: a fader that fell slower than it rose would
+          // still be a meter's asymmetry showing through.
+          const held = sect.drag?.moved && sect.drag.tier === i
+          const rate = held ? 26 : target > tierVoice[i] ? 14 : 2.2
+          tierVoice[i] += (target - tierVoice[i]) * Math.min(1, dt * rate)
         }
         scene.setTierLevels(tierVoice)
         const marks = { solo: -1, muted: [] as boolean[] }
