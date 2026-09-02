@@ -789,12 +789,19 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   background: var(--red);
   border-color: #eaeaea;
 }
-.tuner-find {
+/* §3 primitive: the entry cell. One field, one send, sharing a hairline.
+   It was written here as `.tuner-find` and the jukebox's paste row was
+   authored against the name `.vibe` that this comment block already used
+   for it -- a class that did not exist, so three controls in the jukebox
+   fell all the way back to browser chrome: a white input and two grey
+   system buttons inside a black instrument. The rule now carries the
+   primitive's name and the two sites are placement modifiers on it. */
+.vibe {
   display: grid;
   grid-template-columns: 1fr 34px;
   gap: var(--gap-tight);
 }
-.tuner-find input {
+.vibe input {
   font: inherit;
   font-size: 10px;
   color: #eaeaea;
@@ -803,18 +810,52 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 8px 12px;
   outline: none;
 }
-.tuner-find input:focus { border-color: var(--pl-line); }
-.tuner-find input::placeholder { color: rgba(234, 234, 234, 0.55); }
-.tuner-find button {
+.vibe input:focus { border-color: var(--pl-line); }
+.vibe input::placeholder { color: rgba(234, 234, 234, 0.55); }
+.vibe button {
   font: inherit;
   font-size: 9px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: rgba(234, 234, 234, 0.7);
   background: none;
   border: 1px solid var(--pl-line);
   cursor: pointer;
 }
-.tuner-find button:hover { color: #0a0a0a; background: #eaeaea; }
+.vibe button:hover { color: #0a0a0a; background: #eaeaea; }
+
+/* §3 primitive: the action cell. Full-bleed buttons carrying the plate's
+   own 8/12 row, so an action reads as a cell of the sheet rather than a
+   widget sitting on it. `.c1` is one column; the count is the modifier so
+   a second action never needs a new rule. */
+.cells {
+  display: grid;
+  /* the hairline-rule technique the chips and the layer grid already use:
+     the container carries the line colour and a 1px gap lets it through,
+     so adjacent cells SHARE one stroke instead of stacking two. */
+  gap: 1px;
+  background: var(--pl-line);
+  border-bottom: 1px solid var(--pl-line);
+}
+.cells.c1 { grid-template-columns: 1fr; }
+.cells.c2 { grid-template-columns: 1fr 1fr; }
+.cells button {
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: left;
+  /* 8/12: the one row height, so the action scans on the same rhythm as
+     the plate rows and the hints above and below it. */
+  padding: 8px 12px;
+  min-height: 40px;
+  color: #eaeaea;
+  background: var(--bg);
+  border: 0;
+  cursor: pointer;
+}
+.cells button:hover { color: #0a0a0a; background: #eaeaea; }
+
 .tuner-state {
   font-size: 9px;
   letter-spacing: 0.12em;
@@ -1179,7 +1220,14 @@ a:focus-visible {
 .pl-r {
   border-left: 1px solid var(--pl-line);
   display: grid;
-  grid-template-rows: repeat(8, auto) 1fr auto auto;
+  /* The slack goes to the LAST cell, not the signal chain. It used to sit
+     on .pl-path (row 9), which stretched the container without stretching
+     its rows -- 123px of unbordered ground opened between "hover a stage"
+     and the pills at 1440x900, and a sheet is judged by its seams. The
+     dither block is the one cell that can grow without lying: it is
+     pattern, so it renders no value, and a column of plate rows tailing
+     off into a dither field is what the reference plates do. */
+  grid-template-rows: repeat(10, auto) 1fr;
   min-height: 0;
   overflow: hidden;
 }
@@ -1368,9 +1416,15 @@ a:focus-visible {
 .pl-pills .pill { border: 1px solid var(--pl-line); color: var(--ink-dim); padding: 4px 8px; font-size: 8px; }
 .pl-pills .pill.on { border-color: var(--red); color: var(--red); }
 .pl-strip {
-  height: 12px;
+  min-height: 12px;
   background: repeating-conic-gradient(var(--ink-dim) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
-  opacity: 0.4;
+  opacity: 0.3;
+  /* falls off downward so the tail reads as a fade, not a slab, and stays
+     chrome rather than competing with the wordmark two cells to its left.
+     At the 12px floor the mask is imperceptible; it only shows once the
+     cell has slack to absorb. */
+  mask-image: linear-gradient(to bottom, #000 0, #000 12px, rgba(0, 0, 0, 0.08) 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 12px, rgba(0, 0, 0, 0.08) 100%);
 }
 
 /* ── running footer ── */
@@ -1543,7 +1597,7 @@ a:focus-visible {
 .rail-help { min-width: 32px; min-height: 32px; }
 .deck-split { min-height: 40px; }
 .tuner-chips button { min-height: 36px; }
-.tuner-find input, .tuner-find button { min-height: 40px; }
+.vibe input, .vibe button { min-height: 40px; }
 .presets button { min-height: 36px; }
 .diag-toggle { min-height: 32px; padding: 0 4px; }
 
@@ -1557,14 +1611,15 @@ input[type='range'] { height: 32px; }
 
 @media (pointer: coarse) {
   /* the parent grid sizes the row, so the floor goes on the container too */
-  .tuner-find, .rail-src { min-height: 44px; }
+  .vibe, .rail-src { min-height: 44px; }
   .rail-src button { min-height: 44px; }
   .layer-btn { min-width: 44px; min-height: 44px; }
   .rail-help,
   .deck-split,
   .tuner-chips button,
-  .tuner-find input,
-  .tuner-find button,
+  .vibe input,
+  .vibe button,
+  .cells button,
   .presets button,
   .diag-toggle { min-height: 44px; }
   input[type='range'] { height: 44px; }

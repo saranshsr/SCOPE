@@ -2034,15 +2034,15 @@ export default function App() {
                 {!listening ? (
                   <>
                     <p className="cn-hint">
-                      the star can react to this tab. nothing is recorded, nothing
-                      leaves your machine — scope only reads the levels.
+                      the star can react to this tab. nothing is recorded and
+                      nothing leaves your machine. scope only reads the levels.
                     </p>
                     <div className="cells c1">
                       <button onClick={() => void startListening()}>let the star listen</button>
                     </div>
                     <p className="cn-hint tube-step">
-                      chrome will ask what to share. pick <b>this tab</b>, then tick
-                      <b> also share tab audio</b> — that checkbox is the one that matters.
+                      chrome will ask what to share. pick <b>this tab</b>, then tick{' '}
+                      <b>also share tab audio</b>. that checkbox is the one that matters.
                     </p>
                   </>
                 ) : (
@@ -2061,7 +2061,7 @@ export default function App() {
                       <p className="cn-hint tube-step" role="status">
                         this tab is shared but no sound is coming through. stop,
                         share again, and tick <b>also share tab audio</b> in the
-                        chrome dialog — it is off by default.
+                        chrome dialog. it is off by default.
                       </p>
                     )}
                     <div className="cells c1">
@@ -2073,7 +2073,7 @@ export default function App() {
 
               {/* the mix gestures genuinely cannot reach youtube's output */}
               <p className="cn-hint">
-                grabbing the star is off here — youtube owns the sound, so eq,
+                grabbing the star is off here. youtube owns the sound, so eq,
                 filter and echo would move nothing. the visual dials still work.
               </p>
 
@@ -2141,7 +2141,7 @@ export default function App() {
           <div className={`railfold${source === 'radio' ? ' open' : ''}`}>
             <div className="tuner rail-sec" style={{ '--i': 3 } as React.CSSProperties}>
               <form
-                className="tuner-find"
+                className="vibe tuner-find"
                 onSubmit={(e) => { e.preventDefault(); void setVibe(query) }}
               >
                 <input
@@ -2177,7 +2177,7 @@ export default function App() {
           </h2>
           {source === 'tube' && layerUi && (
             <p className="cn-hint">
-              the meters are live — the faders are not. youtube owns the sound
+              the meters are live. the faders are not: youtube owns the sound
               in jukebox mode, so moving them would change nothing.
             </p>
           )}
