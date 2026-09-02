@@ -112,6 +112,9 @@ const SIM_HEAD = /* glsl */ `
   uniform float uCurl;
   uniform float uSwirl;
   uniform vec3 uViewAxis;
+  uniform float uBands[24];
+  uniform float uKick;
+  uniform float uMusic;
   uniform float uMaxOff;
   uniform float uMaxVel;
   varying vec2 vUv;
@@ -212,6 +215,33 @@ const VEL_FRAG = /* glsl */ `
     // stiff gains energy every step and walks itself apart in seconds.
     // a = F/m, so the light ones leap and the heavy ones lean
     v += F * invMass * uDt;
+
+    // MUSIC AS IMPULSE, not as displacement.
+    //
+    // The shader already moves the body with the music, but positionally:
+    // loudness sets the radius that frame and there is no follow-through,
+    // which is why the star tracks a track perfectly and never rings. The
+    // SUSTAIN stays there, where a continuous push honestly inflates a
+    // body. The TRANSIENT comes here, where a hit throws matter and lets
+    // it fly back on the spring.
+    //
+    // A velocity change, NOT a force, and added after the integration on
+    // purpose. As a force it was multiplied by dt and had to be enormous
+    // to read; worse, uSnap is a decaying value rather than a spike, so a
+    // force term applied every frame it was non-zero became a sustained
+    // outward push. Measured: it inflated all 108,000 particles onto the
+    // 0.42 clamp and they never came home. uKick is the RISING EDGE now,
+    // computed on the CPU, so it is non-zero only on the frames a
+    // transient actually arrives.
+    //
+    // Per sector, from the particle's own azimuth, the same 24-band map
+    // the render shader uses: a kick throws the low sectors and a hat
+    // throws the high ones, instead of the sphere pumping as one.
+    if (uKick > 0.0001) {
+      float az = atan(b.z, b.x);
+      int si = int(mod(floor((az + 3.14159265) / 6.2831853 * 24.0), 24.0));
+      v += normalize(b.xyz + vec3(1e-5)) * (uBands[si] * uKick * uMusic * invMass);
+    }
     float s = length(v);
     if (s > uMaxVel) v *= uMaxVel / s;
     gl_FragColor = vec4(v * alive, 0.0);
@@ -243,6 +273,8 @@ type Tuning = {
   damping?: number
   /** tangential force as a multiple of the radial one; 0 is pure push */
   swirl?: number
+  /** how hard a transient throws matter; 0 is a silent field */
+  music?: number
   push?: number
   radius?: number
   curl?: number
@@ -268,10 +300,29 @@ type Tuning = {
  * radius 0.34 is exactly the hover field's radius in scene.ts. Two fields
  * with different reach around one hand reads as two hands.
  *
- * curl 1 is a scale on an internal 1.2, small next to the spring's 34 so
- * turbulence can only bend the return, never drive it.
+ * curl 0.12 is a scale on an internal 1.2. It was 1, chosen as "small next
+ * to the spring's 34 so turbulence can only bend the return, never drive
+ * it" -- and that reasoning died with the spring. At stiffness 3.5 the
+ * same turbulence SUSTAINS itself: its gate is `length(o) * 8`, so any
+ * displacement feeds stirring which feeds displacement, and measured, all
+ * 108,000 particles sat permanently off-rest and never came home even with
+ * the music paused and no hand on the field. Scaled down with the spring
+ * it went with.
  */
-const DEFAULTS = { stiffness: 7, damping: 1.9, push: 5.5, radius: 0.34, curl: 1, swirl: 1.2 }
+/* radius 0.18, down from 0.34: at 0.34 the hand reached two thirds of a
+ * body whose radius is 0.53, so a touch anywhere wobbled most of the
+ * sphere and read as inflation rather than as a dent. Small enough now to
+ * be a hand in the matter rather than a hand around it.
+ *
+ * stiffness 3.5 / damping 1.15 is a 3.4s period at zeta 0.31, roughly
+ * double the reform time. The orb always wins in the end; it just takes
+ * long enough that you watch it happen. */
+/* music 0.4: an impulse is a velocity change, and against this spring the
+ * peak displacement it buys is roughly dv / omega, omega = sqrt(3.5) =
+ * 1.87. A maximal hit (band 1.0, edge 1.0) therefore throws about 0.21,
+ * which is the same distance a cursor slash throws. At 5 it was 0.42 per
+ * hit, the clamp, and the sphere sat pinned there. */
+const DEFAULTS = { stiffness: 3.5, damping: 1.15, push: 5.5, radius: 0.18, curl: 0.12, swirl: 1.2, music: 0.4 }
 
 /** A tab restored from the background hands over a dt of whole seconds,
  *  and one such frame at these constants is enough to throw every particle
@@ -400,6 +451,9 @@ export class ParticleSim {
       uCurl: { value: DEFAULTS.curl },
       uSwirl: { value: DEFAULTS.swirl },
       uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
+      uBands: { value: new Float32Array(24) },
+      uKick: { value: 0 },
+      uMusic: { value: DEFAULTS.music },
       uMaxOff: { value: MAX_OFF },
       uMaxVel: { value: MAX_VEL },
     }
@@ -483,6 +537,14 @@ export class ParticleSim {
     ;(this.uniforms.uViewAxis.value as THREE.Vector3).copy(axis).normalize()
   }
 
+  /** The 24 band energies and this frame's transient. The transient is
+   *  passed unsmoothed: it is the frame the sound lands. */
+  setAudio(bands: Float32Array, kick: number) {
+    const u = this.uniforms.uBands.value as Float32Array
+    for (let i = 0; i < 24; i++) u[i] = bands[i]
+    this.uniforms.uKick.value = Number.isFinite(kick) ? Math.max(0, Math.min(4, kick)) : 0
+  }
+
   setHand(localPos: THREE.Vector3, vel: THREE.Vector3, strength: number) {
     ;(this.uniforms.uHand.value as THREE.Vector3).copy(localPos)
     const v = this.uniforms.uHandVel.value as THREE.Vector3
@@ -499,6 +561,7 @@ export class ParticleSim {
     if (o.stiffness !== undefined) this.uniforms.uStiff.value = Math.max(0, Math.min(600, o.stiffness))
     if (o.damping !== undefined) this.uniforms.uDamp.value = Math.max(0, Math.min(60, o.damping))
     if (o.swirl !== undefined) this.uniforms.uSwirl.value = Math.max(0, Math.min(4, o.swirl))
+    if (o.music !== undefined) this.uniforms.uMusic.value = Math.max(0, Math.min(20, o.music))
     if (o.push !== undefined) {
       const p = Math.max(0, Math.min(40, o.push))
       this.uniforms.uPush.value = p

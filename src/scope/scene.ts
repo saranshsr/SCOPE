@@ -171,7 +171,11 @@ const SHELL_VERT = /* glsl */ `
 
     float disp = (
       n1 * (0.05 + uLow * 0.30) +
-      n2 * (uMid * 0.24 + uPulse * 0.10) +
+      // uPulse is gone from here: the beat is an IMPULSE in the sim now,
+      // and leaving it in would move the body twice for one hit -- once
+      // instantly and once with follow-through. Sustain stays; the
+      // transient went to the physics.
+      n2 * (uMid * 0.24) +
       n3 * (uHigh * 0.13) +
       n2 * bandE * 0.20) * uTurb;
 
@@ -193,7 +197,7 @@ const SHELL_VERT = /* glsl */ `
     float handHush = 0.0;
     if (uHoverStr > 0.001) {
       float hd = length(aDir * uR * 0.60 - uHover);
-      float hx = clamp(1.0 - hd / 0.44, 0.0, 1.0);
+      float hx = clamp(1.0 - hd / 0.26, 0.0, 1.0);
       handHush = hx * hx * (3.0 - 2.0 * hx) * uHoverStr;
     }
     disp *= 1.0 - handHush * 0.75;
@@ -284,9 +288,9 @@ const SHELL_VERT = /* glsl */ `
       vec3 hoff = p - uHover;
       float hdist = length(hoff);
       vec3 hdir = hoff / max(hdist, 1e-4);
-      float hx = clamp(1.0 - hdist / 0.34, 0.0, 1.0);
+      float hx = clamp(1.0 - hdist / 0.18, 0.0, 1.0);
       float pushW = hx * hx * (3.0 - 2.0 * hx) * uHoverStr;
-      p += hdir * pushW * uR * 0.17;
+      p += hdir * pushW * uR * 0.09;
       // The wake. uHover is unsprung and uHoverLag chases it, so their
       // difference IS pointer velocity: the parting leans into the
       // direction of travel and smears behind, for one lerp and no extra
@@ -637,6 +641,8 @@ export class Scene {
   private simAxis = new THREE.Vector3()
   /** how hard the hand is working, from its own speed, decaying */
   private handHeat = 0
+  /** last frame's snap, so the impulse can be taken on the rising edge */
+  private snapPrev = 0
   /** Live multiplier on SIM_AMT, so the throw can be judged on real
    *  hardware rather than guessed at: `__sc.setSimDial(0)` is today's
    *  star exactly, 3 is the ceiling. */
@@ -1408,6 +1414,16 @@ export class Scene {
         this.simVel,
         this.uniforms.uHoverStr.value * (0.25 + 0.75 * this.handHeat),
       )
+      // The transient, per sector. uSnap is the frame the kick lands and
+      // is deliberately unsprung, which is exactly what an impulse wants.
+      // The RISING EDGE, not the level. uSnap decays over several frames,
+      // so handing it over raw applied an outward force every frame it was
+      // non-zero and the whole sphere inflated onto the clamp instead of
+      // ringing. The positive delta is non-zero only on the frame a
+      // transient actually arrives, which is what an impulse is.
+      const snapNow = this.uniforms.uSnap.value
+      this.sim.setAudio(this.uniforms.uBands.value as Float32Array, Math.max(0, snapNow - this.snapPrev))
+      this.snapPrev = snapNow
       this.sim.step(dt)
       // REBIND EVERY FRAME. The sim ping-pongs between two targets, so
       // offsetTexture is a different object after every step. Binding it
