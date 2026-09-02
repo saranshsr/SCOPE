@@ -1117,8 +1117,17 @@ export default function App() {
           bpmRef.current.classList.toggle('locked', locked)
         }
         if (levelRef.current) {
-          // block meter: light discrete cells, never stretch a bar
-          const lit = Math.round(Math.min(1, f.rms * 2.4) * 12)
+          // Block meter: light discrete cells, never stretch a bar.
+          //
+          // ONE SCALE. features.ts:162 already returns rms compressed and
+          // enveloped into 0..1 -- `env(min(1, pow(rawRms * 3.2, 0.62)))`
+          // -- and this multiplied it by 2.4 again, so everything above
+          // rms 0.417 filled all twelve cells. Measured against the live
+          // analyser: rms spanned 0.275..0.996 while the meter sat at
+          // 12/12 for 90% of samples. A reading that is always full is not
+          // a reading, which is law 3, and it is the only thing on the
+          // console that says how hard the star is being driven.
+          const lit = Math.round(Math.min(1, f.rms) * 12)
           const cells = levelRef.current.children
           for (let i = 0; i < cells.length; i++) cells[i].className = i < lit ? 'on' : ''
         }
@@ -1153,7 +1162,17 @@ export default function App() {
               rows.push({
                 i,
                 label: tr.label,
-                level: Math.min(1, (m / Math.max(1, b - a)) * 1.6),
+                // A perceptual curve, not a linear gain. `m / width` is
+                // already a 0..1 mean of bands that are themselves 0..1, so
+                // the old * 1.6 pinned the top tiers at full for 100% of
+                // samples -- six meters that always agreed, when the whole
+                // point of a per-ring meter is that they disagree. 0.6 is
+                // the exponent features.ts already uses for rms, so the
+                // rings and the level meter now share one law: the quiet
+                // end opens up and only a genuinely full tier fills.
+                // Display only; the star's tier voices come from
+                // setTierLevels on a separate path.
+                level: Math.pow(Math.min(1, m / Math.max(1, b - a)), 0.6),
                 gain: rowGain[i],
                 muted: sectMuted.has(i),
                 solo: sectSolo === i,
@@ -2279,9 +2298,14 @@ export default function App() {
                 >
                   <span className="layer-name">
                     {String(L.i + 1).padStart(2, '0')} {L.label}
+                    {/* one scale, as with the level meter: L.level is
+                        already min(1, (m / width) * 1.6) where it is built,
+                        and multiplying again pinned five of six rings at
+                        8/8 for 100% of samples. The whole point of a
+                        per-ring meter is that the rings DISAGREE. */}
                     <i className="layer-meter">
                       {Array.from({ length: 8 }, (_, k) => (
-                        <b key={k} className={k < Math.round(Math.min(1, L.level * 2.6) * 8) ? 'on' : ''} />
+                        <b key={k} className={k < Math.round(Math.min(1, L.level) * 8) ? 'on' : ''} />
                       ))}
                     </i>
                   </span>
@@ -2330,13 +2354,6 @@ export default function App() {
                   cap={label}
                   onChange={(f) => setTuning((t) => ({ ...t, [k]: f(t[k]) }))}
                 />
-              ))}
-            </div>
-            <div className="presets">
-              {([['calm', { turb: 0.6, expo: 0.8, spin: 0.5 }], ['std', { turb: 1, expo: 1, spin: 1 }], ['violent', { turb: 1.6, expo: 1.3, spin: 1.8 }]] as const).map(([name2, t]) => (
-                <button key={name2} onClick={() => setTuning(t)}>
-                  <Decode text={name2} duration={300} replayOnHover />
-                </button>
               ))}
             </div>
           </div>

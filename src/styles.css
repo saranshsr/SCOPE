@@ -30,6 +30,29 @@
   --gap-tight: 4px;   /* parts of one unit: meter cells, icon + label */
   --gap-related: 8px; /* siblings inside a group */
   --gap-sep: 12px;    /* distinct groups */
+
+  /* ── ONE HOVER LANGUAGE ────────────────────────────────────────────
+     The rail had five. Two of them collided outright: `.transport button`
+     said brighten the ink and `.transport .t-btn` said invert, on the same
+     elements, and the later rule won by accident. And the chip tint,
+     rgba(225,59,42,0.12), put red text on #24100e at 4.21:1 -- under the
+     4.5 floor §1 sets, on the busiest control in the rail.
+
+     Two treatments, and which applies is decided by whether the control
+     has a SELECTED state:
+
+       ACTION  a thing you do once, with no memory: transport, split, go,
+               the tour's buttons, [?]. Ink inversion, 16.5:1.
+       CHOICE  a thing you pick among, where .on already means selected:
+               the source switch, the vibe chips, the jukebox list. The
+               ground LIFTS and the ink brightens, 14.5:1. It must not
+               fill, because the fill is what .on means -- hover and
+               selected would otherwise say the same thing.
+
+     Red stays what §1 says it is: armed states, the power moment,
+     keylines, the grab point. Never a hover. */
+  --lift: rgba(234, 234, 234, 0.07);
+  --lift-press: rgba(234, 234, 234, 0.13);
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
   font-family: var(--font-mono);
@@ -305,10 +328,12 @@ body {
   transition: color 140ms ease, background 140ms ease;
 }
 
-.rail-src button:hover {
+/* CHOICE: lift, never fill -- .on owns the fill */
+.rail-src button:hover:not(.on) {
   color: var(--ink);
-  background: #141414;
+  background: var(--lift);
 }
+.rail-src button:active:not(.on) { background: var(--lift-press); }
 
 .rail-src button:active {
   transform: translateY(1px);
@@ -558,7 +583,8 @@ body {
   cursor: pointer;
   padding: 4px 0;
 }
-.transport button:hover { color: var(--ink); }
+/* the .t-btn rule below is the one that applies; this used to say
+   something different for the same elements and lose silently */
 .transport button:active { transform: translateY(1px); }
 .vol { display: flex; align-items: center; gap: 8px; flex: 1; }
 .vol span { color: rgba(234, 234, 234, 0.55); font-size: 8px; letter-spacing: 0.14em; }
@@ -578,20 +604,6 @@ body {
 }
 .dial span { color: var(--dim); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
 .dial data { color: var(--ink); font-size: 10px; text-align: right; font-variant-numeric: tabular-nums; }
-.presets { display: flex; gap: 1px; background: rgba(234,234,234,0.14); border: 1px solid var(--pl-line); margin-top: 0; }
-.presets button {
-  flex: 1;
-  background: var(--bg);
-  border: none;
-  color: var(--dim);
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 8px 0;
-  cursor: pointer;
-}
-.presets button:hover { color: var(--ink); background: #141414; }
 
 /* brutalist range inputs: hairline track, square white thumb */
 input[type='range'] {
@@ -792,7 +804,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 8px 12px;
   cursor: pointer;
 }
-.tuner-chips button:hover { color: var(--red); background: rgba(225, 59, 42, 0.12); }
+.tuner-chips button:hover:not(.on) { color: var(--ink); background: var(--lift); }
+.tuner-chips button:active:not(.on) { background: var(--lift-press); }
 .tuner-chips button.on {
   color: var(--bg);
   background: var(--red);
@@ -866,7 +879,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .cells button:hover { color: #0a0a0a; background: #eaeaea; }
 
 .tuner-state {
+  /* It had NO padding: measured at 0px from the rail's edge while every
+     other row in the column sits on the 12px gutter, so the one line that
+     reports how the vibe was read was also the one line out of alignment
+     with everything around it. It is a readout, so it is a row. */
+  display: block;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
   font-size: 9px;
+  line-height: 1.5;
   letter-spacing: 0.02em;
   opacity: 0.6;
 }
@@ -1071,13 +1092,20 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-transform: uppercase;
   color: #eaeaea;
   background: none;
-  border: 1px solid var(--pl-line);
+  border: 0;
+  border-bottom: 1px solid var(--pl-line);
+  /* Full width, not justify-self: start. As a shrink-wrapped box it left
+     the rest of its row empty -- and an unfilled cell in this column is a
+     hole, the same fault the source switch had. It is the module's one
+     action, so it is the module's whole row, on the 8/12 the rest of the
+     column uses. */
+  width: 100%;
   padding: 8px 12px;
+  text-align: left;
   cursor: pointer;
-  justify-self: start;
 }
-.deck-split:hover:not(:disabled) { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
-.deck-split:disabled { color: #e13b2a; border-color: rgba(225, 59, 42, 0.5); cursor: wait; }
+.deck-split:hover:not(:disabled) { color: #0a0a0a; background: #eaeaea; }
+.deck-split:disabled { color: #e13b2a; cursor: wait; }
 
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
 .railfold {
@@ -1157,7 +1185,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border: 0;
   cursor: pointer;
 }
-.transport .t-btn:hover { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
+/* ACTION: inversion */
+.transport .t-btn:hover { color: #0a0a0a; background: #eaeaea; }
 .transport .t-btn:active { transform: translateY(1px); }
 .transport .t-mute.on {
   color: #0a0a0a;
@@ -1491,7 +1520,10 @@ a:focus-visible {
 }
 .pl-prow .nm { display: flex; align-items: center; padding: 8px 12px; color: var(--ink); }
 .pl-prow .dt { display: flex; align-items: center; padding: 8px 12px; color: var(--ink-dim); font-size: 8px; }
-.pl-prow:hover { background: rgba(225, 59, 42, 0.12); }
+/* the chain row keeps red on the NAME, because hovering it writes that
+   stage into the readout below -- that is an armed state. The ground
+   lifts like every other hover rather than going maroon. */
+.pl-prow:hover { background: var(--lift); }
 .pl-prow:hover .nm { color: var(--red); }
 .pl-prow.sub .nm { position: relative; padding-left: 24px; color: var(--red); }
 .pl-prow.sub .nm::before {
@@ -1731,7 +1763,6 @@ a:focus-visible {
 .deck-split { min-height: 40px; }
 .tuner-chips button { min-height: 36px; }
 .vibe input, .vibe button { min-height: 40px; }
-.presets button { min-height: 36px; }
 .diag-toggle { min-height: 32px; padding: 0 4px; }
 
 /* A collapsed fold must win over these floors. grid-template-rows: 0fr
@@ -1754,7 +1785,6 @@ input[type='range'] { height: 32px; }
   .vibe input,
   .vibe button,
   .cells button,
-  .presets button,
   .diag-toggle { min-height: 44px; }
   input[type='range'] { height: 44px; }
   .layer input[type='range'] { height: 40px; }
@@ -2111,7 +2141,8 @@ input[type='range'] { height: 32px; }
   cursor: pointer;
 }
 .tube-list button i { font-style: normal; color: var(--ink-dim); font-size: 8px; }
-.tube-list button:hover { color: var(--red); background: rgba(225, 59, 42, 0.12); }
+.tube-list button:hover:not(.on) { color: var(--ink); background: var(--lift); }
+.tube-list button:active:not(.on) { background: var(--lift-press); }
 .tube-list button.on { color: var(--ink); }
 .tube-list button.on span::before { content: '▸ '; color: var(--red); }
 .tube-paste { border-bottom: 1px solid var(--pl-line); }
