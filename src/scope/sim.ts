@@ -110,6 +110,8 @@ const SIM_HEAD = /* glsl */ `
   uniform float uDrag;
   uniform float uRadius;
   uniform float uCurl;
+  uniform float uSwirl;
+  uniform vec3 uViewAxis;
   uniform float uMaxOff;
   uniform float uMaxVel;
   varying vec2 vUv;
@@ -151,7 +153,23 @@ const VEL_FRAG = /* glsl */ `
       // that never quite reaches zero is a field the whole star feels.
       float x = clamp(1.0 - dist / max(uRadius, 1e-4), 0.0, 1.0);
       w = x * x * (3.0 - 2.0 * x) * uHandStr;
-      F += (d / max(dist, 1e-4)) * (w * uPush);
+      vec3 dir = d / max(dist, 1e-4);
+      F += dir * (w * uPush);
+      // THE SWIRL, and it is the reason this reads as mass at all.
+      //
+      // Pure radial push is a bubble: matter leaves along the line you
+      // pushed it and comes straight back down the same line, which the
+      // eye reads as a deformation rather than as something with inertia.
+      // A tangential component makes it ORBIT the hand instead, and an
+      // orbit is the one motion that cannot be mistaken for a spring.
+      //
+      // Around the view axis, not an arbitrary one: the axis is handed in
+      // already rotated into cluster space, so the curl is around what you
+      // are looking down and the swirl reads on screen rather than at some
+      // angle into the depth you cannot see.
+      vec3 tang = cross(uViewAxis, dir);
+      float tl = length(tang);
+      if (tl > 1e-4) F += (tang / tl) * (w * uPush * uSwirl);
       // The wake. Pure radial repulsion gives a bubble that follows the
       // hand and nothing else; dragging along the hand's own velocity is
       // what makes a fast swipe carry matter with it and leave a trail.
@@ -207,6 +225,8 @@ const OFF_FRAG = /* glsl */ `
 type Tuning = {
   stiffness?: number
   damping?: number
+  /** tangential force as a multiple of the radial one; 0 is pure push */
+  swirl?: number
   push?: number
   radius?: number
   curl?: number
@@ -235,7 +255,7 @@ type Tuning = {
  * curl 1 is a scale on an internal 1.2, small next to the spring's 34 so
  * turbulence can only bend the return, never drive it.
  */
-const DEFAULTS = { stiffness: 34, damping: 6.5, push: 4.5, radius: 0.34, curl: 1 }
+const DEFAULTS = { stiffness: 7, damping: 1.9, push: 5.5, radius: 0.34, curl: 1, swirl: 1.2 }
 
 /** A tab restored from the background hands over a dt of whole seconds,
  *  and one such frame at these constants is enough to throw every particle
@@ -362,6 +382,8 @@ export class ParticleSim {
       uDrag: { value: DEFAULTS.push * 0.5 },
       uRadius: { value: DEFAULTS.radius },
       uCurl: { value: DEFAULTS.curl },
+      uSwirl: { value: DEFAULTS.swirl },
+      uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
       uMaxOff: { value: MAX_OFF },
       uMaxVel: { value: MAX_VEL },
     }
@@ -439,6 +461,12 @@ export class ParticleSim {
    * hands to setGrab and uHover, because the sim's rest positions are.
    * strength 0 switches the field off entirely.
    */
+  /** The view axis, already rotated into cluster space, so the swirl
+   *  orbits what the camera is looking down. */
+  setViewAxis(axis: THREE.Vector3) {
+    ;(this.uniforms.uViewAxis.value as THREE.Vector3).copy(axis).normalize()
+  }
+
   setHand(localPos: THREE.Vector3, vel: THREE.Vector3, strength: number) {
     ;(this.uniforms.uHand.value as THREE.Vector3).copy(localPos)
     const v = this.uniforms.uHandVel.value as THREE.Vector3
@@ -454,6 +482,7 @@ export class ParticleSim {
   setTuning(o: Tuning) {
     if (o.stiffness !== undefined) this.uniforms.uStiff.value = Math.max(0, Math.min(600, o.stiffness))
     if (o.damping !== undefined) this.uniforms.uDamp.value = Math.max(0, Math.min(60, o.damping))
+    if (o.swirl !== undefined) this.uniforms.uSwirl.value = Math.max(0, Math.min(4, o.swirl))
     if (o.push !== undefined) {
       const p = Math.max(0, Math.min(40, o.push))
       this.uniforms.uPush.value = p

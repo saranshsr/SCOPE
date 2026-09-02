@@ -166,6 +166,29 @@ const SHELL_VERT = /* glsl */ `
       n3 * (uHigh * 0.13) +
       n2 * bandE * 0.20) * uTurb;
 
+    // THE BOIL YIELDS TO THE HAND.
+    //
+    // Measured on a live track: the audio noise above peaks at 0.19 of
+    // displacement on a body of radius 0.53, while the simulator's whole
+    // budget is 0.06. The physics was never under-tuned -- it was being
+    // drowned three to one by decoration, which is also why raising its
+    // gain read as blow-out instead of as weight. You cannot feel mass in
+    // a surface that is already boiling harder than the thing you are
+    // trying to feel.
+    //
+    // So the noise stands down where you touch. The radius is wider than
+    // the push kernel's 0.34 so the field goes quiet slightly BEFORE it
+    // starts to move, which is what makes the movement legible. Measured
+    // from the resting direction rather than from p, because p does not
+    // exist yet here and an approximate weight is all this needs.
+    float handHush = 0.0;
+    if (uHoverStr > 0.001) {
+      float hd = length(aDir * uR * 0.60 - uHover);
+      float hx = clamp(1.0 - hd / 0.44, 0.0, 1.0);
+      handHush = hx * hx * (3.0 - 2.0 * hx) * uHoverStr;
+    }
+    disp *= 1.0 - handHush * 0.75;
+
     float eqBody = 0.52 + 0.48 * min(eqV, 1.25); // kills CAVE, boosts flare
     // Volumetric body, not a hollow shell: each particle owns a depth
     // inside the ball (surface-biased), so the face-on view is a boiling
@@ -602,6 +625,9 @@ export class Scene {
   private sim: ParticleSim | null = null
   /** scratch, so the per-frame hand velocity allocates nothing */
   private simVel = new THREE.Vector3()
+  private simAxis = new THREE.Vector3()
+  /** how hard the hand is working, from its own speed, decaying */
+  private handHeat = 0
   /** Live multiplier on SIM_AMT, so the throw can be judged on real
    *  hardware rather than guessed at: `__sc.setSimDial(0)` is today's
    *  star exactly, 3 is the ceiling. */
@@ -1353,7 +1379,26 @@ export class Scene {
       // the hand and its velocity are already cluster-local: uHover comes
       // from grabPlane(), and the lagging copy is the same space.
       this.simVel.subVectors(this.uniforms.uHover.value, this.uniforms.uHoverLag.value).divideScalar(Math.max(dt, 1 / 240))
-      this.sim.setHand(this.uniforms.uHover.value, this.simVel, this.uniforms.uHoverStr.value)
+      // The swirl needs to orbit what the camera looks down, and the sim
+      // works in cluster space, so the axis is rotated in rather than
+      // assumed. Without this the orbit tilts into the depth as the star
+      // spins and reads as a wobble instead of a vortex.
+      this.simAxis.set(0, 0, 1).applyQuaternion(this.camera.quaternion)
+      this.cluster.worldToLocal(this.simAxis.add(this.cluster.position))
+      this.sim.setViewAxis(this.simAxis)
+      // STRENGTH FROM SPEED, not just from presence. A hand resting on the
+      // field should barely disturb it and a fast swipe should hit hard --
+      // presence alone made a still cursor push exactly as much as a
+      // moving one, which is the single clearest tell that nothing has
+      // mass. Decays rather than cutting, so the field keeps moving after
+      // the hand stops.
+      const speed = this.simVel.length()
+      this.handHeat = Math.max(this.handHeat * Math.pow(0.94, dt * 60), Math.min(1, speed * 0.55))
+      this.sim.setHand(
+        this.uniforms.uHover.value,
+        this.simVel,
+        this.uniforms.uHoverStr.value * (0.25 + 0.75 * this.handHeat),
+      )
       this.sim.step(dt)
       // REBIND EVERY FRAME. The sim ping-pongs between two targets, so
       // offsetTexture is a different object after every step. Binding it
