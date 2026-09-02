@@ -18,6 +18,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js'
+import { ParticleSim } from './sim'
 
 // The shell carries a RESERVE: at zoom 1 only ~55% of it renders (same
 // cost as before), and zooming in spends the rest, so magnification adds
@@ -32,6 +33,14 @@ const LINK_N = 2200 // constellation segments
  * attribute rather than derived in the shader from an index: recovering an
  * exact integer at 108,000 steps is an off-by-one waiting to happen, and an
  * off-by-one here means every particle reads its neighbour's offset. */
+/* How far the simulator is allowed to throw a particle, as a fraction of
+ * the shader's 0.40 clamp. At 1.0 the star inflates into an even cloud and
+ * loses its dense core: the body's resting radius is only ~0.53, so a 0.40
+ * throw is 75% of it. 0.3 puts the peak near the 0.12 the sim measures for
+ * a hand pulse in isolation, which is visible without being destructive.
+ * This is a taste constant, so it is one number and it is turnable live via
+ * `__sc.setSimDial()`. */
+const SIM_AMT = 0.3
 const SIM_TEX = 512
 /** Bound until a real sim is attached. NearestFilter throughout: bilinear
  *  sampling here would silently blend one particle's offset with its
@@ -589,6 +598,14 @@ export class Scene {
   private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
   /** 0..1 presence of the hand; the shader's strength chases this */
   private hoverT = 0
+  /** the GPGPU field. null only if the GPU refused float render targets. */
+  private sim: ParticleSim | null = null
+  /** scratch, so the per-frame hand velocity allocates nothing */
+  private simVel = new THREE.Vector3()
+  /** Live multiplier on SIM_AMT, so the throw can be judged on real
+   *  hardware rather than guessed at: `__sc.setSimDial(0)` is today's
+   *  star exactly, 3 is the ceiling. */
+  private simDial = 1
   private drag = { x: 0, y: 0, tx: 0, ty: 0 }
   private driftT = 0
   private born = performance.now()
@@ -717,6 +734,15 @@ export class Scene {
       geo.setAttribute('aDir', new THREE.BufferAttribute(dir, 3))
       geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
       geo.setAttribute('aSimUV', new THREE.BufferAttribute(suv, 2))
+      // The simulator springs back to the RESTING photosphere, not to the
+      // live one: the shader's radius breathes with the bass, and chasing
+      // that would mean re-uploading 4MB of base positions every frame to
+      // shift a falloff weight by a fraction of the 0.34 radius. 0.60 is
+      // the shader's own base term, 0.88 its uR at rest.
+      const rest = new Float32Array(SHELL_N * 3)
+      for (let i = 0; i < SHELL_N * 3; i++) rest[i] = dir[i] * 0.88 * 0.6
+      this.sim = new ParticleSim(this.renderer, SHELL_N, rest)
+      if (this.sim.active) this.uniforms.uSim.value = this.sim.offsetTexture
       const mat = new THREE.ShaderMaterial({
         uniforms: this.uniforms,
         vertexShader: SHELL_VERT.replace('__SNOISE__', SNOISE),
@@ -1131,6 +1157,12 @@ export class Scene {
     this.uniforms.uHover.value.copy(this.grabPlane(nx * 2, -ny * 2))
   }
 
+  /** Scale the simulator's throw. 1 is the shipped default; this exists so
+   *  the amplitude can be judged on real hardware instead of guessed. */
+  setSimDial(v: number) {
+    this.simDial = Math.max(0, Math.min(3, v))
+  }
+
   /** Is the hand on the field, 0..1. Zero while a grab owns it. */
   setHover(v: number) {
     this.hoverT = Math.max(0, Math.min(1, v))
@@ -1298,6 +1330,39 @@ export class Scene {
     this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value * (1 - dis * 0.28)
     // Persistence leans with the bass: quiet = crisp, heavy = long exposure.
     ;(this.after.uniforms as { damp: { value: number } }).damp.value = 0.76 + this.uniforms.uLow.value * 0.15
+    // THE SIM STEPS HERE, and nowhere else. The shell samples uSim during
+    // composer.render(), so stepping on the line above means the texture
+    // bound at sample time was written from THIS frame's dt and this
+    // frame's uniforms. At the top of render() every audio uniform is
+    // still last frame's, and uSnap is unsprung by design -- "the kick
+    // flashes the frame it lands" -- so a one-frame lag there is the exact
+    // artifact the snap path exists to avoid.
+    //
+    // step() binds and restores its own render targets and never touches
+    // setSize or setPixelRatio, which would stale lastW/lastH and break
+    // projectLocal's "valid right after render()" contract.
+    // Gated on the dial so setSimDial(0) costs nothing, not just nothing
+    // visible: two 512x512 passes a frame are cheap but not free.
+    if (this.sim?.active && this.simDial > 0) {
+      // the hand and its velocity are already cluster-local: uHover comes
+      // from grabPlane(), and the lagging copy is the same space.
+      this.simVel.subVectors(this.uniforms.uHover.value, this.uniforms.uHoverLag.value).divideScalar(Math.max(dt, 1 / 240))
+      this.sim.setHand(this.uniforms.uHover.value, this.simVel, this.uniforms.uHoverStr.value)
+      this.sim.step(dt)
+      // REBIND EVERY FRAME. The sim ping-pongs between two targets, so
+      // offsetTexture is a different object after every step. Binding it
+      // once in the constructor left the shell sampling whichever target
+      // the sim was about to write -- reading and writing one texture in a
+      // single draw is undefined, and it rendered as the star smeared
+      // across the stage in tiles.
+      this.uniforms.uSim.value = this.sim.offsetTexture
+      // Reduced motion keeps the boil (it is content) and loses most of
+      // the throw (that is decoration). The dive fades it out entirely:
+      // the camera is inside the body there, and displaced points land on
+      // the gl_PointSize floor as blobs straight into the bloom.
+      const calm = this.calm ? 0.35 : 1
+      this.uniforms.uSimAmt.value = SIM_AMT * this.simDial * calm * (1 - Math.min(1, this.bootRev)) * this.uniforms.uReveal.value
+    }
     this.composer.render()
   }
 }
