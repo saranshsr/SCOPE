@@ -20,8 +20,30 @@ const here = dirname(fileURLToPath(import.meta.url))
 // favour of --red and which now appear zero times in styles.css. Restoring
 // it would turn a loud MODULE_NOT_FOUND into a silent vacuous pass, which
 // is strictly worse. Write it against --red or leave it out.
-const STATIC = ['room-geometry', 'room-period', 'casing-pairs', 'hover-field', 'spacing', 'motion', 'type-scale']
-const BROWSER = ['flight', 'descent', 'console-keys', 'ui-guard', 'readings', 'layout', 'offscreen', 'voice', 'failure-states', 'shadowed']
+const STATIC = ['room-period', 'casing-pairs', 'hover-field', 'spacing', 'motion', 'type-scale']
+/* PARKED, not deleted, and not in either list:
+ *
+ *   room-geometry — asserts a far wall derived from `.curve`. That selector
+ *     exists once, in public/dome.html, and zero times in src/. The shipped
+ *     app has no curved far wall, so there is nothing to re-point it at and
+ *     no DESIGN.md text to ground it in. It fails honestly and will keep
+ *     failing until the room is built.
+ *
+ *   descent — asserts a four-movement scroll approach: `.movement`,
+ *     `.aperture`, `.gate`, `.gate-dials`, `.say`, `.aside`. Two of those
+ *     appear in NEITHER src/ nor dome.html, and the shipped landing does not
+ *     scroll at all: it is `.plate`, one non-scrolling standby sheet. It
+ *     crashes on an unguarded getBoundingClientRect.
+ *     Worth salvaging when someone has an hour: its dial arm (the three
+ *     standby dials are keyboard-turnable and track aria-valuenow) is a real
+ *     law about a real control, and `.plate .pl-dial` is live. That belongs
+ *     in flight.mjs, which already owns the landing.
+ *
+ * Both files stay on disk. A check pointed at an unbuilt design is not
+ * wrong, it is early, and deleting it loses the specification. What is not
+ * acceptable is leaving them in the run list reporting red against the
+ * shipped product, which is how eight of eighteen came to be ignored. */
+const BROWSER = ['flight', 'console-keys', 'ui-guard', 'readings', 'layout', 'offscreen', 'voice', 'failure-states', 'shadowed']
 
 const fast = process.argv.includes('--fast')
 const list = fast ? STATIC : [...STATIC, ...BROWSER]

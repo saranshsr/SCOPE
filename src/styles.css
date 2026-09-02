@@ -125,7 +125,7 @@ body {
   margin-top: 8px;
 }
 
-.spec canvas { display: block; width: 100%; height: 60px; border: 1px solid var(--pl-line); padding: 2px; }
+.spec canvas { display: block; width: 100%; height: 60px; border: 1px solid var(--pl-line); padding: 4px; }
 .spec-hz {
   display: flex;
   justify-content: space-between;
@@ -191,7 +191,7 @@ body {
    zones, not floating clusters. */
 .spec {
   border: 1px solid var(--pl-line);
-  padding: 8px 10px 9px;
+  padding: 8px 10px;
 }
 
 .spec canvas {
@@ -288,7 +288,7 @@ body {
      about the count. Four cells, two rows, no holes. */
   grid-template-columns: repeat(2, 1fr);
   gap: 1px;
-  margin-top: 22px;
+  margin-top: 24px;
   background: var(--pl-line); /* 1px grid-gap dividers */
   border: 1px solid var(--pl-line);
 }
@@ -485,7 +485,7 @@ body {
      below the fold for the curious thumb. Desktop keeps the pinned foot. */
   .rail { display: flex; }
   .rail-brand { order: 0; }
-  .rail-foot { order: 1; margin-top: 14px; }
+  .rail-foot { order: 1; margin-top: 12px; }
   .rail-src { order: 2; }
   .transport { order: 3; }
   .level { order: 5; }
@@ -539,9 +539,13 @@ body {
 .transport {
   display: flex;
   align-items: center;
-  gap: 14px;
+  /* 12/16/12, not 14/16/14: 14 is not a step on DESIGN.md §1's scale, and
+     three of the stylesheet's seven off-scale values lived in this one
+     rule. --gap-sep is the relationship here -- the transport is a distinct
+     group from the scrubber above it. */
+  gap: var(--gap-sep);
   margin-top: 16px;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--pl-line);
 }
 .transport button {
@@ -560,7 +564,7 @@ body {
 .vol span { color: rgba(234, 234, 234, 0.55); font-size: 8px; letter-spacing: 0.14em; }
 
 .tuning {
-  margin-top: 14px;
+  margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--pl-line);
   display: grid;
