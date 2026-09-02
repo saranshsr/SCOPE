@@ -1227,18 +1227,26 @@ a:focus-visible {
 .pl-l { display: grid; grid-template-rows: auto 1fr auto auto auto; min-height: 0; min-width: 0; }
 .pl-r {
   border-left: 1px solid var(--pl-line);
-  display: grid;
   /* The slack goes to the LAST cell, not the signal chain. It used to sit
-     on .pl-path (row 9), which stretched the container without stretching
-     its rows -- 123px of unbordered ground opened between "hover a stage"
-     and the pills at 1440x900, and a sheet is judged by its seams. The
-     dither block is the one cell that can grow without lying: it is
-     pattern, so it renders no value, and a column of plate rows tailing
-     off into a dither field is what the reference plates do. */
-  grid-template-rows: repeat(10, auto) 1fr;
+     on .pl-path, which stretched the container without stretching its rows
+     -- 123px of unbordered ground opened between "hover a stage" and the
+     pills at 1440x900, and a sheet is judged by its seams. The dither block
+     is the one cell that can grow without lying: it is pattern, so it
+     renders no value, and a column of plate rows tailing off into a dither
+     field is what the reference plates do.
+
+     Flex, not `grid-template-rows: repeat(10, auto) 1fr`. The track count
+     hardcoded how many cells the column has, so the first cell hidden on a
+     short viewport pushed the strip up into an `auto` track and left the
+     `1fr` empty -- measured at 155px of void at 1440x900 from hiding one
+     row. The filler is named, not counted. */
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
 }
+.pl-r > * { flex: 0 0 auto; }
+.pl-r > .pl-strip { flex: 1 1 auto; }
 
 .pl-morse {
   border-bottom: 1px solid var(--pl-line);
@@ -1581,7 +1589,7 @@ a:focus-visible {
   .pl-figwrap { height: 46vh; min-height: 260px; }
   .pl-figcap span:last-child { display: none; }
   .pl-wave canvas { height: 64px; }
-  .pl-r { border-left: 0; border-top: 1px solid var(--pl-line); grid-template-rows: none; }
+  .pl-r { border-left: 0; border-top: 1px solid var(--pl-line); }
   .pl-r .pl-row.opt { display: none; }
   .pl-band { grid-template-columns: 1fr; }
   .pl-band > * + * { border-left: 0; border-top: 1px solid var(--pl-line); }
@@ -1592,6 +1600,39 @@ a:focus-visible {
   .pl-ftr > *:nth-child(2), .pl-ftr > *:nth-child(3) { display: none; }
   .pl-act .power { width: 100%; min-height: 56px; }
 }
+
+/* ══ SHORT VIEWPORTS ═══════════════════════════════════════════════════
+   The data column's cells are fixed by law -- one row height, 8px 12px --
+   so it always needs 668px while the sheet offers vh minus 107. Below a
+   774px viewport it began eating its own tail: at 1280x700 the stage
+   readout, the three pills and the dither strip were all behind
+   `overflow: hidden`, which is why hovering a signal-chain row did nothing
+   visible. 13-inch laptops live here.
+
+   A plate is FULL or it is not a plate, so spend MARGIN before content,
+   then shed in ascending order of value. The dials are never shed:
+   controls beat diagrams, and an operable control outranks a readout.
+   Below 820px wide the sheet already scrolls and needs none of this. */
+@media (min-width: 821px) and (max-height: 780px) {
+  /* costs no reading at all: the sheet sits closer to the screen edge */
+  .plate { --edge: 12px; }
+}
+@media (min-width: 821px) and (max-height: 750px) {
+  /* //stems_ is implied by //split_ mdx-net, and was already the cell
+     nominated as sacrificial by the narrow query above */
+  .pl-r > .pl-row.opt { display: none; }
+}
+@media (min-width: 821px) and (max-height: 720px) {
+  /* a drawn scale with a parked needle: honest under law 3, and the one
+     cell in the column that reads nothing at all until power-on */
+  .pl-r > .pl-row.pl-peak { display: none; }
+}
+@media (min-width: 821px) and (max-height: 664px) {
+  /* the running footer already carries both, so these are echoes rather
+     than readings: `/ webgl - 108k particles`, `/ audius - artist-owned` */
+  .pl-r > .pl-row.dup { display: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pl-leads li { animation: none; opacity: 1; }
 }

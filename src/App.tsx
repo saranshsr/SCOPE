@@ -1763,8 +1763,11 @@ export default function App() {
 
             <div className="pl-r">
               <div className="pl-row"><span className="k">//particles_</span><span className="v">108,000</span></div>
-              <div className="pl-row"><span className="k">//engine_</span><span className="v">webgl 2</span></div>
-              <div className="pl-row"><span className="k">//source_</span><span className="v">audius</span></div>
+              {/* `dup`: real readings, but the running footer says both too.
+                  First cells shed on a short viewport, because an echo is
+                  the cheapest thing on a plate to lose. */}
+              <div className="pl-row dup"><span className="k">//engine_</span><span className="v">webgl 2</span></div>
+              <div className="pl-row dup"><span className="k">//source_</span><span className="v">audius</span></div>
               <div className="pl-row"><span className="k">//split_</span><span className="v">mdx-net</span></div>
               <div className="pl-row opt"><span className="k">//stems_</span><span className="v">4 ch</span></div>
               <div className="pl-row"><span className="k">//density_</span><Meter /></div>
