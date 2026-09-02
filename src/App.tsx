@@ -80,6 +80,7 @@ export default function App() {
   const peakRef = useRef<HTMLSpanElement>(null)
   /** the rail's scrolling half — watched so the dock seam can say "more" */
   const railStackRef = useRef<HTMLDivElement>(null)
+  const railBarRef = useRef<HTMLElement>(null)
   /** jukebox: the YouTube player, and whether the star is listening */
   const tubeRef = useRef<Tube | null>(null)
   const tubeHostRef = useRef<HTMLDivElement>(null)
@@ -187,12 +188,40 @@ export default function App() {
     if (!started || !el) return
     const rail = el.parentElement
     if (!rail) return
+    let hide = 0
     const sync = () => {
       const more = el.scrollHeight - el.scrollTop - el.clientHeight > 1
       rail.classList.toggle('more', more)
+
+      // the indicator's geometry, as fractions of the track
+      const bar = railBarRef.current
+      if (!bar) return
+      const span = el.scrollHeight - el.clientHeight
+      if (span <= 1) { bar.classList.remove('on'); return }
+      const h = Math.max(24, el.clientHeight * (el.clientHeight / el.scrollHeight))
+      const y = (el.scrollTop / span) * (el.clientHeight - h)
+      // The TRACK is the scroller, not the rail. The bar is a child of
+      // .rail so it can sit outside the scrolling box, but .rail also
+      // holds the pinned dock -- so left at 100% the thumb travelled a
+      // 621px range inside a 768px groove and stopped 147px short of the
+      // bottom at full scroll.
+      bar.style.setProperty('--bar-track', `${el.clientHeight}px`)
+      bar.style.setProperty('--bar-h', `${h.toFixed(1)}px`)
+      bar.style.setProperty('--bar-y', `${y.toFixed(1)}px`)
+    }
+    // Shown only while the column is moving, then faded. A scrollbar that
+    // is always there is permanent furniture for an occasional need, and
+    // on a 320px column it is 3% of the width spent saying nothing.
+    const flash = () => {
+      const bar = railBarRef.current
+      if (!bar || el.scrollHeight - el.clientHeight <= 1) return
+      bar.classList.add('on')
+      clearTimeout(hide)
+      hide = window.setTimeout(() => bar.classList.remove('on'), 850)
     }
     sync()
     el.addEventListener('scroll', sync, { passive: true })
+    el.addEventListener('scroll', flash, { passive: true })
     const ro = new ResizeObserver(sync)
     ro.observe(el)
     // folds open and close as the source changes, which changes the height
@@ -201,6 +230,8 @@ export default function App() {
     mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
     return () => {
       el.removeEventListener('scroll', sync)
+      el.removeEventListener('scroll', flash)
+      clearTimeout(hide)
       ro.disconnect()
       mo.disconnect()
       rail.classList.remove('more')
@@ -2645,6 +2676,14 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {/* OUR OWN SCROLLBAR. The browser's is either always there,
+              taking a permanent 10px of a 320px column for an occasional
+              need, or it is an overlay we cannot square off. This one is
+              an indicator: no reserved width, no layout shift, square,
+              on the sheet's own ink, and only visible while the column is
+              actually moving. */}
+          <i ref={railBarRef} className="railbar" aria-hidden="true"><i /></i>
         </main>
 
             {/* the stage: the star burns through this cell, framed by

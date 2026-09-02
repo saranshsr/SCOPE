@@ -45,7 +45,24 @@ for (const vp of VIEWPORTS) {
   await p.setViewport({ width: vp.w, height: vp.h })
   const errs = []
   p.on('pageerror', e => errs.push(e.message.slice(0, 110)))
-  await p.goto(URL, { waitUntil: 'networkidle2' })
+  // waitUntil is domcontentloaded, NOT networkidle2. The console streams
+  // radio, and a media element holds its connection open for as long as it
+  // plays -- so "no more than two connections for 500ms" is a condition
+  // this page can never reach. Measured under the ANGLE/swiftshader flags
+  // these checks launch with: networkidle2 does not fire in 60 seconds,
+  // while the same page is interactive in under one. It passed before only
+  // when the stream happened not to have started yet, which is the kind of
+  // pass that turns into a mystery failure later. Every one of these
+  // scripts already polls for `.app.live`, which is the state that actually
+  // matters, so nothing is lost by not waiting for the network.
+  // 60s, not puppeteer's default 30. These run under a software
+// rasteriser, and the app is three.js plus six shader programs plus a
+// 108k-particle field plus a GPGPU sim before it paints -- measured at
+// 22s to DOMContentLoaded on the ANGLE backend these launch with, which
+// passes the default until the machine is a little busier and then does
+// not. A nav timeout that depends on how loaded the box is reports as a
+// product failure and is not one (CHECKS.md 2.2).
+await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await new Promise(r => setTimeout(r, 2500))
   await p.keyboard.press('Enter')
   const by = Date.now() + 20000

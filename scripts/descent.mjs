@@ -22,7 +22,24 @@ const p = await b.newPage()
 await p.setViewport({ width: 1440, height: 900 })
 const errs = []
 p.on('pageerror', e => errs.push(e.message.slice(0, 140)))
-await p.goto(URL, { waitUntil: 'networkidle2' })
+// waitUntil is domcontentloaded, NOT networkidle2. The console streams
+// radio, and a media element holds its connection open for as long as it
+// plays -- so "no more than two connections for 500ms" is a condition
+// this page can never reach. Measured under the ANGLE/swiftshader flags
+// these checks launch with: networkidle2 does not fire in 60 seconds,
+// while the same page is interactive in under one. It passed before only
+// when the stream happened not to have started yet, which is the kind of
+// pass that turns into a mystery failure later. Every one of these
+// scripts already polls for `.app.live`, which is the state that actually
+// matters, so nothing is lost by not waiting for the network.
+// 60s, not puppeteer's default 30. These run under a software
+// rasteriser, and the app is three.js plus six shader programs plus a
+// 108k-particle field plus a GPGPU sim before it paints -- measured at
+// 22s to DOMContentLoaded on the ANGLE backend these launch with, which
+// passes the default until the machine is a little busier and then does
+// not. A nav timeout that depends on how loaded the box is reports as a
+// product failure and is not one (CHECKS.md 2.2).
+await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
 await new Promise(r => setTimeout(r, 3000))
 
 const top = await p.evaluate(() => ({
@@ -59,7 +76,7 @@ const gate = await p.evaluate(() => {
 const rp = await b.newPage()
 await rp.setViewport({ width: 1440, height: 900 })
 await rp.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }])
-await rp.goto(URL, { waitUntil: 'networkidle2' })
+await rp.goto(URL, { waitUntil: 'domcontentloaded' })
 await new Promise(r => setTimeout(r, 3200))
 const rTop = await rp.evaluate(() => ({
   approach: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--approach')) || 0,
@@ -80,7 +97,7 @@ const kb = {}
 for (const key of ['Space', 'End', 'Enter']) {
   const kp = await b.newPage()
   await kp.setViewport({ width: 1440, height: 900 })
-  await kp.goto(URL, { waitUntil: 'networkidle2' })
+  await kp.goto(URL, { waitUntil: 'domcontentloaded' })
   // Settle before pressing: a keypress that lands before the listener is
   // attached reads as "the key does nothing" and the check lies.
   await new Promise(r => setTimeout(r, 2500))
@@ -101,7 +118,7 @@ for (const key of ['Space', 'End', 'Enter']) {
 // The dials must be reachable and turnable without a pointer.
 const dp = await b.newPage()
 await dp.setViewport({ width: 1440, height: 900 })
-await dp.goto(URL, { waitUntil: 'networkidle2' })
+await dp.goto(URL, { waitUntil: 'domcontentloaded' })
 await new Promise(r => setTimeout(r, 3500))
 await dp.keyboard.press('Tab'); await dp.keyboard.press('Tab')
 const dialFocus = await dp.evaluate(() => ({ role: document.activeElement?.getAttribute('role'),
@@ -123,7 +140,7 @@ const ratios = []
 for (const w of [1440, 820, 390]) {
   const rp2 = await b.newPage()
   await rp2.setViewport({ width: w, height: 900 })
-  await rp2.goto(URL, { waitUntil: 'networkidle2' })
+  await rp2.goto(URL, { waitUntil: 'domcontentloaded' })
   await new Promise(r => setTimeout(r, 2200))
   const m = await rp2.evaluate(() => {
     const s = document.querySelector('.say'), a = document.querySelector('.aside')
@@ -145,7 +162,7 @@ for (const w of [1440, 820, 390]) {
 const rmp = await b.newPage()
 await rmp.setViewport({ width: 1440, height: 900 })
 await rmp.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }])
-await rmp.goto(URL, { waitUntil: 'networkidle2' })
+await rmp.goto(URL, { waitUntil: 'domcontentloaded' })
 await new Promise(r => setTimeout(r, 2600))
 await rmp.keyboard.press('Enter')
 const rmBy = Date.now() + 20000

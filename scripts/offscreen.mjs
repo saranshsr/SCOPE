@@ -97,7 +97,14 @@ const sweep = async (p, room) => {
 for (const [room, w, h] of ROOMS) {
   const p = await b.newPage()
   await p.setViewport({ width: w, height: h })
-  await p.goto(URL, { waitUntil: 'domcontentloaded' })
+  // 60s, not puppeteer's default 30. These run under a software
+// rasteriser, and the app is three.js plus six shader programs plus a
+// 108k-particle field plus a GPGPU sim before it paints -- measured at
+// 22s to DOMContentLoaded on the ANGLE backend these launch with, which
+// passes the default until the machine is a little busier and then does
+// not. A nav timeout that depends on how loaded the box is reports as a
+// product failure and is not one (CHECKS.md 2.2).
+await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await new Promise(r => setTimeout(r, 2600))
   await p.keyboard.press('Enter')
   const by = Date.now() + 20000

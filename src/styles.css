@@ -1979,7 +1979,10 @@ input[type='range'] { height: 32px; }
    44px seam was a collapsed .railfold occupying a grid row inside
    .nowplaying's gap PLUS .rail-src's 22px margin. Cells share edges now. */
 .cn-plate .rail {
-  position: static;
+  /* relative, not static: the scroll indicator is absolutely positioned
+     over this column and needs it as a containing block. Nothing else
+     inside the rail is absolutely positioned, so nothing re-anchors. */
+  position: relative;
   width: auto;
   padding: 0;
   border-right: 1px solid var(--pl-line);
@@ -2121,65 +2124,58 @@ input[type='range'] { height: 32px; }
    fade at rest -- measured: 0px of gutter, nothing drawn. It is kept for
    the people who set "always show scroll bars", and the dock's red seam
    is what tells everyone else. */
-/* THE SCROLLBAR IS A CELL LIKE EVERYTHING ELSE.
-   The default thumb is a rounded light pill, and radius 0 is a law with
-   the word forever in it -- so on the one piece of chrome the browser
-   draws for us, the sheet was breaking its own first rule. Rebuilt in the
-   plate's own parts: a hairline track, and a square slug running in it.
+/* THE NATIVE SCROLLBAR IS GONE, on every scrolling surface.
+   Two attempts at restyling it failed for the same underlying reason: the
+   browser's bar is either ALWAYS THERE, taking a permanent 10px of a
+   320px column for a need that arises occasionally, or it is an overlay
+   whose shape we do not control. The first is bad UX on a sheet this
+   narrow; the second cannot be squared off, and corner radius 0 is a law
+   with the word forever in it.
 
-   The `border: transparent` plus `background-clip: content-box` is how a
-   webkit thumb is inset without a wrapper. It gives a 4px slug in a 10px
-   gutter, so the bar reads as a marker travelling a rail rather than as a
-   fat handle stuck to the edge.
-
-   No radius, no gradient, no shadow. The ink tiers are the same two the
-   rest of the sheet uses: the track is --pl-line, the slug is --ink-dim,
-   and hovering promotes the slug to --ink the way every other CHOICE
-   surface does.
-
-   Applied to every scrolling surface in the app rather than to the rail
-   alone: the landing plate scrolls below 820px and the phone rail scrolls
-   as one column, and a second scrollbar language would be worse than the
-   default one. */
-/* THE STANDARD PROPERTIES ARE FIREFOX-ONLY, and they have to be, because
-   Chrome 121+ treats `scrollbar-width` as the switch that turns the
-   ::-webkit-scrollbar pseudo-elements OFF. Setting it here is what made
-   the careful rebuild below do nothing: measured, the gutter stayed 0px
-   wide and Chrome kept drawing its own rounded pill, tinted by
-   scrollbar-color and impossible to square off. Firefox has no pseudos at
-   all, so it gets the two properties it does understand. */
-@supports (-moz-appearance: none) {
-  .cn-plate .rail-stack,
-  .cn-plate .rail,
-  .plate {
-    scrollbar-width: thin;
-    scrollbar-color: var(--ink-dim) transparent;
-  }
-}
+   So the rail draws its own -- .railbar below. This only hides what the
+   browser would otherwise put there. scrollbar-width is the modern
+   spelling and the webkit pseudo is the fallback; unlike the last
+   attempt they now agree with each other rather than one silently
+   switching the other off. */
+.cn-plate .rail-stack,
+.cn-plate .rail,
+.plate { scrollbar-width: none; }
 .cn-plate .rail-stack::-webkit-scrollbar,
 .cn-plate .rail::-webkit-scrollbar,
-.plate::-webkit-scrollbar { width: 10px; height: 10px; }
-.cn-plate .rail-stack::-webkit-scrollbar-track,
-.cn-plate .rail::-webkit-scrollbar-track,
-.plate::-webkit-scrollbar-track {
-  background: transparent;
-  border-left: 1px solid var(--pl-line);
+.plate::-webkit-scrollbar { display: none; }
+
+/* ── the rail's own indicator ──────────────────────────────────────────
+   A square slug on the sheet's chrome ink, riding the column's inner
+   edge. It reserves NO width -- absolutely positioned over the rail, so
+   nothing reflows when it appears -- and it is inert: a readout of where
+   you are, not a handle. The column is scrolled with a wheel or a
+   trackpad, and a 3px drag target was never the way in.
+
+   Visible only while the column is actually moving, then faded. The fade
+   is opacity alone, so it composites and never touches layout. */
+.railbar {
+  position: absolute;
+  top: 0;
+  right: 1px;
+  height: var(--bar-track, 100%);
+  width: 3px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  z-index: 2;
 }
-.cn-plate .rail-stack::-webkit-scrollbar-thumb,
-.cn-plate .rail::-webkit-scrollbar-thumb,
-.plate::-webkit-scrollbar-thumb {
-  border-radius: 0;
+.railbar.on { opacity: 1; }
+.railbar > i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--bar-y, 0px);
+  height: var(--bar-h, 24px);
   background: var(--ink-dim);
-  border: 3px solid transparent;
-  background-clip: content-box;
-  min-height: 24px;
 }
-.cn-plate .rail-stack::-webkit-scrollbar-thumb:hover,
-.cn-plate .rail::-webkit-scrollbar-thumb:hover,
-.plate::-webkit-scrollbar-thumb:hover { background: var(--ink); background-clip: content-box; }
-/* the corner where two bars would meet is ground, not a widget */
-.cn-plate .rail-stack::-webkit-scrollbar-corner,
-.plate::-webkit-scrollbar-corner { background: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .railbar { transition: none; }
+}
 
 /* Every live numeral is tabular, or the digits jitter as they update:
    the clock, the bpm, the dial values, the pills and the diagnostics. */
