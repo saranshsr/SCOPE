@@ -133,6 +133,21 @@ const VEL_FRAG = /* glsl */ `
     vec3 o = texture2D(uOff, vUv).xyz;
     vec3 v = texture2D(uVel, vUv).xyz;
 
+    // PER-PARTICLE MASS, and it is what separates matter from a membrane.
+    //
+    // Every particle answering one push identically is a rubber sheet: the
+    // field deforms and recovers as a single surface, which is legible as
+    // a shape and not as a crowd of things with their own weight. Real
+    // matter answers unevenly -- the light ones fling and the heavy ones
+    // barely shift, and the SPREAD is the inertia cue.
+    //
+    // Hashed off the texel rather than an attribute: the sim has no
+    // per-particle buffer of its own, and this is stable across frames
+    // because vUv is.
+    float mh = fract(sin(dot(vUv, vec2(12.9898, 78.233))) * 43758.5453);
+    // roughly 3:1 between lightest and heaviest
+    float invMass = mix(0.55, 1.8, mh);
+
     // The spring that makes this a momentum layer rather than a deformation:
     // rest is the pose the existing shader already computed, and the offset
     // is always being pulled back to zero.
@@ -195,7 +210,8 @@ const VEL_FRAG = /* glsl */ `
     // Semi-implicit Euler: velocity first, and the offset pass then
     // integrates with the NEW velocity. Explicit Euler on a spring this
     // stiff gains energy every step and walks itself apart in seconds.
-    v += F * uDt;
+    // a = F/m, so the light ones leap and the heavy ones lean
+    v += F * invMass * uDt;
     float s = length(v);
     if (s > uMaxVel) v *= uMaxVel / s;
     gl_FragColor = vec4(v * alive, 0.0);

@@ -34,13 +34,22 @@ const LINK_N = 2200 // constellation segments
  * exact integer at 108,000 steps is an off-by-one waiting to happen, and an
  * off-by-one here means every particle reads its neighbour's offset. */
 /* How far the simulator is allowed to throw a particle, as a fraction of
- * the shader's 0.40 clamp. At 1.0 the star inflates into an even cloud and
- * loses its dense core: the body's resting radius is only ~0.53, so a 0.40
- * throw is 75% of it. 0.3 puts the peak near the 0.12 the sim measures for
- * a hand pulse in isolation, which is visible without being destructive.
- * This is a taste constant, so it is one number and it is turnable live via
+ * the shader's 0.40 clamp. The body's resting radius is ~0.53, so a full
+ * 0.40 throw is 75% of it.
+ *
+ * Went 0.3 -> 0.15 -> 0.5, and the middle number was treating a symptom.
+ * At 0.3 the throw read as blow-out, but that was three other faults
+ * wearing its clothes: the audio boil outran the physics 3 to 1, the
+ * spring snapped matter home in 1.08s, and every particle answered
+ * identically so the whole surface moved as one sheet. With the boil
+ * standing down under the hand, a 2.4s spring and a 3:1 spread of
+ * per-particle mass, the same amplitude reads as travel rather than as
+ * noise. 0.5 puts a slash's peak near 20% of the body radius: far enough
+ * to watch matter move, close enough to keep the sphere.
+ *
+ * A taste constant, so it is one number, and turnable live via
  * `__sc.setSimDial()`. */
-const SIM_AMT = 0.15
+const SIM_AMT = 0.5
 const SIM_TEX = 512
 /** Bound until a real sim is attached. NearestFilter throughout: bilinear
  *  sampling here would silently blend one particle's offset with its
