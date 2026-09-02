@@ -2058,13 +2058,19 @@ export default function App() {
             </div>
           </div>
 
-          {/* 06 · JUKEBOX — visible only in tube mode. The player itself is
-              not: it is mounted into a 1px clip on the stage (.tube-host)
-              and never rendered. These rows are what answers "what am I
-              listening to", read from that same player. */}
+          {/* 01.1 · JUKEBOX — a sub-module of the deck, not a sixth section.
+              Numbered 06 it rendered between 01 and 02, so tube mode opened
+              on `01 -> 06 -> 02`, which reads as a mistake. Renumbering the
+              others is worse (the four non-tube sources would count 01, 03,
+              04, 05 around a hole) and codes are identity, never data. It
+              sits under 01 because in tube mode these rows ARE now-playing.
+
+              The player itself is not visible: it mounts into a 1px clip on
+              the stage (.tube-host) and never renders. These rows are what
+              answers "what am I listening to", read from that same player. */}
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
             <div className="tube rail-sec">
-              <h2 className="cn-mod"><span>06 · jukebox</span><i>//youtube_</i></h2>
+              <h2 className="cn-mod sub"><span>01.1 · jukebox</span><i>//youtube_</i></h2>
 
               {/* only what the API actually reports */}
               {tubeState?.title && (
@@ -2321,8 +2327,6 @@ export default function App() {
             {source !== 'stems' && (
               <span className="stemhint">have stems? drop them together (vocals·drums·bass). split any track locally with stemdeck</span>
             )}
-            <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · [ ] filter · e/E echo · \ flat · r/shift+f/shift+m src · +/-/0 zoom · shift+h hide</kbd>
-            <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
           </div>
           </div>
 
@@ -2365,7 +2369,7 @@ export default function App() {
                   the one control nobody can reach.
 
                   The stage belongs to the star. What is playing is said in
-                  the rail's 06 · JUKEBOX rows, which read from the same
+                  the rail's 01.1 · JUKEBOX rows, which read from the same
                   player this host owns. */}
               {source === 'tube' && (
                 <div ref={tubeHostRef} className="tube-host" aria-hidden="true" inert />

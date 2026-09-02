@@ -1,13 +1,32 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect } from 'react'
+import { driver, type Driver, type DriveStep } from 'driver.js'
+import 'driver.js/dist/driver.css'
 
 /**
  * First-contact calibration — a guided walk that POINTS.
  *
- * Each card anchors to the control it explains: a pulsing target sits on
- * the real element, a hairline runs from the card to it, and when a
- * feature lives inside the open stack the tour opens the stack itself.
+ * Driven by driver.js, wearing the plate's language (see `.plate-tour` in
+ * styles.css: square corners, hairlines, two inks, one red).
+ *
+ * The reason for the swap is the spotlight. The hand-rolled tour placed a
+ * card at a computed offset from its anchor, and for the two steps whose
+ * anchor IS the star it had no element to measure -- so it aimed at the
+ * middle of the stage and dropped the card there. "GRAB THE STAR" landed
+ * on top of the star, at the exact moment the power-on flight had
+ * finished delivering you to it. A cut-out cannot make that mistake: the
+ * subject is lit, and the popover is placed in what is left.
+ *
+ * What had to survive the swap, and does:
+ *   · the tour drives the instrument (steps that live inside the open
+ *     stack open the stack, via onHighlightStarted)
+ *   · "not now" is not "never again" -- only reaching the end marks it
+ *     learned, so one stray Escape no longer retires the only place the
+ *     star gestures are taught
+ *   · focus is handed back to whatever had it
+ *   · reduced motion gets no animation
+ *
  * Shows on power-on every visit until the visitor actually reaches the
- * end; the rail's [?] reopens it anytime.
+ * end; the header's [?] reopens it anytime.
  */
 
 const KEY = 'scope-onboard-v1'
@@ -17,31 +36,105 @@ export interface TourOps {
   closeStack: () => void
 }
 
-interface Step {
-  title: string
-  body: string
-  /** CSS selector for the anchor, or 'stage' for the star itself. */
-  anchor: string
-  /** stack state this step needs */
-  stack: 'open' | 'closed'
+export function shouldOnboard(): boolean {
+  try {
+    return !localStorage.getItem(KEY)
+  } catch {
+    return false
+  }
 }
 
-const STEPS: Step[] = [
+/**
+ * The keyboard map. It used to sit in the rail's foot, two `<kbd>` rows
+ * deep in a column that was already 188px taller than any laptop window,
+ * so the one thing you go looking for on purpose was the hardest thing to
+ * reach. It belongs behind [?] with the rest of the lesson: the footer
+ * has always said so — "[?] for the full legend".
+ *
+ * Both halves show here, labelled. The rail only ever showed the half
+ * matching the current stack state, which is right for a status line and
+ * wrong for a reference: you consult a legend to find the key you do NOT
+ * already know.
+ */
+const LEGEND: { head: string; keys: [string, string][] }[] = [
+  {
+    head: 'the star',
+    keys: [
+      ['pull outward', 'boost that band'],
+      ['push through the core', 'kill it'],
+      ['drag across', 'filter sweep'],
+      ['pull far out, hold', 'echo'],
+      ['drag the axis (or d)', 'dissect'],
+    ],
+  },
+  {
+    head: 'the stack, open',
+    keys: [
+      ['drag a ring', 'level'],
+      ['tap a ring', 'solo'],
+      ['push to the axis', 'mute'],
+      ['pull the axis down (or d)', 'close'],
+    ],
+  },
+  {
+    head: 'keys',
+    keys: [
+      ['space', 'pause'],
+      ['n', 'skip'],
+      ['left / right', 'seek'],
+      ['up / down', 'volume'],
+      ['[ ]', 'filter'],
+      // e and shift+e are two different keys, which is exactly the
+      // distinction the old rail legend lost: it was set in caps, so
+      // `e/E echo` rendered as `E/E ECHO`
+      ['e', 'echo up'],
+      ['shift+e', 'echo down'],
+      ['\\', 'flat'],
+      ['1 / 2 / 3', 'visual preset'],
+      ['r / shift+f / shift+m', 'source'],
+      ['+ / - / 0', 'zoom'],
+      ['shift+h', 'hide the chrome'],
+    ],
+  },
+]
+
+/** The legend is markup, not prose, so it is built rather than templated. */
+function legendHtml(): string {
+  const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+  return LEGEND.map(
+    (g) =>
+      `<div class="tour-leg"><b>${esc(g.head)}</b>${g.keys
+        .map(([k, v]) => `<span class="tour-key"><kbd>${esc(k)}</kbd><i>${esc(v)}</i></span>`)
+        .join('')}</div>`,
+  ).join('')
+}
+
+interface Lesson {
+  title: string
+  body: string
+  /** CSS selector, or undefined for a centred step with no subject */
+  anchor?: string
+  /** stack state this step needs */
+  stack: 'open' | 'closed'
+  html?: boolean
+}
+
+const STEPS: Lesson[] = [
   {
     title: 'grab the star',
     body: 'the star is the mixer. pull outward to boost, push through the core to kill. drag across for the filter. pull far out and hold for echo. let go: everything springs back.',
-    anchor: 'stage',
+    anchor: '.cn-stage',
     stack: 'closed',
   },
   {
     title: 'pull it apart',
     body: 'drag the seam upward (or press D) and the star splits into rings, one per layer of the sound. drag a ring for level, tap to solo, push it to the axis to mute.',
-    anchor: 'stage',
+    anchor: '.cn-stage',
     stack: 'open',
   },
   {
     title: 'every ring, a visible fader',
-    body: 'the LAYERS rows are the same rings: live meter, level slider, solo, mute. hover a row and its ring burns brighter.',
+    body: 'the layers rows are the same rings: live meter, level slider, solo, mute. hover a row and its ring burns brighter.',
     anchor: '.layers',
     stack: 'open',
   },
@@ -53,180 +146,94 @@ const STEPS: Step[] = [
   },
   {
     title: 'split any track',
-    body: 'press SPLIT INTO STEMS and the playing track separates into vocals, drums, bass and other, in your browser. nothing uploaded. each part gets its own ring.',
+    body: 'press split into stems and the playing track separates into vocals, drums, bass and other, in your browser. nothing uploaded. each part gets its own ring.',
     anchor: '.deck-split',
     stack: 'closed',
   },
+  {
+    title: 'the full legend',
+    body: legendHtml(),
+    stack: 'closed',
+    html: true,
+  },
 ]
 
-export function shouldOnboard(): boolean {
-  try {
-    return !localStorage.getItem(KEY)
-  } catch {
-    return false
-  }
-}
-
 export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => void }) {
-  const [step, setStep] = useState(0)
-  const [pos, setPos] = useState<{ cx: number; cy: number; ok: boolean }>({ cx: 0, cy: 0, ok: false })
-  const cardRef = useRef<HTMLDivElement>(null)
-  /** whatever had focus when the tour opened, so it can be handed back */
-  const returnTo = useRef<HTMLElement | null>(null)
-
-  const s = STEPS[step]
-  const last = step === STEPS.length - 1
-
-  /**
-   * Close without marking it learned. Skip and Escape are "not now", not
-   * "never again" — this tour is the only place the star gestures, the
-   * dissection and the split are taught, and one stray Escape used to
-   * retire it permanently.
-   */
-  const dismiss = () => {
-    ops?.closeStack()
-    onDone()
-    // hand focus back where it came from, or the next Tab restarts at the
-    // top of the document with no announcement
-    returnTo.current?.focus?.()
-  }
-
-  /** Reaching the end is the only thing that counts as having learned it. */
-  const complete = () => {
-    try {
-      localStorage.setItem(KEY, '1')
-    } catch {
-      /* private mode: shows again, which is the safe direction */
-    }
-    dismiss()
-  }
-
-  // The tour is the only place the star gestures are taught, and it mounts
-  // last in the DOM — without this, reaching NEXT took ~42 tabs through the
-  // whole rail, and every control behind the card stayed focusable.
   useEffect(() => {
-    returnTo.current = document.activeElement as HTMLElement | null
-    cardRef.current?.focus()
-    const onTrap = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return
-      const card = cardRef.current
-      if (!card) return
-      const f = card.querySelectorAll<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')
-      if (!f.length) return
-      const first = f[0]
-      const lastEl = f[f.length - 1]
-      // wrap at both ends — the card is modal, so Tab must never leave it
-      if (!card.contains(document.activeElement)) {
-        e.preventDefault()
-        first.focus()
-      } else if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        lastEl.focus()
-      } else if (!e.shiftKey && document.activeElement === lastEl) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-    window.addEventListener('keydown', onTrap, true)
-    return () => window.removeEventListener('keydown', onTrap, true)
-  }, [])
+    // whatever had focus when the tour opened, so it can be handed back
+    const returnTo = document.activeElement as HTMLElement | null
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // reaching the end is the only thing that counts as having learned it
+    let learned = false
 
-  // each step swaps the card's content in place; move focus back to the
-  // card so the new text is what a screen reader lands on
-  useEffect(() => {
-    cardRef.current?.focus()
-  }, [step])
+    const steps: DriveStep[] = STEPS.map((s) => ({
+      element: s.anchor,
+      // an element-less step is a deliberate centred one, but a MISSING
+      // element is a broken step -- give the rail's folds a moment to open
+      // before falling back, rather than pointing at nothing
+      waitForElement: s.anchor ? 1200 : 0,
+      onHighlightStarted: () => {
+        if (!ops) return
+        if (s.stack === 'open') ops.openStack()
+        else ops.closeStack()
+      },
+      popover: {
+        title: s.title,
+        description: s.body,
+        popoverClass: s.html ? 'plate-tour plate-tour-legend' : 'plate-tour',
+      },
+    }))
 
-  // drive the instrument to wherever this step's feature lives
-  useEffect(() => {
-    if (!ops) return
-    if (s.stack === 'open') ops.openStack()
-    else ops.closeStack()
-  }, [step, ops, s.stack])
-
-  // locate the anchor (rows/sections mount async — retry briefly)
-  useLayoutEffect(() => {
-    let raf = 0
-    let tries = 0
-    const locate = () => {
-      if (s.anchor === 'stage') {
-        const rail = document.querySelector('.rail')
-        const railW = rail && innerWidth > 720 ? rail.getBoundingClientRect().width : 0
-        setPos({ cx: railW + (innerWidth - railW) / 2, cy: innerHeight * (innerWidth > 720 ? 0.5 : 0.3), ok: true })
-        return
-      }
-      const el = document.querySelector(s.anchor)
-      if (el) {
-        const r = el.getBoundingClientRect()
-        if (r.width > 0 && r.height > 0) {
-          el.scrollIntoView({ block: 'nearest' })
-          const r2 = el.getBoundingClientRect()
-          setPos({ cx: r2.right - 10, cy: r2.top + Math.min(r2.height / 2, 60), ok: true })
-          return
+    const d: Driver = driver({
+      steps,
+      // the plate has no radius, and the cut-out is part of the plate
+      stageRadius: 0,
+      stagePadding: 8,
+      overlayColor: '#0a0a0a',
+      overlayOpacity: 0.78,
+      animate: !calm,
+      duration: calm ? 0 : 240,
+      smoothScroll: !calm,
+      allowClose: true,
+      showProgress: true,
+      progressText: '{{current}}/{{total}}',
+      nextBtnText: 'next',
+      prevBtnText: 'back',
+      doneBtnText: 'play',
+      showButtons: ['next', 'previous', 'close'],
+      popoverClass: 'plate-tour',
+      // The star is the one step whose subject you are meant to TOUCH while
+      // it is lit. Everything else is being pointed at, not operated.
+      disableActiveInteraction: false,
+      onDestroyStarted: () => {
+        // "not now" rather than "skip": dismissing costs nothing, and the
+        // tour returns next visit until it is actually finished
+        if (!d.hasNextStep()) learned = true
+        d.destroy()
+      },
+      onDestroyed: () => {
+        if (learned) {
+          try {
+            localStorage.setItem(KEY, '1')
+          } catch {
+            /* private mode: shows again, which is the safe direction */
+          }
         }
-      }
-      if (tries++ < 80) raf = requestAnimationFrame(locate)
-      else setPos((p) => ({ ...p, ok: false }))
-    }
-    locate()
-    window.addEventListener('resize', locate)
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', locate)
-    }
-  }, [step, s.anchor])
+        ops?.closeStack()
+        onDone()
+        // hand focus back where it came from, or the next Tab restarts at
+        // the top of the document with no announcement
+        returnTo?.focus?.()
+      },
+    })
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code === 'Escape') dismiss()
+    d.drive()
+    return () => {
+      if (d.isActive()) d.destroy()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // one tour per mount: App remounts this component to reopen it
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // the card sits clear of its anchor: beside it when there's room,
-  // below the star for stage steps; always clamped to the viewport
-  const cardW = Math.min(400, innerWidth - 28)
-  let left = pos.cx + 46
-  let top = pos.cy - 40
-  if (left + cardW > innerWidth - 14) left = Math.max(14, pos.cx - cardW - 46)
-  if (s.anchor === 'stage') {
-    left = Math.max(14, Math.min(innerWidth - cardW - 14, pos.cx - cardW / 2))
-    top = pos.cy + 90
-  }
-  top = Math.max(14, Math.min(innerHeight - 230, top))
-
-  return (
-    <div className="onboard" role="dialog" aria-modal="true" aria-label="how to play the instrument">
-      {pos.ok && (
-        <svg className="onboard-wire" aria-hidden="true">
-          <line x1={pos.cx} y1={pos.cy} x2={left + (pos.cx > left + cardW / 2 ? cardW : 0)} y2={top + 34} />
-          <circle className="onboard-ping" cx={pos.cx} cy={pos.cy} r="7" />
-          <circle cx={pos.cx} cy={pos.cy} r="3" />
-        </svg>
-      )}
-      <div
-        ref={cardRef}
-        className="onboard-card"
-        style={{ left, top, width: cardW }}
-        tabIndex={-1}
-        aria-live="polite"
-      >
-        <span className="onboard-n">
-          {String(step + 1).padStart(2, '0')}<i>/{String(STEPS.length).padStart(2, '0')}</i>
-        </span>
-        <h2>{s.title}</h2>
-        <p>{s.body}</p>
-        <div className="onboard-row">
-          {/* "not now" rather than "skip": dismissing costs nothing, the
-              tour returns next visit until it is actually finished */}
-          <button className="onboard-skip" onClick={dismiss}>not now</button>
-          <button className="onboard-next" onClick={() => (last ? complete() : setStep(step + 1))}>
-            {last ? 'play' : 'next'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+  return null
 }

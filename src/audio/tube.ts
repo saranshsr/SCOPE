@@ -8,10 +8,12 @@
  * stream feeds the same analyser everything else uses (see
  * `AudioEngine.useTabAudio`).
  *
- * The player is deliberately VISIBLE. YouTube's embedded-player policies
- * require it; using the iframe as a hidden audio source would be a
- * violation, and a hidden player would also make the "what am I even
- * listening to" question unanswerable.
+ * The player is mounted and never seen: a 1px clip at zero opacity, kept
+ * composited because chrome throttles and eventually stalls a player it
+ * believes nobody is watching. It is not display:none and not
+ * visibility:hidden, either of which says exactly that. "What am I even
+ * listening to" is answered by the rail's 01.1 JUKEBOX rows, which read
+ * their values from this player.
  */
 
 export interface TubeTrack {

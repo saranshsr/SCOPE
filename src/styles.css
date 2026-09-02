@@ -603,17 +603,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .rail { overflow-y: auto; scrollbar-width: none; }
 .rail::-webkit-scrollbar { display: none; }
 
-/* the key legend — the quietest line on the console */
-.keyline {
-  display: block;
-  margin-top: 10px;
-  font-family: inherit;
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  color: rgba(234, 234, 234, 0.55);
-  text-transform: uppercase;
-}
-
 /* the spectrum is playable: the canvas opts back into pointer events that
    its container declines, or a real click never reaches the solo handler. */
 /* ===========================================================================
@@ -690,10 +679,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   }
 }
 
-/* One mode, one manual: the keyline teaches only the state you're in. */
-.keyline-open { display: none; }
-.app.dissected .keyline-open { display: block; }
-.app.dissected .keyline-closed { display: none; }
 
 /* ── the layer rows: every ring's visible twin ──────────────────────── */
 .layers {
@@ -895,90 +880,155 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid var(--pl-line); }
 .deck-meta a:hover { border-color: var(--red); color: var(--red); }
 
-/* ── first-contact calibration ──────────────────────────────────────── */
-.onboard {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  pointer-events: none;
-}
-.onboard-wire {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.onboard-wire line {
-  stroke: rgba(225, 59, 42, 0.75);
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
-}
-.onboard-wire circle { fill: #e13b2a; }
-.onboard-wire .onboard-ping {
-  fill: none;
-  stroke: #e13b2a;
-  animation: onb-ping 1.5s ease-out infinite;
-}
-@keyframes onb-ping {
-  from { r: 5; opacity: 1; }
-  to { r: 24; opacity: 0; }
-}
-.onboard-card {
-  position: absolute;
-  pointer-events: auto;
-  background: #0a0a0a;
+/* ── first-contact calibration ──────────────────────────────────────────
+   The tour is driver.js wearing the plate. Everything the library ships
+   by default is an anti-pattern here -- 5px radius, a 10px soft shadow, a
+   white card, Helvetica -- so all of it is overridden rather than tweaked.
+   What is kept is the one thing the hand-rolled tour could not do: a
+   cut-out. The old card was placed at a computed offset from its anchor
+   and the two star steps had no element to measure, so "GRAB THE STAR"
+   landed on top of the star. A spotlight lights the subject and puts the
+   popover in what is left. */
+.driver-popover.plate-tour {
+  --driver-popover-font-family: var(--font-mono);
+  border-radius: 0;
+  box-shadow: none;
   border: 1px solid var(--pl-line);
-  padding: 16px;
-  display: grid;
-  gap: 8px;
-  animation: onboard-in 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  transition: left 0.45s cubic-bezier(0.16, 1, 0.3, 1), top 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 0;
+  min-width: 300px;
+  max-width: 420px;
 }
-@keyframes onboard-in {
-  from { opacity: 0; transform: translateY(14px); }
-}
-.onboard-n {
-  font-size: 9px;
-  letter-spacing: 0.18em;
-  color: #e13b2a;
-}
-.onboard-n i { font-style: normal; color: rgba(234, 234, 234, 0.55); }
-.onboard-card h2 {
-  font-family: 'Archivo Black', sans-serif;
+/* the cells inside the card are cells: one row height, shared edges */
+.plate-tour .driver-popover-title {
+  font-family: var(--font-display);
   font-size: 20px;
+  font-weight: 400;
   line-height: 1;
-  text-transform: uppercase;
   letter-spacing: 0.01em;
-  color: #eaeaea;
-  margin: 0;
+  text-transform: uppercase;
+  color: var(--ink);
+  padding: 12px 12px 0;
 }
-.onboard-card p {
+.plate-tour .driver-popover-description {
   font-size: 11px;
   line-height: 1.55;
+  letter-spacing: 0.01em;
   color: rgba(234, 234, 234, 0.72);
+  padding: 8px 12px 12px;
   margin: 0;
 }
-.onboard-row {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 4px;
+.plate-tour .driver-popover-footer {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--pl-line);
+  gap: var(--gap-related);
 }
-.onboard-row button {
+.plate-tour .driver-popover-progress-text {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--red);
+}
+.plate-tour .driver-popover-footer-btn {
   font: inherit;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  background: none;
-  border: 1px solid var(--pl-line);
   padding: 8px 12px;
-  cursor: pointer;
+  min-height: 36px;
+  border-radius: 0;
+  border: 1px solid var(--pl-line);
+  background: none;
+  color: rgba(234, 234, 234, 0.55);
+  text-shadow: none;
 }
-.onboard-row .onboard-skip { color: rgba(234, 234, 234, 0.55); }
-.onboard-row .onboard-skip:hover { color: #eaeaea; }
-.onboard-row .onboard-next { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
-.onboard-row .onboard-next:hover { background: #e13b2a; border-color: #e13b2a; color: #0a0a0a; }
+.plate-tour .driver-popover-footer-btn:hover { color: var(--ink); background: none; }
+/* the forward action is the filled cell, the way POWER ON is */
+.plate-tour .driver-popover-navigation-btns button:last-child {
+  color: #0a0a0a;
+  background: #eaeaea;
+  border-color: #eaeaea;
+}
+.plate-tour .driver-popover-navigation-btns button:last-child:hover {
+  background: var(--red);
+  border-color: var(--red);
+  color: #0a0a0a;
+}
+.plate-tour .driver-popover-close-btn {
+  color: rgba(234, 234, 234, 0.55);
+  font-size: 14px;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+}
+.plate-tour .driver-popover-close-btn:hover { color: var(--red); background: none; }
+.plate-tour .driver-popover-arrow { border-color: var(--pl-line); }
+.plate-tour .driver-popover-arrow-side-left { border-left-color: var(--pl-line); }
+.plate-tour .driver-popover-arrow-side-right { border-right-color: var(--pl-line); }
+.plate-tour .driver-popover-arrow-side-top { border-top-color: var(--pl-line); }
+.plate-tour .driver-popover-arrow-side-bottom { border-bottom-color: var(--pl-line); }
+.plate-tour :focus-visible { outline: 1px solid var(--red); outline-offset: 1px; }
+
+/* the closing step: the keyboard map, as plate rows. It used to be two
+   <kbd> lines in the rail's foot, in the half of the column that fell off
+   every laptop -- the footer has always pointed here ("[?] for the full
+   legend") and now that is where it is. */
+.driver-popover.plate-tour-legend {
+  /* the map wants width, not height: at one column it ran 737px tall and
+     would not fit a laptop. Two balanced columns halve it. */
+  width: min(620px, calc(100vw - 32px));
+  max-width: none;
+}
+.plate-tour-legend .driver-popover-description {
+  padding: 0;
+  columns: 2;
+  column-gap: 1px;
+  column-rule: 1px solid var(--pl-line);
+}
+.tour-leg {
+  border-top: 1px solid var(--pl-line);
+  /* a group is one unit: never split a legend across the column break */
+  break-inside: avoid;
+}
+.tour-leg:first-child { border-top: 0; }
+.tour-leg > b {
+  display: block;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
+  color: var(--red);
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.tour-key {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--gap-sep);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--pl-line);
+}
+.tour-leg > .tour-key:last-child { border-bottom: 0; }
+.tour-key kbd {
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.tour-key i {
+  font-style: normal;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* The overlay is a cut-out, not a scrim: no transition on the path, or
+   the hole lags the popover across a step change. */
 @media (prefers-reduced-motion: reduce) {
-  .onboard-card { animation: none; }
+  .driver-popover.plate-tour { animation: none; }
 }
 
 /* help is not a consumable: the manual reopens from the brand row */
@@ -1750,6 +1800,19 @@ input[type='range'] { height: 32px; }
   text-transform: uppercase;
 }
 .cn-mod i { color: var(--ink-dim); font-style: normal; }
+/* a sub-module: the same header, indented under its parent and tied to it
+   by the elbow the landing's signal chain already uses for .pl-prow.sub.
+   Keeps the count monotonic (01 · 01.1 · 02 …) without renumbering a
+   single identity code. */
+.cn-mod.sub { padding-left: 24px; position: relative; }
+.cn-mod.sub::before {
+  content: '';
+  position: absolute; left: 12px; top: 50%;
+  width: 6px; height: 6px;
+  border-left: 1px solid var(--red-dim);
+  border-bottom: 1px solid var(--red-dim);
+  transform: translateY(-6px);
+}
 .cn-track .k { color: var(--ink-dim); }
 .cn-track .deck-name { max-width: none; }
 
@@ -1959,7 +2022,7 @@ input[type='range'] { height: 32px; }
    at zero size, in place.
 
    `inert` on the host in the markup keeps it out of the tab order. What
-   is playing is said by the rail's 06 · JUKEBOX rows instead. */
+   is playing is said by the rail's 01.1 · JUKEBOX rows instead. */
 .tube-host {
   position: absolute;
   /* pinned, not merely absolute: static position would follow whatever the
