@@ -19,8 +19,13 @@ const c = grab(/p \+= hdir \* pushW \* uR \* ([\d.]+)/, 'the push coefficient')
 // uR is 1 at construction and 0.88 once the scene settles, and the shader
 // renders under BOTH — so each law is checked against each value. Taking one
 // on faith is how a check passes on a number the star never actually uses.
+// The settled value moved behind a named constant (R_BASE) when the scale
+// break landed, because it is now multiplied per frame rather than
+// assigned. Accept either form: a check that only knows the literal goes
+// stale the first time someone gives the number a name, which is exactly
+// what happened and is why this comment exists.
 const uRs = [grab(/uR: \{ value: ([\d.]+)/, 'the initial uR'),
-             grab(/uniforms\.uR\.value = ([\d.]+)/, 'the settled uR')]
+             grab(/(?:uniforms\.uR\.value|const R_BASE) = ([\d.]+)/, 'the settled uR')]
 
 const fail = [], report = []
 for (const uR of uRs) {
