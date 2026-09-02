@@ -63,6 +63,8 @@ export default function App() {
   /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
+  /** the rail's scrolling half — watched so the dock seam can say "more" */
+  const railStackRef = useRef<HTMLDivElement>(null)
   /** jukebox: the YouTube player, and whether the star is listening */
   const tubeRef = useRef<Tube | null>(null)
   const tubeHostRef = useRef<HTMLDivElement>(null)
@@ -147,6 +149,39 @@ export default function App() {
     if (source !== 'tube' || !tubeHostRef.current || !tubeRef.current) return
     void tubeRef.current.mount(tubeHostRef.current)
   }, [source])
+
+  // The one thing a scroll region owes you is to admit it is one. macOS
+  // ships overlay scrollbars, so the styled bar in styles.css is invisible
+  // at rest and no CSS can force it back — which is how two whole modules
+  // went missing without anyone noticing. The dock's top edge takes the
+  // red keyline while there is still rail above it, and drops back to a
+  // plain hairline once you have reached the end. It is a reading like any
+  // other: it reports a real quantity, and it is absent when there is
+  // nothing to report.
+  useEffect(() => {
+    const el = railStackRef.current
+    if (!started || !el) return
+    const rail = el.parentElement
+    if (!rail) return
+    const sync = () => {
+      const more = el.scrollHeight - el.scrollTop - el.clientHeight > 1
+      rail.classList.toggle('more', more)
+    }
+    sync()
+    el.addEventListener('scroll', sync, { passive: true })
+    const ro = new ResizeObserver(sync)
+    ro.observe(el)
+    // folds open and close as the source changes, which changes the height
+    // without resizing the container
+    const mo = new MutationObserver(sync)
+    mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    return () => {
+      el.removeEventListener('scroll', sync)
+      ro.disconnect()
+      mo.disconnect()
+      rail.classList.remove('more')
+    }
+  }, [started])
 
   // any input during the flight skips straight to the console: a cinematic
   // you cannot interrupt is a cinematic people learn to resent
@@ -1816,6 +1851,18 @@ export default function App() {
           <div className="cn-body">
         <main className="rail" aria-label="instrument console">
           <h1 className="sr-only">scope console</h1>
+          {/* The rail is taller than any laptop window and always was: at
+              1440x900 it wants 956px of a 768px column, 1200 in jukebox
+              mode. It scrolled, silently — macOS ships overlay scrollbars,
+              so the styled bar below never appeared at rest and the last
+              two modules simply were not there. The spectrum was sliced to
+              a sliver and the level meter was gone.
+
+              So the column splits in two. Controls scroll; READINGS DOCK.
+              Which side a thing lands on is decided by PRODUCT.md: the job
+              is watching, not operating, so anything measured stays on
+              screen and anything operated may recede until wanted. */}
+          <div ref={railStackRef} className="rail-stack">
           {/* 1 · NOW PLAYING — what you hear, and every control that acts on
               it, in the order every music player taught the world: title,
               artist, scrubber + time, transport. The loudest block in the
@@ -2258,25 +2305,10 @@ export default function App() {
             </div>
           </div>
 
-          {/* 4 · SPECTRUM — docked into the panel. It carried real content
-              while hovering over the star, which is what made it a card. */}
-          <h2 className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></h2>
-          <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
-            <canvas ref={specRef} width={400} height={144} aria-hidden="true" />
-            <div className="spec-hz">
-              <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
-            </div>
-          </div>
-
-          {/* 5 · FOOT — the level meter, states that only speak when armed,
-              the legend, and diagnostics for those who ask. */}
+          {/* 5 · FOOT — states that only speak when armed, and the legend.
+              Last thing in the scrolling half: the quietest rows in the
+              console, and the only ones nobody needs at a glance. */}
           <div className="rail-foot rail-sec" style={{ '--i': 7 } as React.CSSProperties}>
-            <div className="level">
-              <span className="level-tag">level</span>
-              <div ref={levelRef} className="level-meter" aria-hidden="true">
-                {Array.from({ length: 12 }, (_, i) => <i key={i} />)}
-              </div>
-            </div>
             <div className="chips" aria-live="off">
               <span ref={zoomRef} className="chip" />
               <span ref={fltRef} className="chip" />
@@ -2288,6 +2320,28 @@ export default function App() {
             )}
             <kbd className="keyline keyline-closed">grab the orb: pull=eq · across=filter · far=echo · axis (or d)=dissect · spc pause · n skip · ←→ seek · [ ] filter · e/E echo · \ flat · r/shift+f/shift+m src · +/-/0 zoom · shift+h hide</kbd>
             <kbd className="keyline keyline-open">stack open: drag a ring=level · tap=solo · push to the axis=mute · pull the axis down (or d)=close</kbd>
+          </div>
+          </div>
+
+          {/* THE DOCK — the measured half, pinned. Two live readings that
+              were below the fold on every laptop: the analyser's own 24
+              bands, and the level the star is being driven by. Both are
+              glanceable by definition, which is the whole reason the
+              instrument is on a second screen. */}
+          <div className="rail-dock">
+            <h2 className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></h2>
+            <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
+              <canvas ref={specRef} width={400} height={144} aria-hidden="true" />
+              <div className="spec-hz">
+                <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
+              </div>
+            </div>
+            <div className="level">
+              <span className="level-tag">level</span>
+              <div ref={levelRef} className="level-meter" aria-hidden="true">
+                {Array.from({ length: 12 }, (_, i) => <i key={i} />)}
+              </div>
+            </div>
           </div>
         </main>
 
