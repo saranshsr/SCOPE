@@ -1901,13 +1901,26 @@ export default function App() {
                   <div><dt>//key_</dt><dd>{track.musicalKey.toLowerCase()}</dd></div>
                 )}
                 {track.genre && <div><dt>//genre_</dt><dd>{track.genre.toLowerCase()}</dd></div>}
-                {track.link && (
+                {/* The row is gated on the ARTIST, not on the link. Gating
+                    it on the link meant every track without one had no
+                    //artist_ row at all -- and the one that mattered was
+                    the failure path: graph.ts answers an undecodable
+                    upload with {title: 'file not playable', artist: 'back
+                    to the radio'}, deliberately held 1800ms "so the
+                    radio's own announce doesn't erase the reason". The
+                    reason's second half was never painted anywhere. You
+                    saw FILE NOT PLAYABLE, then unexplained music. */}
+                {track.artist && (
                   <div>
                     <dt>//artist_</dt>
                     <dd>
-                      <a href={track.link} target="_blank" rel="noopener noreferrer">
-                        {track.artist.replace(' · audius', '')}
-                      </a>
+                      {track.link ? (
+                        <a href={track.link} target="_blank" rel="noopener noreferrer">
+                          {track.artist.replace(' · audius', '')}
+                        </a>
+                      ) : (
+                        track.artist.replace(' · audius', '')
+                      )}
                     </dd>
                   </div>
                 )}

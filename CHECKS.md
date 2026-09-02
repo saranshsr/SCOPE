@@ -476,10 +476,21 @@ The bar is three things, each with its own way of failing quietly:
 2. **It does not stick** — a spinner with no end is worse than an error.
 3. **It recovers** — sound returns without a reload.
 
-A corrupt file currently reads *"now playing file not playable"* /
-*"back to the radio"*, then falls back to the radio on its own. That is the
-right answer, and `scripts/failure-states.mjs` now holds it there by feeding
-the room 60KB of noise named `.mp3` and asserting all three.
+A corrupt file reads *"FILE NOT PLAYABLE"* on the deck name and
+*"//artist_ back to the radio"* under it, then falls back to the radio on
+its own. That is the right answer, and `scripts/failure-states.mjs` holds it
+there by feeding the room 60KB of noise named `.mp3` and asserting all three.
+
+**Half of that sentence was fiction until this check was re-pointed.**
+`graph.ts` has always emitted both halves, deliberately holding them 1800ms
+"so the radio's own announce doesn't erase the reason" — but the `//artist_`
+row was gated on `track.link`, and a synthesised failure announce has no
+link. So the second half was written, held, and painted nowhere: you saw
+FILE NOT PLAYABLE and then, a second and a half later, unexplained music.
+The row is gated on the artist now, which also restores it for every other
+linkless track. Two lessons, both already in this file: a check pointed at
+the wrong selector cannot see a missing line (§2), and a document quoting
+the product is only as true as the last time someone ran it (§1).
 
 **Reading the code found a bug that was not there.** The decode path's
 `.then()` carries no `.catch`, which looks exactly like a hang waiting to
