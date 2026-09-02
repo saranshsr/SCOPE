@@ -627,35 +627,63 @@ export default function App() {
           if (w2.__gest.length > 40) w2.__gest.shift()
         }
       : () => {}
-    const pickTier = (px: number, py: number): number => {
-      const n = tiers.length
-      let best = -1
-      let bestD = 1e9
-      for (let i = 0; i < n; i++) {
-        const cpt = scene.surveyPoint(i, 0, 0)
-        const d = Math.abs(py - cpt.y)
-        if (d < bestD) {
-          bestD = d
-          best = i
-        }
+    // THE DRAWN LINE IS THE HANDLE.
+    //
+    // This used to pick by a horizontal SLAB: nearest ring centre by y,
+    // accepted if the pointer was within half a tier gap vertically and
+    // 1.8 ring-radii horizontally. That target is a wide rectangle through
+    // the middle of each ring -- it contains the ellipse but it also
+    // contains the empty axis, the particle haze, and a lot of black. So
+    // the place you press and the place you SEE were different shapes, and
+    // the visible one was not the one that worked.
+    //
+    // Now the ellipse itself is the target. surveyPoint(i, th, 1) is the
+    // same call the survey canvas strokes, so the hit path and the drawn
+    // path cannot drift apart -- change the ring profile and both move.
+    // Sampled as a closed polyline and measured segment-wise, which stays
+    // exact under the spin and the perspective tilt (the projection of a
+    // tilted circle is not a centred ellipse, so an analytic test would be
+    // wrong at exactly the near and far edges).
+    const RING_SEGS = 28
+    const coarsePointer = matchMedia('(pointer: coarse)').matches
+    // Law 7: 44px of reach on touch. On a fine pointer 18px either side of
+    // a 1px line is a 37px-wide band -- generous without swallowing the
+    // neighbouring ring, which never comes closer than ~70px.
+    const RING_TOL = coarsePointer ? 44 : 18
+    const segDist = (px: number, py: number, ax: number, ay: number, bx: number, by: number) => {
+      const dx = bx - ax, dy = by - ay
+      const L = dx * dx + dy * dy
+      const t = L > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / L)) : 0
+      return Math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+    }
+    const ringDist = (tier: number, px: number, py: number): number => {
+      let best = 1e9
+      const first = scene.surveyPoint(tier, 0, 1)
+      let prev = first
+      for (let k = 1; k <= RING_SEGS; k++) {
+        const p = k === RING_SEGS ? first : scene.surveyPoint(tier, (k / RING_SEGS) * Math.PI * 2, 1)
+        const d = segDist(px, py, prev.x, prev.y, p.x, p.y)
+        if (d < best) best = d
+        prev = p
       }
-      const gapPx = Math.max(
-        36,
-        Math.abs(scene.surveyPoint(Math.min(1, n - 1), 0, 0).y - scene.surveyPoint(0, 0, 0).y),
-      )
-      const ctr = scene.surveyPoint(best, 0, 0)
-      // the ring's projected radius must not depend on where the spin has
-      // carried any single vertex — measure two orthogonal azimuths
-      const e1 = scene.surveyPoint(best, 0, 1)
-      const e2 = scene.surveyPoint(best, Math.PI / 2, 1)
-      const ringPx = Math.max(
-        70,
-        Math.hypot(e1.x - ctr.x, e1.y - ctr.y),
-        Math.hypot(e2.x - ctr.x, e2.y - ctr.y),
-      )
-      const ok = bestD < gapPx * 0.55 && Math.abs(px - ctr.x) < ringPx * 1.8
-      if (!ok) trace('pick-dbg', { best, bestD: Math.round(bestD), gapPx: Math.round(gapPx), dxAxis: Math.round(Math.abs(px - ctr.x)), ringPx: Math.round(ringPx), cy: Math.round(ctr.y), py: Math.round(py) })
-      return ok ? best : -1
+      return best
+    }
+    const nearestRing = (px: number, py: number): { tier: number; d: number } => {
+      let tier = -1
+      let d = 1e9
+      for (let i = 0; i < tiers.length; i++) {
+        const di = ringDist(i, px, py)
+        if (di < d) { d = di; tier = i }
+      }
+      return { tier, d }
+    }
+    const pickTier = (px: number, py: number): number => {
+      const { tier, d } = nearestRing(px, py)
+      if (d > RING_TOL) {
+        trace('pick-dbg', { tier, d: Math.round(d), tol: RING_TOL })
+        return -1
+      }
+      return tier
     }
 
     // The reticle cursor — an instrument aims, it doesn't point. Eased
@@ -850,9 +878,24 @@ export default function App() {
     // worth keeping lives on a visible control that shows its state".
     // A gesture still springs back, but back to the latch, not to zero.
     const latch = { sweep: 0, echo: 0 }
+    // WHERE THE OBJECT IS, asked rather than guessed.
+    //
+    // This used to compute the middle of the area right of the 320px rail
+    // and call that the axis. That is a layout arithmetic guess about a
+    // thing the renderer already knows exactly, and the two disagree:
+    // measured at 1100px wide and dissected, the guess landed 63px right
+    // of the spine the survey actually draws. Everything keyed to it was
+    // off by that much -- the seam's 30px grab column sat beside the seam,
+    // wide enough to swallow ring lines 88px away, and the ring fader
+    // measured its level from a column that was not the axis.
+    //
+    // projectLocal(0,0,0) is the body's own origin through the same camera
+    // the survey chrome projects with, so the handle and the drawn line
+    // cannot drift apart again.
     const centerPx = () => {
-      const fracX = startedRef.current && w > 720 ? (320 + (w - 320) / 2) / w : 0.5
-      return { x: fracX * w, y: h / 2 }
+      if (!startedRef.current) return { x: w / 2, y: h / 2 }
+      const c = scene.projectLocal(0, 0, 0)
+      return Number.isFinite(c.x) && Number.isFinite(c.y) ? c : { x: w / 2, y: h / 2 }
     }
     const onCurDown = (e: PointerEvent) => {
       cur.down = 1
@@ -867,7 +910,17 @@ export default function App() {
       // pull up to dissect, down to close. Narrow on purpose: the centre
       // column is the machine's seam.
       trace('down', { x: Math.round(e.clientX), y: Math.round(e.clientY), dis: +dis.toFixed(2), pts: pts.size })
-      if (pts.size < 2 && (e.shiftKey || (Math.abs(e.clientX - c0.x) < 30 && (dis > 0.3 || hit)))) {
+      // Where the spine and a ring CROSS, the nearer line wins. Six rings
+      // cross the axis at twelve points, and a fixed priority meant the
+      // seam quietly ate the ring wherever they met -- the same ring that
+      // is grabbable everywhere else on its circumference. Nearest-wins is
+      // the rule you can see: whichever line you are actually on is the one
+      // that answers. Shift still forces the axis, and the spine keeps the
+      // rest of its length to itself.
+      const axisDx = Math.abs(e.clientX - c0.x)
+      const nr = dis > 0.5 ? nearestRing(e.clientX, e.clientY) : { tier: -1, d: 1e9 }
+      const ringWins = nr.tier >= 0 && nr.d <= RING_TOL && nr.d < axisDx
+      if (pts.size < 2 && (e.shiftKey || (axisDx < 30 && (dis > 0.3 || hit) && !ringWins))) {
         trace('axis-grab')
         sect.axis = true
         sect.sy0 = e.clientY

@@ -1488,8 +1488,17 @@ export class Scene {
     // Persistence leans with the bass: quiet = crisp, heavy = long
     // exposure. A drop adds motion blur on top, so the burst smears and
     // the calm state stays crisp.
+    //
+    // THE SURVEY IS NOT THE STAR. Dissected, persistence collapses. At
+    // 0.86 damp each frame keeps 86% of the last, which is a half-life of
+    // ~5 frames and a visible tail past half a second -- lovely on a star
+    // that boils in place, and a lie on six rings that SPIN. Every particle
+    // dragged its own arc and the rings read as smeared bands instead of
+    // rings, with the survey ellipses lost inside the glare of their own
+    // trails. Exposure is for the object; a reading has to be legible.
     ;(this.after.uniforms as { damp: { value: number } }).damp.value =
-      Math.min(0.94, 0.76 + this.uniforms.uLow.value * 0.15 + this.uniforms.uDrop.value * 0.09)
+      Math.min(0.94, 0.76 + this.uniforms.uLow.value * 0.15 + this.uniforms.uDrop.value * 0.09) *
+      (1 - this.dissect * 0.58)
     // THE SCALE BREAK, per frame. On a drop the body genuinely outgrows
     // its frame: the star canvas is full-bleed BEHIND the plate and the
     // chrome is a frame over it, so this needs no layout change, only
