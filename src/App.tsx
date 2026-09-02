@@ -2224,7 +2224,12 @@ export default function App() {
           </div>
 
           <footer className="pl-ftr">
-            <span>/ webgl · 108k particles</span>
+            <span>
+              <span className="pl-meta">/ webgl · 108k particles</span>
+              <span className="pl-by">
+                <NoonMark /> made by noon
+              </span>
+            </span>
             <span>/ drop a track anywhere</span>
             <span>/ audius · artist-owned radio</span>
           </footer>
@@ -2853,7 +2858,12 @@ export default function App() {
           </div>
 
           <footer className="pl-ftr cn-ftr">
-            <span>/ webgl · 108k particles</span>
+            <span>
+              <span className="pl-meta">/ webgl · 108k particles</span>
+              <span className="pl-by">
+                <NoonMark /> made by noon
+              </span>
+            </span>
             <span>/ grab the star to mix · [?] for the full legend</span>
             <span className="diag">
               <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
@@ -2944,6 +2954,35 @@ const PATH: { ix: string; n: string; d: string; i: string; sub?: boolean }[] = [
   { ix: '07', n: 'out', d: 'master gain', i: 'master gain, and the node that mute silences' },
 ]
 
+/**
+ * noon's mark, at chrome scale.
+ *
+ * The real vector, never a redrawing. An approximation of someone else's mark
+ * is wrong in the way a faked wordmark is wrong, so the path comes from the
+ * artwork itself (Figma 1515:9212, 108x108) and lives in .env.local rather
+ * than in git -- it is licensed, and this repo has a remote.
+ *
+ * Absent variable renders nothing, on purpose. A fresh clone and CI have no
+ * .env.local, and the footer must not open a hole where the mark would be;
+ * the words beside it carry the attribution on their own.
+ *
+ * Sized 1em by CSS, and that is the whole reason this works. The mark's ring
+ * is 15.55% of its box, so at the footer's 8px it lands at 1.24px of ink --
+ * the plate's own hairline, the same weight as --pl-line and .cn-brk. At 42px
+ * it would be 6.5px and read as pasted-in artwork against a 1px sheet. The
+ * mark self-sizes to this product's line language at chrome scale and stops
+ * working above it, which is why it appears here and nowhere larger.
+ */
+function NoonMark() {
+  const d = import.meta.env.VITE_NOON_MARK_D as string | undefined
+  if (!d) return null
+  return (
+    <svg width="8" height="8" viewBox="0 0 108 108" aria-hidden="true">
+      <path d={d} fill="currentColor" />
+    </svg>
+  )
+}
+
 function Reg({ className }: { className: string }) {
   return (
     <svg className={className} width="13" height="13" aria-hidden="true">
@@ -2969,6 +3008,51 @@ function Meter() {
   )
 }
 
+/**
+ * noon's ring, in the plate's own line.
+ *
+ * Measured off the real mark (Figma 1515:9212): a C-ring of 229 degrees whose
+ * opening spans 131 degrees across the top, centred 27.5 degrees left of
+ * twelve, with a detached wedge sitting inside that opening. The mark is a
+ * clock reading noon and the wedge is its hand.
+ *
+ * The artwork itself cannot come here. Its ring is 15.55% of its own box, so
+ * at this dial's 42px it would be 6.5px of ink against a sheet whose §1 says
+ * hairlines only, 1px -- it would read as a logo pasted onto a control. What
+ * transfers is the COMPOSITION: the opening's angle and the detached tick,
+ * drawn in the 1px currentColor every other stroke on this plate uses. No
+ * letterforms are involved, so nothing is being faked; this is the geometry
+ * speaking in the sheet's voice.
+ *
+ * Angles are the dial's own convention: 0 is up, clockwise positive.
+ */
+const RING_OPEN_FROM = 38   // where the arc resumes, right of twelve
+const RING_OPEN_TO = 267    // where it breaks, left of twelve
+const dialPt = (deg: number, r: number) =>
+  [21 + Math.sin((deg * Math.PI) / 180) * r, 21 - Math.cos((deg * Math.PI) / 180) * r] as const
+/** the constant ring: the brand half, which never moves */
+const NOON_RING = (() => {
+  const [sx, sy] = dialPt(RING_OPEN_FROM, 13)
+  const [ex, ey] = dialPt(RING_OPEN_TO, 13)
+  return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A 13 13 0 1 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`
+})()
+/**
+ * The needle stays, and that is a finding rather than a compromise.
+ *
+ * The mark's own detached wedge was tried as the pointer -- it is the one
+ * part of noon's artwork that already looks like a hand, and letting it do
+ * the pointing would have made the brand structural rather than applied.
+ * Rendered at 42px it fails: a short arc concentric with the ring reads as a
+ * FRAGMENT of that ring, not as a pointer, and at the low end it sits close
+ * enough to the ring's terminal to be mistaken for it. These dials are
+ * role="slider" with drag and arrow keys, not decoration, and a control that
+ * is harder to read is not a trade worth making for a logo.
+ *
+ * So the ring carries noon and the needle carries the value. It costs nothing
+ * -- the needle is what shipped before -- and the dial gains the mark for
+ * free. At the rest value the needle points up through the opening, which is
+ * a clock reading noon.
+ */
 const DIAL_MIN = 0.25
 const DIAL_MAX = 2
 
@@ -3026,7 +3110,7 @@ function Dial({
     >
       <svg width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
         <rect x=".5" y=".5" width="41" height="41" fill="none" stroke="currentColor" opacity=".5" />
-        <circle cx="21" cy="21" r="13" fill="none" stroke="currentColor" />
+        <path d={NOON_RING} fill="none" stroke="currentColor" />
         <line
           x1="21" y1="21"
           x2={(21 + Math.sin(a) * 12).toFixed(1)}

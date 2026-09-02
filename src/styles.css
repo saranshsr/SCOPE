@@ -1616,6 +1616,29 @@ a:focus-visible {
 .pl-ftr > * + * { border-left: 1px solid var(--pl-line); }
 .pl-ftr > *:nth-child(2) { text-align: center; }
 
+/* ── THE MAKER'S STAMP ───────────────────────────────────────────────────
+   It lives INSIDE the first cell, never beside it. Every responsive rule
+   addresses these bands by nth-child (1776, 1778, 2131-2132, 2134), so a
+   fourth cell shifts four indices at once and hides the wrong thing in
+   silence. A descendant of cell one shifts none of them.
+
+   Cell one because it is the only cell that survives every breakpoint on
+   BOTH sheets: below 820 the landing keeps 1 alone and the console keeps
+   1 and 3. An attribution that disappears on a phone is not attribution.
+
+   Nothing here declares font-size, letter-spacing, line-height, casing or
+   colour. All five inherit from .pl-ftr, which is what keeps the stamp
+   inside the footer's voice instead of beside it -- and what keeps
+   casing-pairs and type-scale quiet, since neither can object to a
+   property that was never written. */
+.pl-ftr > *:first-child { display: flex; align-items: center; gap: var(--gap-sep); }
+.pl-ftr .pl-by { display: inline-flex; align-items: center; gap: var(--gap-tight); }
+/* One em, forever, and scoped to the footer so it cannot follow .pl-by
+   somewhere loud. The mark's size is a consequence of the type tier rather
+   than a free parameter: growing it means changing .pl-ftr's font-size,
+   which visibly changes three other cells. Law 2 held by geometry. */
+.pl-ftr .pl-by svg { width: 1em; height: 1em; flex: 0 0 auto; }
+
 /* ── IDLE LIFE ──────────────────────────────────────────────────────────
    A machine on standby is not a screenshot. Everything that represents
    SIGNAL breathes on one shared 5.4s period, staggered so the sheet reads
