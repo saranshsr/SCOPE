@@ -2156,9 +2156,15 @@ input[type='range'] { height: 32px; }
 .railbar {
   position: absolute;
   top: 0;
-  right: 1px;
+  /* the hit strip reaches inboard of the visible slug, so the container
+     is wider than the 3px it draws; the slug is painted on the right */
+  right: 0;
   height: var(--bar-track, 100%);
-  width: 3px;
+  width: 14px;
+  /* the CONTAINER never takes a pointer. Only the thumb does, and only
+     while showing -- otherwise an invisible 14px strip down the rail's
+     edge would swallow clicks on the rows underneath it for the whole
+     time nobody wants a scrollbar. */
   pointer-events: none;
   opacity: 0;
   transition: opacity 220ms ease;
@@ -2167,11 +2173,28 @@ input[type='range'] { height: 32px; }
 .railbar.on { opacity: 1; }
 .railbar > i {
   position: absolute;
-  left: 0;
-  right: 0;
+  right: 1px;
   top: var(--bar-y, 0px);
   height: var(--bar-h, 24px);
+  /* 3px of ink in an 14px target: the same content-box trick the webkit
+     thumb wanted, done on a real element so it also works as a hit area */
+  width: 3px;
+  border-left: 11px solid transparent;
+  box-sizing: content-box;
   background: var(--ink-dim);
+  background-clip: content-box;
+  cursor: default;
+}
+/* grabbable only once it is showing, which is also when you can see it */
+.railbar.on > i { pointer-events: auto; }
+.railbar.on > i:hover,
+.railbar.drag > i { background: var(--ink); background-clip: content-box; }
+/* a bar being held stays put and stays lit */
+.railbar.drag { opacity: 1; transition: none; }
+@media (pointer: coarse) {
+  /* law 7: the strip grows to a thumb's width, the ink does not */
+  .railbar { width: 44px; }
+  .railbar > i { border-left-width: 41px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .railbar { transition: none; }

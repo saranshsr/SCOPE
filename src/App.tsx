@@ -217,8 +217,59 @@ export default function App() {
       if (!bar || el.scrollHeight - el.clientHeight <= 1) return
       bar.classList.add('on')
       clearTimeout(hide)
+      // a bar you are holding does not get to fade out from under you
+      if (drag) return
       hide = window.setTimeout(() => bar.classList.remove('on'), 850)
     }
+
+    // DRAGGABLE, but only once it is showing. This is how an overlay
+    // scrollbar behaves and it is the only way to have both things the
+    // brief asked for: invisible at rest, and a real handle when wanted.
+    // The thumb is inert while hidden, or an invisible 14px strip down
+    // the rail's edge would be swallowing clicks on the rows underneath
+    // it for the 99% of the time nobody wants a scrollbar.
+    //
+    // Reaching for the edge reveals it, the same way the native one
+    // does, so the handle is findable without scrolling first.
+    let drag: { y: number; top: number } | null = null
+    const thumb = railBarRef.current?.firstElementChild as HTMLElement | null
+    const thumbH = () => Math.max(24, el.clientHeight * (el.clientHeight / el.scrollHeight))
+    const nearEdge = (e: PointerEvent) => {
+      if (drag) return
+      const r = rail.getBoundingClientRect()
+      if (e.clientX >= r.right - 18 && e.clientY >= r.top && e.clientY <= r.bottom) flash()
+    }
+    const onGrab = (e: PointerEvent) => {
+      if (el.scrollHeight - el.clientHeight <= 1) return
+      e.preventDefault()
+      e.stopPropagation()
+      thumb?.setPointerCapture(e.pointerId)
+      drag = { y: e.clientY, top: el.scrollTop }
+      railBarRef.current?.classList.add('on', 'drag')
+      clearTimeout(hide)
+    }
+    const onDragMove = (e: PointerEvent) => {
+      if (!drag) return
+      e.preventDefault()
+      const span = el.scrollHeight - el.clientHeight
+      // the thumb travels (track - its own height), so that is what the
+      // pointer's delta scales against, not the track
+      const travel = Math.max(1, el.clientHeight - thumbH())
+      el.scrollTop = drag.top + ((e.clientY - drag.y) / travel) * span
+    }
+    const onDrop = (e: PointerEvent) => {
+      if (!drag) return
+      drag = null
+      thumb?.releasePointerCapture?.(e.pointerId)
+      railBarRef.current?.classList.remove('drag')
+      flash()
+    }
+    thumb?.addEventListener('pointerdown', onGrab)
+    thumb?.addEventListener('pointermove', onDragMove)
+    thumb?.addEventListener('pointerup', onDrop)
+    thumb?.addEventListener('pointercancel', onDrop)
+    rail.addEventListener('pointermove', nearEdge)
+
     sync()
     el.addEventListener('scroll', sync, { passive: true })
     el.addEventListener('scroll', flash, { passive: true })
@@ -231,6 +282,11 @@ export default function App() {
     return () => {
       el.removeEventListener('scroll', sync)
       el.removeEventListener('scroll', flash)
+      thumb?.removeEventListener('pointerdown', onGrab)
+      thumb?.removeEventListener('pointermove', onDragMove)
+      thumb?.removeEventListener('pointerup', onDrop)
+      thumb?.removeEventListener('pointercancel', onDrop)
+      rail.removeEventListener('pointermove', nearEdge)
       clearTimeout(hide)
       ro.disconnect()
       mo.disconnect()
