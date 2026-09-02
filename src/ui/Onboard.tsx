@@ -158,6 +158,71 @@ const STEPS: Lesson[] = [
   },
 ]
 
+/**
+ * Keep the popover inside the plate.
+ *
+ * driver.js clamps a popover that will not fit to `innerHeight - 10`. That
+ * is the right instinct against the wrong edge: the star steps highlight
+ * the whole stage, 1070x768 of a 1440x900 viewport, so no side has room
+ * and every one of them bottomed out 14px past the plate's own hairline,
+ * sitting on the running footer's middle cell -- the one that reads
+ * "[?] for the full legend", i.e. the line describing the thing covering
+ * it. Shrinking the popover does not help; the clamp is to the window.
+ *
+ * So it is re-clamped to the plate's content box, which is what the sheet
+ * considers "on screen". Runs after driver's own positioning has settled.
+ */
+function clampToPlate() {
+  const pop = document.querySelector<HTMLElement>('.driver-popover')
+  const plate = document.querySelector('.cn-plate')
+  const foot = document.querySelector('.cn-ftr')
+  if (!pop || !plate) return
+  const r = pop.getBoundingClientRect()
+  // the floor is the footer's top edge when there is one, else the plate's
+  const floor = (foot ?? plate).getBoundingClientRect()[foot ? 'top' : 'bottom'] - 8
+  const ceil = plate.getBoundingClientRect().top + 8
+  if (r.bottom <= floor && r.top >= ceil) return
+  // never push the head off the top to save the foot: a popover taller
+  // than the plate keeps its title and loses its tail, which is the way
+  // round that stays readable
+  const top = Math.max(ceil, Math.min(r.top, floor - r.height))
+  // Clear the opposite edge first. driver writes `inset: <top> auto auto
+  // <left>`, but on its own clamp path it sets a bottom too -- and an
+  // element with BOTH edges pinned is stretched between them, not moved.
+  // Writing only top turned a 235px popover into an 858px one.
+  pop.style.bottom = 'auto'
+  pop.style.top = `${Math.round(top)}px`
+}
+
+/**
+ * Watch, do not fire once. driver repositions the popover after
+ * onHighlighted -- on its own animation frames, and again on scroll and
+ * on refresh -- so a single clamp after two rAFs was simply overwritten,
+ * and steps 1 and 2 went back to sitting on the footer. The observer
+ * re-clamps whenever driver moves it. It cannot loop: the clamp writes
+ * style.top, which fires the observer again, and the second pass is in
+ * bounds and returns before touching anything.
+ */
+function watchPopover(): () => void {
+  let queued = false
+  const run = () => {
+    if (queued) return
+    queued = true
+    requestAnimationFrame(() => {
+      queued = false
+      clampToPlate()
+    })
+  }
+  const mo = new MutationObserver(run)
+  mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
+  window.addEventListener('resize', run)
+  run()
+  return () => {
+    mo.disconnect()
+    window.removeEventListener('resize', run)
+  }
+}
+
 export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => void }) {
   useEffect(() => {
     // whatever had focus when the tour opened, so it can be handed back
@@ -177,6 +242,7 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
         if (s.stack === 'open') ops.openStack()
         else ops.closeStack()
       },
+
       popover: {
         title: s.title,
         description: s.body,
@@ -228,7 +294,9 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
     })
 
     d.drive()
+    const unwatch = watchPopover()
     return () => {
+      unwatch()
       if (d.isActive()) d.destroy()
     }
     // one tour per mount: App remounts this component to reopen it

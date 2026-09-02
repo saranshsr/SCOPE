@@ -58,8 +58,14 @@ body {
      hijacked. Tap targets still click; nothing here scrolls. */
   touch-action: none;
   font-size: 10px;
+  /* Casing is DECLARED, never inherited. This rule used to broadcast
+     uppercase to the whole tree, so every string in the product shouted
+     -- including three paragraphs of jukebox prose and a key legend whose
+     `e/E echo` rendered `E/E ECHO`, erasing the only distinguishing
+     information in it. Each primitive below declares its own. The
+     tracking stays: 0.09em is the chrome tier's, and every uppercase rule
+     re-declares its own on top. */
   letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 .stage {
@@ -90,6 +96,8 @@ body {
 .src-dot.live { background: var(--ink); border-color: var(--ink); }
 
 .deck-name {
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
   color: var(--ink);
   border-bottom: 1px solid var(--pl-line);
   padding-bottom: 4px;
@@ -124,6 +132,8 @@ body {
   color: var(--dim);
   margin-top: var(--gap-tight);
   font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 :focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
@@ -516,7 +526,7 @@ body {
   gap: var(--gap-related);
   margin-top: 10px;
 }
-.level-tag { color: rgba(234, 234, 234, 0.55); font-size: 8px; letter-spacing: 0.14em; }
+.level-tag { color: rgba(234, 234, 234, 0.55); font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; }
 /* §3.4 block meter: discrete cells, not a continuous bar. */
 .level-meter { flex: 1; display: flex; gap: var(--gap-tight); }
 .level-meter i {
@@ -650,9 +660,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .ret-label:empty { background: none; padding: 0; }
 
 .stemhint {
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  /* prose, not a micro-label: lowercase, tracked for lowercase */
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
   opacity: 0.62;
 }
 
@@ -722,6 +733,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font: inherit;
   font-size: 9px;
   text-transform: uppercase;
+  letter-spacing: 0.12em;
   color: rgba(234, 234, 234, 0.55);
   background: none;
   border: 1px solid var(--pl-line);
@@ -851,8 +863,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 
 .tuner-state {
   font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
   opacity: 0.6;
 }
 
@@ -1108,6 +1119,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   justify-content: space-between;
   font-size: 10px;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
   opacity: 0.7;
   margin-top: -4px;
 }
@@ -1241,7 +1253,6 @@ a:focus-visible {
   grid-template-rows: auto 1fr auto;
   font-size: 10px;
   letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--ink);
   /* No scrim: the star is dollied to sit inside the image cell, so the
      sheet lies over near-empty ground everywhere else. A wash here would
@@ -1265,6 +1276,8 @@ a:focus-visible {
 
 /* ── running header ── */
 .pl-hdr {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   display: grid;
   grid-template-columns: 1fr auto auto auto;
   border-bottom: 1px solid var(--pl-line);
@@ -1302,6 +1315,8 @@ a:focus-visible {
 .pl-r > .pl-strip { flex: 1 1 auto; }
 
 .pl-morse {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   border-bottom: 1px solid var(--pl-line);
   padding: 8px 12px;
   display: flex;
@@ -1320,6 +1335,8 @@ a:focus-visible {
   background: transparent;
 }
 .pl-figcap {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   position: absolute;
   left: 0; right: 0; bottom: 0;
   display: flex;
@@ -1348,12 +1365,14 @@ a:focus-visible {
   position: absolute; left: 0; top: 0;
   padding: 8px 12px;
   background: rgba(8, 8, 13, 0.72);
-  color: var(--ink-dim); font-size: 7px; letter-spacing: 0.18em;
+  color: var(--ink-dim); font-size: 7px; letter-spacing: 0.18em; text-transform: uppercase;
 }
 
 /* leader rows */
 .pl-leads { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--pl-line); }
 .pl-leads li {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   display: flex; align-items: center; gap: 12px;
   padding: 8px 12px; font-size: 10px;
   opacity: 0;
@@ -1432,12 +1451,16 @@ a:focus-visible {
 
 /* ── right column: the sheet's one primitive, repeated ── */
 .pl-row {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   display: flex; justify-content: space-between; align-items: center; gap: var(--gap-related);
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
 }
 .pl-dials {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   display: grid; grid-template-columns: repeat(3, 1fr);
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
@@ -1446,11 +1469,13 @@ a:focus-visible {
 .pl-dials > div + div { border-left: 1px solid var(--pl-line); }
 .pl-dials .cap { display: block; margin-top: 6px; }
 .pl-peak { display: grid; grid-template-columns: 1fr; gap: var(--gap-tight); }
-.pl-peak-hd { display: flex; justify-content: space-between; }
+.pl-peak-hd { display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: 0.1em; }
 
 /* the chain: the same row, indexed. The unbroken border down the index
    gutter IS the signal spine — no arrows, no boxes, no second language. */
 .pl-prow {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   display: grid; grid-template-columns: 36px 1fr auto; align-items: stretch;
   border-bottom: 1px solid var(--pl-line);
   cursor: help;
@@ -1482,7 +1507,7 @@ a:focus-visible {
 }
 
 .pl-pills { display: flex; gap: var(--gap-tight); padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
-.pl-pills .pill { border: 1px solid var(--pl-line); color: var(--ink-dim); padding: 4px 8px; font-size: 8px; }
+.pl-pills .pill { border: 1px solid var(--pl-line); color: var(--ink-dim); padding: 4px 8px; font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
 .pl-pills .pill.on { border-color: var(--red); color: var(--red); }
 .pl-strip {
   min-height: 12px;
@@ -1498,6 +1523,8 @@ a:focus-visible {
 
 /* ── running footer ── */
 .pl-ftr {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   display: grid; grid-template-columns: auto 1fr auto;
   border-top: 1px solid var(--pl-line);
   color: var(--ink-dim);
@@ -2000,8 +2027,11 @@ input[type='range'] { height: 32px; }
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
   color: var(--dim);
-  font-size: 8px;
-  letter-spacing: 0.1em;
+  /* prose, not a micro-label: it gets a readable size, the way
+     .pl-pathcap already does on the landing */
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
 }
 
 
