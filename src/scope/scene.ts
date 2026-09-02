@@ -50,6 +50,8 @@ const LINK_N = 2200 // constellation segments
  * A taste constant, so it is one number, and turnable live via
  * `__sc.setSimDial()`. */
 const SIM_AMT = 0.5
+/** the body's resting radius scale, before any burst */
+const R_BASE = 0.88
 const SIM_TEX = 512
 /** Bound until a real sim is attached. NearestFilter throughout: bilinear
  *  sampling here would silently blend one particle's offset with its
@@ -145,6 +147,9 @@ const SHELL_VERT = /* glsl */ `
   attribute vec2 aSimUV;
   uniform sampler2D uSim;
   uniform float uSimAmt;
+  uniform float uDrop;
+  uniform float uStrong;
+  uniform float uWave;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -329,6 +334,28 @@ const SHELL_VERT = /* glsl */ `
     float simLen = length(simOff);
     p += simOff * (simLen > 0.40 ? 0.40 / simLen : 1.0);
 
+    // THE SHOCKWAVE. A ring of displacement travelling outward from the
+    // core, not a uniform inflation -- inflation is what every beat
+    // already does through the radius, and doing more of it on a drop
+    // just reads as louder rather than as an EVENT. A wave has a front,
+    // so matter moves in sequence from the middle out and the body is
+    // briefly out of round, which is the thing that reads as impact.
+    //
+    // uWave is seconds since the drop landed. The front travels at 1.9
+    // units a second and the ring is 0.22 wide; past ~0.9s it is outside
+    // any particle and the term is dead, so it costs nothing between
+    // drops.
+    float wavePush = 0.0;
+    if (uWave >= 0.0 && uWave < 0.95) {
+      float rNow = length(p);
+      float front = uWave * 1.9;
+      // gaussian-ish ring, and it fades as it travels so the wave spends
+      // itself rather than stopping dead at the edge of the body
+      float ring = exp(-pow((rNow - front) / 0.22, 2.0)) * (1.0 - uWave / 0.95);
+      wavePush = ring * uDrop;
+      p += normalize(p + vec3(1e-5)) * wavePush * 0.42;
+    }
+
     // Hot where deformed — flares glow. A slow per-particle twinkle keeps
     // the surface grainy even in still passages.
     float k = clamp(abs(disp) * 3.2, 0.0, 1.0);
@@ -336,7 +363,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) + pullHeat + hoverHeat;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -722,6 +749,17 @@ export class Scene {
       // rebuild -- and is what reduced-motion and the boot dive turn down.
       uSim: { value: BLANK_SIM },
       uSimAmt: { value: 0 },
+      /* THE BURST. uDrop and uStrong are 0..1 envelopes with a fast
+       * attack and an eased decay, set from the energy classifier. uWave
+       * is seconds since the last drop landed, negative when there has
+       * not been one, and it drives a ring of displacement travelling
+       * outward through the body. Kept separate from uPulse and uSnap
+       * because those are per-beat and these are per-EVENT: a small beat
+       * must produce a small reaction and only a genuine drop the large
+       * one, which is the whole point. */
+      uDrop: { value: 0 },
+      uStrong: { value: 0 },
+      uWave: { value: -1 },
       // The vocal voice: 0 = no corona; rises with vocal-stem presence.
       uVocal: { value: 0 },
       // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
@@ -1033,6 +1071,30 @@ export class Scene {
   }
 
   /** Target for the pull-apart, 0..1. The spring does the rest. */
+  /**
+   * The energy classifier's four-tier state, in one call.
+   *
+   * Everything the burst does hangs off two envelopes: uDrop and uStrong.
+   * They are set here and read by the shader, the bloom, the afterimage
+   * and the sim, so a tier change moves the whole instrument at once
+   * rather than each effect deciding for itself what counts as loud.
+   *
+   * `wave` true starts the shockwave clock. It is an edge, not a level:
+   * the caller fires it on the frame a drop is detected and never again
+   * until the next one, or the ring restarts every frame and stands still.
+   */
+  setEnergy(drop: number, strong: number, wave: boolean) {
+    this.uniforms.uDrop.value = Math.max(0, Math.min(1, drop))
+    this.uniforms.uStrong.value = Math.max(0, Math.min(1, strong))
+    if (wave) this.uniforms.uWave.value = 0
+    // the ground dips so a star that has outgrown its frame is actually
+    // visible through the chrome rather than glowing faintly behind it
+    if (this.dropCssEl) this.dropCssEl.style.setProperty('--drop', this.uniforms.uDrop.value.toFixed(3))
+  }
+
+  /** the element carrying --drop for the chrome's ground */
+  dropCssEl: HTMLElement | null = null
+
   setDissect(t: number) {
     this.dissectTarget = Math.max(0, Math.min(1, t))
   }
@@ -1281,8 +1343,11 @@ export class Scene {
       this.camera.aspect = w / Math.max(1, h)
     }
     this.placeCamera()
-    // The subject dominates the stage, like the reference.
-    this.uniforms.uR.value = 0.88
+    // The subject dominates the stage, like the reference. The base only;
+    // the per-frame scale break is applied in render(), because this
+    // function runs on resize and would otherwise hold a drop's expansion
+    // frozen until the window changed size.
+    this.uniforms.uR.value = R_BASE
   }
 
   /** Camera at x looking at (x,0,0) shows world-x at screen centre, so to
@@ -1374,9 +1439,31 @@ export class Scene {
     const baseRx = Math.sin(this.driftT * 0.4) * 0.12 - this.ptr.y * 0.5 + this.drag.y
     this.cluster.rotation.x = baseRx * (1 - dis) + 0.42 * dis
 
+    // Bloom carries the brightness spike. A drop is worth roughly twice
+    // the whole sustained range, which is what makes it read as a flash
+    // rather than as the music simply getting louder.
     this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value * (1 - dis * 0.28)
-    // Persistence leans with the bass: quiet = crisp, heavy = long exposure.
-    ;(this.after.uniforms as { damp: { value: number } }).damp.value = 0.76 + this.uniforms.uLow.value * 0.15
+      + this.uniforms.uDrop.value * 0.55 + this.uniforms.uStrong.value * 0.16
+    // Persistence leans with the bass: quiet = crisp, heavy = long
+    // exposure. A drop adds motion blur on top, so the burst smears and
+    // the calm state stays crisp.
+    ;(this.after.uniforms as { damp: { value: number } }).damp.value =
+      Math.min(0.94, 0.76 + this.uniforms.uLow.value * 0.15 + this.uniforms.uDrop.value * 0.09)
+    // THE SCALE BREAK, per frame. On a drop the body genuinely outgrows
+    // its frame: the star canvas is full-bleed BEHIND the plate and the
+    // chrome is a frame over it, so this needs no layout change, only
+    // permission. A positional scale rather than a camera move on
+    // purpose -- moving the camera would take the survey chrome and
+    // projectLocal's registration with it.
+    this.uniforms.uR.value =
+      R_BASE * (1 + this.uniforms.uDrop.value * 0.34 + this.uniforms.uStrong.value * 0.06)
+
+    // the shockwave's clock. Runs from the frame the drop landed and
+    // stops once the front is past every particle.
+    if (this.uniforms.uWave.value >= 0) {
+      this.uniforms.uWave.value += dt
+      if (this.uniforms.uWave.value > 0.95) this.uniforms.uWave.value = -1
+    }
     // THE SIM STEPS HERE, and nowhere else. The shell samples uSim during
     // composer.render(), so stepping on the line above means the texture
     // bound at sample time was written from THIS frame's dt and this

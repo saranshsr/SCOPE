@@ -1310,13 +1310,18 @@ a:focus-visible {
 /* rgba(10, 10, 10, 0.94) is the console rail's own value, so both
    surfaces sit on one rule: the star is a presence behind the chrome,
    never a texture through it. */
+/* --drop is written by the render loop, 0..1, and dips the ground so a
+   star that has outgrown its frame on a drop is actually SEEN through the
+   chrome instead of glowing faintly behind it. 0.94 down to 0.72 at full
+   drop: still legible, and the burst reads across the whole sheet rather
+   than staying politely inside the image cell. */
 .pl-hdr,
 .pl-ftr,
 .pl-morse,
 .pl-wave,
 .pl-leads,
 .pl-band,
-.pl-r { background: rgba(10, 10, 10, 0.94); }
+.pl-r { background: rgba(10, 10, 10, calc(0.94 - var(--drop, 0) * 0.22)); }
 /* and NOT .pl-figwrap: the hole is the one thing the frame exists for */
 .plate .k { color: var(--ink-dim); }
 .plate .v { color: var(--ink); }
@@ -1850,7 +1855,7 @@ input[type='range'] { height: 32px; }
   pointer-events: none; /* the stage below stays grabbable */
 }
 .cn-plate > * { pointer-events: auto; }
-.cn-hdr { background: rgba(10, 10, 10, 0.94); }
+.cn-hdr { background: rgba(10, 10, 10, calc(0.94 - var(--drop, 0) * 0.22)); }
 .cn-hdr .armed span { color: var(--red); }
 .cn-hdr .rail-help {
   border: 0;
@@ -1888,7 +1893,7 @@ input[type='range'] { height: 32px; }
 .cn-brk.bl { bottom: 11px; left: 11px; border-right: 0; border-top: 0; }
 .cn-brk.br { bottom: 11px; right: 11px; border-left: 0; border-top: 0; }
 
-.cn-ftr { background: rgba(10, 10, 10, 0.94); }
+.cn-ftr { background: rgba(10, 10, 10, calc(0.94 - var(--drop, 0) * 0.22)); }
 .cn-ftr .diag { display: flex; align-items: center; gap: 8px; }
 
 /* module header — the landing has no equivalent, so this is the one new
@@ -1979,8 +1984,10 @@ input[type='range'] { height: 32px; }
   border-right: 1px solid var(--pl-line);
   border-top: 0;
   /* the STAGE is the hole the star burns through; the panel is a panel.
-     At 0.82 the particle streaks read straight through the plate rows. */
-  background: rgba(10, 10, 10, 0.94);
+     At 0.82 the particle streaks read straight through the plate rows.
+     --drop dips it on a burst so the star can genuinely escape the stage
+     rather than glowing behind the rail. */
+  background: rgba(10, 10, 10, calc(0.94 - var(--drop, 0) * 0.22));
   /* Two rows: the scrolling control stack, and the docked readings.
      The rail itself no longer scrolls -- if it did, the dock would scroll
      with it, which is the whole thing this is fixing. */

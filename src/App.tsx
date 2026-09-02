@@ -340,6 +340,8 @@ export default function App() {
 
     const scene = new Scene(canvas)
     sceneRef.current = scene
+    // the chrome's ground reads --drop off the app root
+    scene.dropCssEl = appRef.current
     if (import.meta.env.DEV) (window as unknown as { __sc?: unknown }).__sc = scene
     const tracker = new FingerprintTracker()
     const beatClock = new BeatClock()
