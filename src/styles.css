@@ -1041,7 +1041,10 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   width: 22px;
   height: 22px;
   cursor: pointer;
-  margin-left: 8px;
+  /* No margin. Every cell in .cn-hdr abuts its neighbour through
+     `.pl-hdr > * + * { border-left }`, and this one carried 8px into its
+     auto track -- so the help cell's stroke was drawn 8px inboard and the
+     header had exactly one seam that was not a shared edge. */
 }
 .rail-help:hover { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
 
@@ -1713,6 +1716,7 @@ input[type='range'] { height: 32px; }
   .vibe, .rail-src { min-height: 44px; }
   .rail-src button { min-height: 44px; }
   .layer-btn { min-width: 44px; min-height: 44px; }
+  .rail-help { min-width: 44px; }
   .rail-help,
   .deck-split,
   .tuner-chips button,

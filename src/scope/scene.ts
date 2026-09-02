@@ -94,6 +94,9 @@ const SHELL_VERT = /* glsl */ `
   uniform vec3 uGrabPos;
   uniform float uGrabStr;
   uniform float uGrabBand;
+  uniform vec3 uHover;
+  uniform vec3 uHoverLag;
+  uniform float uHoverStr;
   uniform vec3 uEqVis;
   uniform float uBands[24];
   uniform float uDissect;
@@ -202,9 +205,38 @@ const SHELL_VERT = /* glsl */ `
       p = mix(p, tp, dl);
     }
 
+    // Matter parts and swells around the hand. Hover was a whole-body
+    // parallax tilt and nothing else: setPointer wrote two scalars, the
+    // cluster rotated, and not one of the 28 uniforms changed. The field
+    // was rigid. This is the kernel scripts/hover-field.mjs has been
+    // asking for since it was written — hdist/hdir/pushW are its names.
+    //
+    // Radial, outward from the hand, with COMPACT SUPPORT: past R nothing
+    // moves at all, so touching the near side cannot make the far limb
+    // flinch. Smoothstep rather than the exponential the mockup used —
+    // an exponential leaks, and a field that never quite reaches zero is
+    // a field the whole star feels.
+    float hoverHeat = 0.0;
+    if (uHoverStr > 0.001) {
+      vec3 hoff = p - uHover;
+      float hdist = length(hoff);
+      vec3 hdir = hoff / max(hdist, 1e-4);
+      float hx = clamp(1.0 - hdist / 0.34, 0.0, 1.0);
+      float pushW = hx * hx * (3.0 - 2.0 * hx) * uHoverStr;
+      p += hdir * pushW * uR * 0.17;
+      // The wake. uHover is unsprung and uHoverLag chases it, so their
+      // difference IS pointer velocity: the parting leans into the
+      // direction of travel and smears behind, for one lerp and no extra
+      // bookkeeping. Stop moving and it collapses on its own.
+      p += (uHover - uHoverLag) * pushW * 1.6;
+      hoverHeat = pushW * 0.26; // parted matter thins, so its rim brightens
+    }
+
     // The hand in the matter. Band-selective: you grab the BASS and the
     // bass sectors' particles stream to your hand — everything else barely
     // stirs. Wider falloff + stronger pull than v1: the tendril must READ.
+    // Sits after the hover block on purpose: press down and the pull takes
+    // the field over from the parting, which is the right physical grammar.
     float pullHeat = 0.0;
     if (uGrabStr > 0.001) {
       float grp = si < 8 ? 0.0 : si < 16 ? 1.0 : 2.0;
@@ -221,7 +253,7 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) + pullHeat;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) + pullHeat + hoverHeat;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -509,6 +541,8 @@ export class Scene {
   private _v = new THREE.Vector3()
   private ejecta!: { dir: THREE.BufferAttribute; org: THREE.BufferAttribute; birth: THREE.BufferAttribute; spd: THREE.BufferAttribute; cursor: number }
   private ptr = { x: 0, y: 0, tx: 0, ty: 0 }
+  /** 0..1 presence of the hand; the shader's strength chases this */
+  private hoverT = 0
   private drag = { x: 0, y: 0, tx: 0, ty: 0 }
   private driftT = 0
   private born = performance.now()
@@ -570,6 +604,13 @@ export class Scene {
       uGrabPos: { value: new THREE.Vector3() },
       uGrabStr: { value: 0 },
       uGrabBand: { value: -1 }, // 0 low / 1 mid / 2 high / -1 all
+      // THE HAND IN THE FIELD. uHover is the raw pointer, unsprung —
+      // easing the position is what makes a thing stop feeling like
+      // something you are touching. Only its PRESENCE is damped.
+      // uHoverLag is a lagging copy, so their difference is velocity.
+      uHover: { value: new THREE.Vector3() },
+      uHoverLag: { value: new THREE.Vector3() },
+      uHoverStr: { value: 0 },
       // The vocal voice: 0 = no corona; rises with vocal-stem presence.
       uVocal: { value: 0 },
       // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
@@ -1016,6 +1057,15 @@ export class Scene {
   setPointer(nx: number, ny: number) {
     this.ptr.tx = nx
     this.ptr.ty = ny
+    // setPointer speaks in -0.5..0.5 of the viewport; the ray wants NDC.
+    // Same projection the grab uses, so hover and grab agree about where
+    // your hand is to the pixel.
+    this.uniforms.uHover.value.copy(this.grabPlane(nx * 2, -ny * 2))
+  }
+
+  /** Is the hand on the field, 0..1. Zero while a grab owns it. */
+  setHover(v: number) {
+    this.hoverT = Math.max(0, Math.min(1, v))
   }
 
   /** A beat erupts matter from the surface: take the next slots in the
@@ -1165,6 +1215,10 @@ export class Scene {
     this.ptr.y += (this.ptr.ty - this.ptr.y) * ease
     this.drag.x += (this.drag.tx - this.drag.x) * ease
     this.drag.y += (this.drag.ty - this.drag.y) * ease
+    // The hand itself is unsprung; only its presence is damped, so
+    // arriving is instant and leaving is a settle rather than a pop.
+    this.uniforms.uHoverStr.value += (this.hoverT - this.uniforms.uHoverStr.value) * Math.min(1, dt * 7)
+    this.uniforms.uHoverLag.value.lerp(this.uniforms.uHover.value, Math.min(1, dt * 9))
     if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial * (0.75 + warp * 0.25) * (1 + this.bootRev * 5)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     // Dissected, the view settles into the surveyor's tilt — looking

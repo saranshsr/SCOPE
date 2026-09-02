@@ -555,6 +555,8 @@ export default function App() {
       armed = false
       appRef.current?.classList.remove('cursor-armed')
       if (reticleRef.current) reticleRef.current.style.opacity = '0'
+      // the field closes over about 140ms rather than snapping shut
+      scene.setHover(0)
     }
 
     const onCurMove = (e: PointerEvent) => {
@@ -564,7 +566,13 @@ export default function App() {
         // Hover aims the instrument (fine pointers only — touch has no
         // hover); a held pointer grabs and spins it on EVERY device.
         // Deltas are computed manually: iOS reports movementX as 0.
-        if (finePointer) scene.setPointer(e.clientX / Math.max(1, w) - 0.5, e.clientY / Math.max(1, h) - 0.5)
+        if (finePointer) {
+          scene.setPointer(e.clientX / Math.max(1, w) - 0.5, e.clientY / Math.max(1, h) - 0.5)
+          // The hand parts the field, but only when it is on the field and
+          // owns nothing else: over chrome, mid-grab or mid-dissect the
+          // parting would fight the gesture that is already running.
+          scene.setHover(cur.overUi || mix.on || sect.axis || sect.drag || cur.dragging ? 0 : 1)
+        }
         if (cur.dragging) {
           scene.dragBy((e.clientX - cur.lx) * 0.006, (e.clientY - cur.ly) * 0.004)
         }
