@@ -27,6 +27,25 @@ const BASE_DENSITY = 0.55
 const CORE_N = 2600
 const EJECTA_N = 3600
 const LINK_N = 2200 // constellation segments
+/* The simulator addresses particles as texels. 512x512 = 262,144 slots for
+ * SHELL_N = 108,000, and the surplus is inert. The UV is BAKED into an
+ * attribute rather than derived in the shader from an index: recovering an
+ * exact integer at 108,000 steps is an off-by-one waiting to happen, and an
+ * off-by-one here means every particle reads its neighbour's offset. */
+const SIM_TEX = 512
+/** Bound until a real sim is attached. NearestFilter throughout: bilinear
+ *  sampling here would silently blend one particle's offset with its
+ *  neighbour's. */
+const BLANK_SIM = (() => {
+  const t = new THREE.DataTexture(new Float32Array([0, 0, 0, 0]), 1, 1, THREE.RGBAFormat, THREE.FloatType)
+  t.minFilter = THREE.NearestFilter
+  t.magFilter = THREE.NearestFilter
+  t.generateMipmaps = false
+  t.needsUpdate = true
+  return t
+})()
+const simU = (i: number) => ((i % SIM_TEX) + 0.5) / SIM_TEX
+const simV = (i: number) => (Math.floor(i / SIM_TEX) + 0.5) / SIM_TEX
 const CORONA_N = 2600 // the vocal ring
 const GROUND_N = 4200 // the illuminated ground under the dissected stack
 
@@ -105,6 +124,9 @@ const SHELL_VERT = /* glsl */ `
   uniform float uTierOf[24];
   uniform float uTierLvl[6];
   uniform float uHiTier;
+  attribute vec2 aSimUV;
+  uniform sampler2D uSim;
+  uniform float uSimAmt;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -246,6 +268,22 @@ const SHELL_VERT = /* glsl */ `
       pullHeat = pullW * 0.55; // pulled matter burns brighter — the tendril is hot
     }
 
+    // THE SIMULATOR'S CONTRIBUTION. Added last, on purpose: the dissect
+    // remap and the grab are both CONTRACTIONS of p -- mix() toward a tier
+    // pose and toward the hand -- so an offset applied before either would
+    // be scaled down by (1 - dl) or erased by up to 92%. Every stage above
+    // therefore computes the target pose, and the sim rides on top of it.
+    //
+    // Clamped, and not for tidiness. gl_PointSize divides by
+    // max(0.4, -mv.z); during the boot dive the camera sits at z 0.44,
+    // inside a body of radius 0.55, so an unbounded offset pushes points
+    // through the near plane and every one that hits that floor becomes a
+    // 6.9px blob on an additive layer feeding a bloom pass at threshold
+    // 0.55. Small relative to bodyHit's hard-coded 0.88 * 0.62.
+    vec3 simOff = texture2D(uSim, aSimUV).rgb * uSimAmt;
+    float simLen = length(simOff);
+    p += simOff * (simLen > 0.40 ? 0.40 / simLen : 1.0);
+
     // Hot where deformed — flares glow. A slow per-particle twinkle keeps
     // the surface grainy even in still passages.
     float k = clamp(abs(disp) * 3.2, 0.0, 1.0);
@@ -348,6 +386,9 @@ const LINK_VERT = /* glsl */ `
   uniform float uSnap;
   uniform float uOnsetN;
   uniform float uDissect;
+  attribute vec2 aSimUV;
+  uniform sampler2D uSim;
+  uniform float uSimAmt;
   attribute vec3 aDir;
   attribute float aHash;  // shared per segment
   varying float vA;
@@ -367,6 +408,11 @@ const LINK_VERT = /* glsl */ `
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     // A chord between two tiers is a lie once the tiers separate.
     vA = (0.028 + gate * max(uPulse * 0.3, uSnap * 0.5)) * on * (1.0 - uDissect);
+    // the lattice borrows each endpoint's shell slot, or the wireframe
+    // detaches from the matter it is drawn between
+    vec3 simOff = texture2D(uSim, aSimUV).rgb * uSimAmt;
+    float simLen = length(simOff);
+    p += simOff * (simLen > 0.40 ? 0.40 / simLen : 1.0);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `
@@ -611,6 +657,13 @@ export class Scene {
       uHover: { value: new THREE.Vector3() },
       uHoverLag: { value: new THREE.Vector3() },
       uHoverStr: { value: 0 },
+      // THE SIMULATOR. uSim is bound to a 1x1 black texel until a sim is
+      // attached: an unbound sampler is undefined behaviour, and the whole
+      // product hangs off this one canvas. uSimAmt at 0 makes the plumbing
+      // a no-op that can be A/B'd against the pre-sim build without a
+      // rebuild -- and is what reduced-motion and the boot dive turn down.
+      uSim: { value: BLANK_SIM },
+      uSimAmt: { value: 0 },
       // The vocal voice: 0 = no corona; rises with vocal-stem presence.
       uVocal: { value: 0 },
       // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
@@ -643,6 +696,7 @@ export class Scene {
       const dir = new Float32Array(SHELL_N * 3)
       const hash = new Float32Array(SHELL_N)
       const pos = new Float32Array(SHELL_N * 3)
+      const suv = new Float32Array(SHELL_N * 2)
       const GA = Math.PI * (3 - Math.sqrt(5)) // golden angle
       for (let i = 0; i < SHELL_N; i++) {
         const y = 1 - (i / (SHELL_N - 1)) * 2
@@ -652,11 +706,17 @@ export class Scene {
         dir[i * 3 + 1] = y
         dir[i * 3 + 2] = Math.sin(th) * rad
         hash[i] = Math.random()
+        // aHash cannot serve as the slot: it is Math.random(), so it is
+        // neither injective nor stable across loads, and eight separate
+        // fract(aHash * K) decorrelations already read it.
+        suv[i * 2] = simU(i)
+        suv[i * 2 + 1] = simV(i)
       }
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
       geo.setAttribute('aDir', new THREE.BufferAttribute(dir, 3))
       geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
+      geo.setAttribute('aSimUV', new THREE.BufferAttribute(suv, 2))
       const mat = new THREE.ShaderMaterial({
         uniforms: this.uniforms,
         vertexShader: SHELL_VERT.replace('__SNOISE__', SNOISE),
@@ -745,6 +805,7 @@ export class Scene {
       // On a fibonacci lattice, index deltas of 1/13/21 land on spatial
       // neighbours — short chords, never random cross-sphere slashes.
       const DELTAS = [1, 13, 21]
+      const lsuv = new Float32Array(LINK_N * 2 * 2)
       for (let s = 0; s < LINK_N; s++) {
         const i = Math.floor(Math.random() * (SHELL_N - 22))
         const j = i + DELTAS[(Math.random() * DELTAS.length) | 0]
@@ -755,11 +816,18 @@ export class Scene {
         dir.set(b, s * 6 + 3)
         hash[s * 2] = h
         hash[s * 2 + 1] = h
+        // each endpoint borrows the slot of the shell particle it is drawn
+        // between, or the lattice detaches from the matter it describes
+        lsuv[s * 4] = simU(i)
+        lsuv[s * 4 + 1] = simV(i)
+        lsuv[s * 4 + 2] = simU(j)
+        lsuv[s * 4 + 3] = simV(j)
       }
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
       geo.setAttribute('aDir', new THREE.BufferAttribute(dir, 3))
       geo.setAttribute('aHash', new THREE.BufferAttribute(hash, 1))
+      geo.setAttribute('aSimUV', new THREE.BufferAttribute(lsuv, 2))
       const mat = new THREE.ShaderMaterial({
         uniforms: this.uniforms,
         vertexShader: LINK_VERT.replace('__SNOISE__', SNOISE),
