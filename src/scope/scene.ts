@@ -40,7 +40,7 @@ const LINK_N = 2200 // constellation segments
  * a hand pulse in isolation, which is visible without being destructive.
  * This is a taste constant, so it is one number and it is turnable live via
  * `__sc.setSimDial()`. */
-const SIM_AMT = 0.3
+const SIM_AMT = 0.15
 const SIM_TEX = 512
 /** Bound until a real sim is attached. NearestFilter throughout: bilinear
  *  sampling here would silently blend one particle's offset with its
