@@ -9,6 +9,7 @@ import { fetchAudiusRadio, fetchVibe } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
+import { clip } from './text'
 import { Tube, HINDI, parseVideoId, type TubeState } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 
@@ -1548,7 +1549,7 @@ export default function App() {
       stemDeckRef.current = deck
       if (import.meta.env.DEV) (window as unknown as { __deck: StemDeck }).__deck = deck
       deck.loadBuffers(stems.map((s) => ({ role: s.role, name: `${s.role} · split`, buffer: s.buffer })))
-      eng.enterStems(`${fromTitle.slice(0, 22)} · split`)
+      eng.enterStems(`${clip(fromTitle, 22)} · split`)
       deck.play(resumeAt)
       const p = deck.peaks()
       peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
@@ -1665,7 +1666,12 @@ export default function App() {
     : decoding
     ? 'DECODING ///'
     : track
-      ? `${track.title.toUpperCase().slice(0, 26)}${source === 'file' ? '.MP3' : ''}`
+      // clip() before toUpperCase(), and never slice(): a bare slice cuts
+      // mid-word and marks nothing, so the console's most-read line rendered
+      // "SEAN PAUL GET BUSY PAULY F" -- a title that looks corrupted rather
+      // than shortened. text.ts was written for exactly this and was
+      // imported nowhere.
+      ? `${clip(track.title, 26).toUpperCase()}${source === 'file' ? '.MP3' : ''}`
       : 'NO CARRIER'
 
   return (
@@ -2405,7 +2411,7 @@ export default function App() {
           <span className="announce-title">
             {/* Filename-derived titles run long; the announcement is a
                 headline, not a paragraph. */}
-            <Decode text={announce.text.toUpperCase().slice(0, 28)} duration={900} />
+            <Decode text={clip(announce.text, 28).toUpperCase()} duration={900} />
           </span>
         </div>
       )}
