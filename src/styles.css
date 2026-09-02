@@ -269,7 +269,14 @@ body {
 
 .rail-src {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* TWO columns for four sources, not three. At three the fourth source
+     wrapped alone onto row two and left two EMPTY cells, and an empty cell
+     in a gap:1px grid is not empty -- it is 212x29px of the container's
+     line colour, the brightest block in that stretch of the rail. The
+     comment on .tuner-chips below claims this grid is "the same
+     construction, done right"; it was right about the cells and wrong
+     about the count. Four cells, two rows, no holes. */
+  grid-template-columns: repeat(2, 1fr);
   gap: 1px;
   margin-top: 22px;
   background: var(--pl-line); /* 1px grid-gap dividers */
@@ -767,7 +774,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* The cells need their OWN ground. Without it the container's line colour
    showed straight through the transparent buttons as a pale lavender fill,
    and the leftover 1px border doubled the hairline against the grid gap.
-   .rail-src directly above is the same construction, done right. */
+   .rail-src above is the same construction; see the note there about the
+   column count, which is the other way a gap:1px grid leaks its ground. */
 /* Cells in a shared-edge grid, not free-floating boxes. This rule still
    carried `background: none` and its own 1px border from before the
    container became a gap:1px grid — so the container's line colour showed
