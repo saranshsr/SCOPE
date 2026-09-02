@@ -53,6 +53,12 @@ export default function App() {
    *  splash, so the plate's readings become real and POWER ON becomes a
    *  way back in rather than a way in. */
   const [everStarted, setEverStarted] = useState(false)
+  /** the climb out of the console, mirroring the dive in */
+  const [arrive, setArrive] = useState(false)
+  const climbRaf = useRef(0)
+  /** true while the climb owns the camera, so the plate's mount effect
+   *  does not snap it to the cell out from under the animation */
+  const climbRef = useRef(false)
   const [track, setTrack] = useState<TrackInfo | null>(null)
   const [source, setSource] = useState<SourceKind>('radio')
   const [playing, setPlaying] = useState(false)
@@ -241,6 +247,9 @@ export default function App() {
       raf = requestAnimationFrame(tick)
     }
     const aim = () => {
+      // the climb is already flying the camera to this exact cell; snapping
+      // here would land it before it set off
+      if (climbRef.current) return
       ;(window as unknown as { __focus?: (snap?: boolean) => void }).__focus?.(true)
     }
     aim()
@@ -1724,12 +1733,86 @@ export default function App() {
    */
   const standby = () => {
     if (!startedRef.current || bootRef.current) return
+    const scene = sceneRef.current
+    // Read the camera BEFORE unmounting the console. The plate's own mount
+    // effect aims at the image cell with snap the instant it appears, so a
+    // `from` sampled one frame later is already the destination and the
+    // climb animates from the target to the target -- measured, it sat at
+    // dolly 1.26 for the whole second and then eased in afterwards on the
+    // damper, which is the cut this was written to replace.
+    const from = scene ? { ...scene.focusNow } : null
+    climbRef.current = true
     startedRef.current = false
     setStarted(false)
-    sceneRef.current?.setDissect(0)
-    // the plate has to exist before its cell can be measured
+    scene?.setDissect(0)
+    if (!scene || !from || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      climbRef.current = false
+      requestAnimationFrame(() => {
+        ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus(true)
+      })
+      return
+    }
+    // THE CLIMB: the dive, run backwards.
+    //
+    // Going in, the camera accelerates through the shell on a cubic
+    // ease-IN over 1000ms while the sheet rushes past and blows out. So
+    // coming back it decelerates on a cubic ease-OUT over the same 1000ms
+    // and the sheet arrives to meet it -- you are not cut back to the
+    // landing, you climb out to it. The two motions are the same distance
+    // in opposite directions, which is the only reason the return reads as
+    // the same gesture rather than a different screen.
+    //
+    // The plate has to be MOUNTED before its image cell can be measured,
+    // and setStarted above only queues that. One frame of latency buys the
+    // real rect, and aiming at a rect that does not exist yet is what
+    // would put the star anywhere but the frame.
+    setArrive(true)
     requestAnimationFrame(() => {
-      ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus(false)
+      const fig = document.querySelector<HTMLElement>('.pl-fig')
+      const w = window.innerWidth
+      const h = window.innerHeight
+      if (!fig) { climbRef.current = false; setArrive(false); return }
+      // OFFSET geometry, not getBoundingClientRect. The arrival animation
+      // is scaling the plate from 1.5 down to 1 while this runs, so a
+      // client rect measures the cell mid-flight and the climb lands on
+      // the wrong framing -- measured, it settled at dolly 1.26 and then
+      // drifted to 1.89 on the damper afterwards, a second move the eye
+      // reads as the first one having missed. offsetWidth and the
+      // offsetLeft chain are layout, and layout does not see transforms.
+      let ox = 0
+      let oy = 0
+      for (let el: HTMLElement | null = fig; el; el = el.offsetParent as HTMLElement | null) {
+        ox += el.offsetLeft
+        oy += el.offsetTop
+      }
+      const cw = fig.offsetWidth
+      const ch = fig.offsetHeight
+      const to = {
+        x: (ox + cw / 2) / w,
+        y: (oy + ch / 2) / h,
+        d: Math.max(1, (h / ch) * 0.92),
+      }
+      const CLIMB = 1000
+      const t0 = performance.now()
+      const step = () => {
+        const e = performance.now() - t0
+        const p = Math.min(1, e / CLIMB)
+        // the mirror of the dive's p*p*p
+        const k = 1 - Math.pow(1 - p, 3)
+        scene.setRev((1 - k) * 1.4)
+        scene.setFocus(
+          from.x + (to.x - from.x) * k,
+          from.y + (to.y - from.y) * k,
+          from.d + (to.d - from.d) * k,
+          true,
+        )
+        if (p < 1) { climbRaf.current = requestAnimationFrame(step); return }
+        scene.setRev(0)
+        climbRef.current = false
+        setArrive(false)
+        ;(window as unknown as { __focus: (snap?: boolean) => void }).__focus(false)
+      }
+      climbRaf.current = requestAnimationFrame(step)
     })
   }
 
@@ -1797,7 +1880,7 @@ export default function App() {
           sharing edges with its neighbours; the image cell is a hole in the
           sheet, so the live star burns through it, framed and fitted. */}
       {!started && (
-        <div className={`plate${boot ? ` ${boot}` : ''}`}>
+        <div className={`plate${boot ? ` ${boot}` : ''}${arrive ? ' arrive' : ''}`}>
           <header className="pl-hdr">
             <div><b>[scope-01]</b> polar audio instrument</div>
             <div className="k">//unit_ <span>d-01</span></div>
@@ -1951,15 +2034,7 @@ export default function App() {
           {/* the brand and the src/pitch plate stop being rail children:
               both are running-header cells now (mockup, header row) */}
           <header className="pl-hdr cn-hdr">
-            {/* The console's own way out. It returns to the standby sheet
-                WITHOUT stopping anything, so the plate comes back as a
-                live instrument: the star dollies into its image cell and
-                keeps reacting to whatever is playing. */}
-            <div>
-              <button className="cn-standby" onClick={standby} aria-label="back to the sheet">
-                <b>[scope-02]</b> console
-              </button>
-            </div>
+            <div><b>[scope-02]</b> console</div>
             <div className="k">
               //src_ <span>{SOURCE_ID[source]}</span>
               <i className={`src-dot${playing ? ' live' : ''}`} />
@@ -1967,6 +2042,16 @@ export default function App() {
             {source !== 'tube' && (
               <div className={`k${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
             )}
+            {/* ONE EXIT PRIMITIVE, used at every level. This is the same
+                shape as the jukebox module's `← radio`, so the way out of
+                a mode and the way out of the console are learned once and
+                recognised everywhere. It was the running title before,
+                which worked but announced nothing: a control that only
+                reveals itself under the pointer is not discoverable, and
+                nothing about a heading says press me. */}
+            <button className="cn-back" onClick={standby}>
+              ← <span>standby</span>
+            </button>
             <button
               className="rail-help"
               onClick={() => setOnboard(true)}

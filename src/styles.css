@@ -1292,11 +1292,32 @@ a:focus-visible {
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--ink);
-  /* No scrim: the star is dollied to sit inside the image cell, so the
-     sheet lies over near-empty ground everywhere else. A wash here would
-     only dim the one thing the frame exists to show. */
+  /* The plate itself stays transparent so the image cell can be a HOLE --
+     a parent's background cannot be punched through by a child, so the
+     ground goes on the BANDS instead (below) and the figure is simply
+     never given one.
+
+     It used to have no ground anywhere, on the reasoning that "the star is
+     dollied into the image cell, so the sheet lies over near-empty ground
+     everywhere else". True while the only way to see this sheet was cold,
+     with the star parked in its frame. It stopped being true the moment
+     the sheet could be returned to live, with the orb zoomed out behind
+     the whole viewport: every row in the data column had streaks running
+     through the type. */
   background: transparent;
 }
+
+/* rgba(10, 10, 10, 0.94) is the console rail's own value, so both
+   surfaces sit on one rule: the star is a presence behind the chrome,
+   never a texture through it. */
+.pl-hdr,
+.pl-ftr,
+.pl-morse,
+.pl-wave,
+.pl-leads,
+.pl-band,
+.pl-r { background: rgba(10, 10, 10, 0.94); }
+/* and NOT .pl-figwrap: the hole is the one thing the frame exists for */
 .plate .k { color: var(--ink-dim); }
 .plate .v { color: var(--ink); }
 
@@ -1317,7 +1338,9 @@ a:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  /* five cells on the console now: title, //src_, //rate_, the exit, [?].
+     The landing uses four of the same tracks and simply has no exit. */
+  grid-template-columns: 1fr auto auto auto auto;
   border-bottom: 1px solid var(--pl-line);
 }
 .pl-hdr > * { padding: 8px 12px; display: flex; align-items: center; gap: var(--gap-related); }
@@ -1689,10 +1712,26 @@ a:focus-visible {
   to { opacity: 0; transform: scale(1.5); }
 }
 
+/* THE ARRIVAL: plate-dive run backwards, over the same 1000ms the camera
+   takes to climb out. The sheet does not appear, it comes back to meet
+   you -- same distance, opposite direction, which is the only reason the
+   return reads as the same gesture and not a different screen. */
+.plate.arrive {
+  animation: plate-arrive 1000ms cubic-bezier(0.1, 0.6, 0.5, 1) backwards;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+@keyframes plate-arrive {
+  from { opacity: 0; transform: scale(1.5); }
+  45% { opacity: 0.55; }
+  to { opacity: 1; transform: scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .plate.rev .pl-r::after,
   .plate.rev .pl-mark h1 { animation: none; }
   .plate.dive { animation: none; opacity: 0; }
+  .plate.arrive { animation: none; opacity: 1; }
   /* stillness is the point here: no breath, no carrier, no scan */
   .pl-carrier,
   .pl-leads .dot,
@@ -1881,6 +1920,8 @@ input[type='range'] { height: 32px; }
   color: var(--ink-dim);
   background: none;
   border: 0;
+  /* the module header owns the row's padding, so this only takes back the
+     tap height -- otherwise the same primitive as .cn-back above */
   padding: 2px 0 2px 8px;
   min-height: 24px;
   cursor: pointer;
@@ -1888,24 +1929,29 @@ input[type='range'] { height: 32px; }
 }
 .cn-mod-back:hover { color: var(--ink); }
 
-/* The console's title IS the way back to the sheet. It reads as the
-   running header it already was until you reach for it, which is the
-   right weight for an exit you use once a session. */
-.cn-standby {
+/* THE EXIT, one primitive at every level: `← standby` in the console
+   header, `← radio` in the jukebox module header. The arrow says which
+   way, the word says where to, and it is shaped like the cells beside it
+   so it reads as a control at rest rather than only under the pointer. */
+.cn-back {
   font: inherit;
-  font-size: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: inherit;
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
   background: none;
   border: 0;
-  padding: 0;
+  padding: 8px 12px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-tight);
   cursor: pointer;
-  transition: color 140ms ease;
+  transition: color 140ms ease, background 140ms ease;
 }
-.cn-standby b { color: var(--red); }
-.cn-standby:hover { color: var(--ink); }
-.cn-standby:hover b { color: #f04a37; }
+.cn-back span { color: var(--ink); }
+.cn-back:hover { color: #0a0a0a; background: #eaeaea; }
+.cn-back:hover span { color: #0a0a0a; }
 /* a sub-module: the same header, indented under its parent and tied to it
    by the elbow the landing's signal chain already uses for .pl-prow.sub.
    Keeps the count monotonic (01 · 01.1 · 02 …) without renumbering a
@@ -2041,7 +2087,7 @@ input[type='range'] { height: 32px; }
   /* the running header cannot hold four cells at phone width. The shared
      .pl-hdr rule hides children 3 AND 4 — child 4 here is [?], the only
      route to the tour and the full legend, so it is explicitly restored. */
-  .cn-hdr { grid-template-columns: 1fr auto auto; }
+  .cn-hdr { grid-template-columns: 1fr auto auto auto; }
   .cn-hdr > *:nth-child(3) { display: none; }
   .cn-hdr > *:nth-child(4) { display: flex; align-items: center; }
   .cn-ftr { grid-template-columns: 1fr auto; }

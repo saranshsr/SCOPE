@@ -1135,6 +1135,12 @@ export class Scene {
    * powering on glides it back out to full size. Snap for resizes, glide
    * for state changes.
    */
+  /** Where the camera is aimed RIGHT NOW, so a return can start from it
+   *  rather than from an assumed console framing. */
+  get focusNow(): { x: number; y: number; d: number } {
+    return { x: this.focusFrac, y: this.focusFracY, d: this.dolly }
+  }
+
   setFocus(frac: number, fracY = 0.5, dolly = 1, snap = false) {
     this.focusTx = frac
     this.focusTy = fracY
