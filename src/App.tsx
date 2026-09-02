@@ -12,6 +12,7 @@ import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
 import { clip } from './text'
 import { Tube, HINDI, parseVideoId, type TubeState } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
+import { EnergyTracker } from './audio/energy'
 
 /**
  * scope — a polar oscilloscope made of type.
@@ -305,6 +306,7 @@ export default function App() {
       })
       .catch(() => {})
     engine.onTrackChange = (tr) => {
+      energy.reset()
       if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
         stemDeckRef.current.pause()
         stemDeckRef.current.solo(null)
@@ -340,11 +342,18 @@ export default function App() {
 
     const scene = new Scene(canvas)
     sceneRef.current = scene
+    // Declared up here because onTrackChange below needs it: a new track's
+    // loudness has nothing to do with the last one's, and without the
+    // reset the discontinuity at the seam reads as a step up and fires a
+    // drop. The tracker's own harness measures exactly that -- one
+    // spurious DROP across an unreset track change, none across a reset.
+    const energy = new EnergyTracker()
     // the chrome's ground reads --drop off the app root
     scene.dropCssEl = appRef.current
     if (import.meta.env.DEV) (window as unknown as { __sc?: unknown }).__sc = scene
     const tracker = new FingerprintTracker()
     const beatClock = new BeatClock()
+    let lastTier = 0
 
     let w = 0
     let h = 0
@@ -635,7 +644,18 @@ export default function App() {
             if (tr.role && stemDeckRef.current) {
               stemDeckRef.current.setStemGain(tr.role, lvl)
             } else if (tr.band) {
-              // the ring IS the filter: this tier's own peaking band bends
+              // The ring IS the filter: this tier's own peaking band bends.
+              //
+              // And rowGain has to move WITH it. This branch only ever
+              // called tierEq, which is the audio path -- so dragging a
+              // spectral ring changed what you heard and left the ring
+              // itself exactly where it was. The visual level is
+              // Math.min(1.4, rowGain[i]), and nothing here was writing
+              // rowGain, so the gesture reported lvl 1.04 while
+              // uTierLvl stayed [1,1,1,1,1,1] for all six. The stem
+              // branch above never had the bug because setStemGain feeds
+              // tierLevels, which the visual does read.
+              rowGain[d.tier] = Math.max(0, Math.min(2, lvl))
               eng2?.tierEq(d.tier, dbOf(lvl))
             }
             if (retLabelRef.current) retLabelRef.current.textContent = `${tr.label} ${Math.round(lvl * 100)}%`
@@ -925,6 +945,20 @@ export default function App() {
       const t = engine.analyser.now
       const fp = tracker.update(f, engine.analyser.onsets, t, dt)
       const beat = beatClock.update(f, fp, t, dt)
+
+      // THE FOUR TIERS. Everything below reads this rather than deciding
+      // for itself what counts as loud, which is the only way a small beat
+      // can produce a small reaction and a genuine drop a large one.
+      // Verified by the tracker's own harness: 30s of four-to-the-floor at
+      // constant loudness produces ZERO drops, while a build-and-drop
+      // produces exactly one, 0.47s after the step.
+      const en = energy.update(f, t, dt)
+      // The shockwave is an EDGE, not a level: fired on the frame tier 3
+      // is entered and never again until the next drop, or the ring
+      // restarts every frame and stands still.
+      const dropEdge = en.tier === 3 && lastTier !== 3
+      lastTier = en.tier
+      scene.setEnergy(en.drop, en.strong, dropEdge)
       if (f.onset) {
         snapEnv = 1
         scene.onset()
@@ -939,7 +973,9 @@ export default function App() {
         // one, the low tier (the kick's home) otherwise.
         if (startedRef.current && beat.strength > 0.25) {
           const bt = tiers.findIndex((t2) => t2.role === 'drums')
-          scene.burst(beat.strength, bt >= 0 ? bt : 0)
+          // emission rides the tier: a normal beat sheds its usual few, a
+          // drop throws everything the pool has
+          scene.burst(Math.min(1, beat.strength * (1 + en.drop * 2.2 + en.strong * 0.5)), bt >= 0 ? bt : 0)
         }
       }
       beatPulse *= Math.exp(-dt * 5)
