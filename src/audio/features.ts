@@ -159,7 +159,38 @@ export class Analyser {
     }
     const rawRms = Math.sqrt(sum / this.time.length)
     // Perceptual curve — linear amplitude reads as "nothing then everything".
-    f.rms = this.rmsEnv.push(Math.min(1, Math.pow(rawRms * 3.2, 0.62)), dt)
+    //
+    // The gain is 1.9, and the number came from five tracks, not one.
+    //
+    // The old 3.2 put the clip point at rawRms 0.3125. Only ~5% of frames
+    // reach it, but each one pins the envelope at 1.0 and its release is
+    // 0.12s, so the LEVEL METER read full for 61% of samples: a 5% overload
+    // became a meter that was wrong most of the time.
+    //
+    // The first fix here was 2.4, chosen from one track's distribution, and
+    // it was not a fix -- programme loudness varies about 5x across the
+    // radio (measured rawRms medians 0.053 on one track, 0.280 on a
+    // brickwalled dub), so 2.4 read 0.2% clipped on the track it was tuned
+    // against and 36% on the loud one. No fixed gain is right for every
+    // master; the question is which one is least wrong for all of them.
+    //
+    // Pooled over those five: 2.4 clips 10.5% of frames, 1.9 clips 4.9%,
+    // 1.6 clips 1.3%. 1.6 was tried and is too safe -- it pushes the median
+    // to 0.367 and the shipped meter down to 3..5 of 12 cells, trading a
+    // meter that was always full for one that never leaves the bottom
+    // third. 1.9 keeps the ceiling honest (6.5% of frames at the top bar,
+    // against 61% before) and the scale in use.
+    //
+    // A fixed gain and not auto-ranging, deliberately: a track that is
+    // genuinely louder must READ louder, and a meter that renormalises per
+    // track throws away the one comparison it exists to make. The remaining
+    // clipping is on a brickwalled master, where the top of the scale is
+    // where that master actually lives.
+    //
+    // Three absolute thresholds read this number and all three moved by the
+    // same (1.9/3.2)^0.62 = 0.724: FLOOR_RMS and DROP_MIN_LEVEL in
+    // energy.ts, and the live gate in App.
+    f.rms = this.rmsEnv.push(Math.min(1, Math.pow(rawRms * 1.9, 0.62)), dt)
     f.crest = rawRms > 1e-5 ? Math.min(8, peak / rawRms) / 8 : 0
 
     // --- bands ----------------------------------------------------------

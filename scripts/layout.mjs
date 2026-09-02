@@ -7,11 +7,17 @@
 // now-playing line and the strip covered the noon credit. Ten checks passed
 // through all of it, because none of them ever looked at that shape.
 //
-// The console is three fixed bands stacked from the bottom (strip, rim,
-// panel) whose heights are content dependent. That is a layout that WILL
-// collide again the first time a track title wraps or a breakpoint moves.
-// So: boot at each size, open each panel, and assert the bands clear each
-// other and every control can actually be reached.
+// The console is three bands in a plate -- .cn-hdr, the body holding the
+// scrolling .rail-stack, and .cn-ftr -- whose heights are content
+// dependent. That is a layout that WILL collide again the first time a
+// track title wraps or a breakpoint moves. So: boot at each size, walk
+// every source, and assert the bands clear each other and every control
+// can actually be reached.
+//
+// The selectors used to name .strip/.floor/.panel.open, which were the old
+// bottom-sheet console's and exist nowhere in the shipped app -- so this
+// walked all seven viewports comparing nothing and reported green. The
+// emptiness guard at the end is what eventually said so.
 import puppeteer from 'puppeteer'
 
 const URL = process.env.SCOPE_URL || 'http://localhost:5260/'
@@ -34,7 +40,7 @@ const VIEWPORTS = [
   { w: 800, h: 560, name: 'short-window' },
 ]
 
-const b = await puppeteer.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox'] })
+const b = await puppeteer.launch({ args: ['--enable-unsafe-swiftshader', '--no-sandbox'] })
 const fail = []
 const report = []
 let tabsSeen = 0
@@ -43,6 +49,7 @@ let bandsSeen = 0
 for (const vp of VIEWPORTS) {
   const p = await b.newPage()
   await p.setViewport({ width: vp.w, height: vp.h })
+  await p.evaluateOnNewDocument(() => { try { localStorage.setItem('scope-onboard-v1', '1') } catch { /* private mode: the guard below catches it */ } })
   const errs = []
   p.on('pageerror', e => errs.push(e.message.slice(0, 110)))
   // waitUntil is domcontentloaded, NOT networkidle2. The console streams
@@ -74,24 +81,17 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     fail.push(`${vp.name} (${vp.w}x${vp.h}): never reached the console.`)
     await p.close(); continue
   }
-  // The tour covers the console, and it arrives on a timer AFTER the console
-  // does — so dismissing once, immediately, dismisses nothing. Poll for it.
-  // It arrives ~900ms AFTER the console, so a poll that exits on "not there"
-  // exits before it shows up — and then it covers every control and the
-  // check blames the layout. Wait for it to appear, THEN dismiss it.
-  const tourBy = Date.now() + 6000
-  while (Date.now() < tourBy) {
-    const skipped = await p.evaluate(() => {
-      const skip = [...document.querySelectorAll('button')].find(x => /not now/i.test(x.textContent))
-      if (skip) { skip.click(); return true }
-      return false
-    })
-    if (skipped) break
-    await new Promise(r => setTimeout(r, 300))
-  }
-  await new Promise(r => setTimeout(r, 700))
-  if (await p.evaluate(() => !!document.querySelector('.onboard'))) {
-    fail.push(`${vp.name}: the tour would not dismiss, so every control reads as covered — this check is stale and is NOT passing.`)
+  // The tour is kept from ever opening, the way every other browser check
+  // does it (see console-keys, readings, ui-guard). It used to be dismissed
+  // by hunting a button reading "not now" -- the HAND-ROLLED tour's -- and
+  // the staleness guard watched for `.onboard`, that tour's container.
+  // driver.js has neither. So the skip loop spun for its full 6s finding
+  // nothing, the guard saw no `.onboard` and stayed quiet, and the tour sat
+  // open over the console for all seven viewports: driver's spotlight is an
+  // SVG <path> across the whole screen, so EVERY control read as covered by
+  // `path.?` and the check blamed the layout for the tour.
+  if (await p.evaluate(() => !!document.querySelector('.driver-overlay, .driver-popover, .driver-active'))) {
+    fail.push(`${vp.name}: the tour is open over the console, so every control reads as covered — this check is stale and is NOT passing.`)
   }
 
   // The mix panel only reaches its full height DISSECTED -- six tier rows
@@ -131,11 +131,11 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     }
   }
 
-  const tabs = await p.evaluate(() => [...document.querySelectorAll('.strip button')].map(x => x.textContent.trim()))
+  const tabs = await p.evaluate(() => [...document.querySelectorAll('.rail-src button')].map(x => x.textContent.trim()))
   tabsSeen += tabs.length
   for (const tab of tabs.length ? tabs : [null]) {
     if (tab) {
-      await p.evaluate(t => [...document.querySelectorAll('.strip button')].find(x => x.textContent.trim() === t)?.click(), tab)
+      await p.evaluate(t => [...document.querySelectorAll('.rail-src button')].find(x => x.textContent.trim() === t)?.click(), tab)
       await new Promise(r => setTimeout(r, 700))
     }
     const r = await p.evaluate(() => {
@@ -143,7 +143,18 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
         const b = e.getBoundingClientRect(); return { t: b.top, b: b.bottom, l: b.left, r: b.right, w: b.width, h: b.height } }
       // CONTENT boxes, not padding boxes: a band's padding may legitimately
       // sit under the band below it, and only the content must clear.
-      const content = s => { const e = document.querySelector(s); if (!e) return null
+      // WHICH element scrolls is a breakpoint decision, not a constant. On
+      // the plate the rail is a fixed column and .rail-stack scrolls inside
+      // it; under 720px the body restacks, .rail-stack goes `overflow:
+      // visible` and .rail becomes the single scroller. Naming one of them
+      // reported the phone as "clipped, bottom past the viewport by 626px
+      // with no scroll" while the rail was scrolling perfectly well -- so
+      // the scroller is found, not assumed.
+      const scroller = (() => {
+        for (const sel of ['.rail-stack', '.rail']) { const e = document.querySelector(sel)
+          if (e && e.scrollHeight > e.clientHeight + 1) return e }
+        return document.querySelector('.rail-stack') || document.querySelector('.rail') })()
+      const content = s => { const e = typeof s === 'string' ? document.querySelector(s) : s; if (!e) return null
         // A SCROLLING container's children are not all laid out on screen --
         // the ones scrolled past extend far outside its box by design. Taking
         // the union of every child then reports a scrollable panel as
@@ -161,7 +172,7 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
       // Same reasoning for reachability: a control scrolled out of its own
       // panel is reachable by scrolling, and asking what sits at its centre
       // returns whatever is painted there instead.
-      const inView = e => { const sc = e.closest('.panel.open')
+      const inView = e => { const sc = scroller && scroller.contains(e) ? scroller : null
         if (!sc || sc.scrollHeight <= sc.clientHeight + 1) return true
         const r = e.getBoundingClientRect(), s2 = sc.getBoundingClientRect()
         // The CENTRE, not any part of it: a control half-clipped at the
@@ -177,11 +188,11 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
       // touch are correct; bands that genuinely run through each other are
       // the fault this looks for.
       const ov = (a, c) => a && c && a.l < c.r - 1 && c.l < a.r - 1 && a.t < c.b - 1 && c.t < a.b - 1
-      const rim = content('.floor'), strip = content('.strip'), panel = content('.panel.open')
+      const rim = content('.cn-ftr'), strip = content('.cn-hdr'), panel = content(scroller)
       // reported out so the run can tell "no bands overlap" from "no bands"
       const bandsFound = [rim, strip, panel].filter(Boolean).length
       // is every visible control actually the topmost thing at its centre?
-      const blocked = [...document.querySelectorAll('.floor button, .strip button, .panel.open button, .panel.open [role="slider"]')]
+      const blocked = [...document.querySelectorAll('.cn-ftr button, .cn-hdr button, .rail-stack button, .rail-stack [role="slider"]')]
         .filter(e => { const bb = e.getBoundingClientRect()
           return bb.width > 4 && bb.height > 4 && getComputedStyle(e).visibility !== 'hidden' })
         .filter(inView)
@@ -199,7 +210,7 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
       // nothing to indicate they existed. Overflow that SCROLLS is fine; a
       // control table is allowed to be longer than the room. Overflow that
       // is silently cut is not, and the two look identical in a screenshot.
-      const pEl = document.querySelector('.panel.open')
+      const pEl = scroller
       const clipped = pEl ? (() => {
         const r = pEl.getBoundingClientRect()
         const scrolls = pEl.scrollHeight > pEl.clientHeight + 1

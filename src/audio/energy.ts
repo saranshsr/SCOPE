@@ -46,7 +46,7 @@ import type { Features } from './features'
 // -50 dBFS, low enough that dither still gets called a beat. it was, in the
 // synthetic near-silence test. 0.09 is about -44 dBFS, and quiet lo-fi in the
 // same tests measures 0.17 upward: under real music, over a noise floor.
-const FLOOR_RMS = 0.09
+const FLOOR_RMS = 0.065 // 0.09 before the rms rescale in features.ts (x0.724)
 // hysteresis, so a passage sitting exactly on the floor does not flicker
 // between LOW and NORMAL at 60fps, which looks worse than either state.
 const FLOOR_DROPOUT = 0.85
@@ -75,7 +75,7 @@ const RMS_GUARD = 60 // the last 1s of it, excluded from the baseline
 const EDGE_S = 0.35 // how far back "did it jump" looks
 const DROP_K = 2.2 // sigmas above the baseline that count as a step
 const DROP_MIN_STEP = 0.06 // and an absolute step, for near-static baselines
-const DROP_MIN_LEVEL = 0.15 // a drop into a whisper is not a drop
+const DROP_MIN_LEVEL = 0.109 // a drop into a whisper is not a drop. 0.15 pre-rescale
 const DROP_EDGE_MIN = 0.04
 const DROP_EDGE_K = 1.0
 const DROP_SUSTAIN_S = 0.45 // hold time before it counts as a section

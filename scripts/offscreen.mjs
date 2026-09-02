@@ -21,10 +21,13 @@ const ROOMS = [
   ['row-mid', 1280, 800], ['desk', 1440, 900], ['wide', 1920, 1080],
 ]
 // the surfaces that are fixed and full-width, and so cannot self-report
-const SURFACES = ['.floor', '.strip', '.panel.open']
+// The shipped console's three bands. These read .floor/.strip/.panel.open
+// until now -- the old bottom-sheet console's, present in no build -- so
+// this swept nine rooms matching nothing and called it green.
+const SURFACES = ['.cn-hdr', '.cn-ftr', '.rail-stack']
 
 const fail = []
-const b = await puppeteer.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox'] })
+const b = await puppeteer.launch({ args: ['--enable-unsafe-swiftshader', '--no-sandbox'] })
 
 // Measure every descendant against its container's padding box. Absolutely
 // positioned decoration is exempt -- it is placed deliberately and often
@@ -58,9 +61,27 @@ const sweep = async (p, room) => {
         // 1's empty side tracks ON PURPOSE (DESIGN.md §7.5) -- it is checked
         // against the viewport below like everything else, just not against
         // its column
-        const bleeds = !!e.closest('.floor-spec')
+        const bleeds = !!e.closest('.spec')
         const outside = bleeds ? 0 : Math.max(r.right - box.r, box.l - r.left)
-        const off = Math.max(r.right - innerWidth, -r.left, r.bottom - innerHeight, -r.top)
+        // BELOW THE FOLD IS NOT OFF SCREEN. The rail is a scrolling column
+        // and its foot is meant to sit past the viewport -- that is what
+        // scrolling is for. Measured flat against innerHeight, this called
+        // rail-foot, stemhint and the zoom chips unreachable at 1440x900
+        // when every one of them was a flick away, and the report said "it
+        // cannot be seen or reached" about controls that could be both.
+        //
+        // So vertical overflow is forgiven exactly when something above the
+        // element actually scrolls. Horizontal is not: nothing here scrolls
+        // sideways, so a control off the right edge is silently clipped --
+        // which is the fault this check exists to catch.
+        const scrolls = (() => { let n = e.parentElement
+          while (n && n !== document.body) { const c = getComputedStyle(n)
+            if (/(auto|scroll)/.test(c.overflowY) && n.scrollHeight > n.clientHeight + 1) return true
+            n = n.parentElement }
+          return false })()
+        const off = scrolls
+          ? Math.max(r.right - innerWidth, -r.left)
+          : Math.max(r.right - innerWidth, -r.left, r.bottom - innerHeight, -r.top)
         if (outside > 1 || off > 1) {
           bad.push({
             sel,
@@ -97,6 +118,7 @@ const sweep = async (p, room) => {
 for (const [room, w, h] of ROOMS) {
   const p = await b.newPage()
   await p.setViewport({ width: w, height: h })
+  await p.evaluateOnNewDocument(() => { try { localStorage.setItem('scope-onboard-v1', '1') } catch { /* private mode: the tour close below is the fallback */ } })
   // 60s, not puppeteer's default 30. These run under a software
 // rasteriser, and the app is three.js plus six shader programs plus a
 // 108k-particle field plus a GPGPU sim before it paints -- measured at
@@ -118,7 +140,10 @@ await p.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
     await b.close(); process.exit(1)
   }
   await new Promise(r => setTimeout(r, 2000))
-  await p.evaluate(() => { [...document.querySelectorAll('button')].find(e => /not now/i.test(e.textContent))?.click() })
+  // driver.js has no "not now" button -- that was the hand-rolled tour's --
+  // so this clicked nothing and the spotlight stayed up. Closed by its own
+  // control, with the localStorage guard below as the real defence.
+  await p.evaluate(() => { document.querySelector('.driver-popover-close-btn')?.click() })
   await new Promise(r => setTimeout(r, 500))
 
   await sweep(p, `${room} (${w}x${h})`)

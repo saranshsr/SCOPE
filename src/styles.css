@@ -171,10 +171,15 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
   animation: grain 0.45s steps(3) infinite;
 }
+/* The drift moves the BACKGROUND, not the element. Translating a
+   fixed full-bleed layer pushes its box past the viewport -- measured at
+   390x844, the +11px step put .grain's right edge at 401 and the document
+   into horizontal scroll, for a decorative texture nobody can even click.
+   Panning the background is the same picture with no box to overflow. */
 @keyframes grain {
-  0% { transform: translate(0, 0); }
-  33% { transform: translate(-14px, 9px); }
-  66% { transform: translate(11px, -7px); }
+  0% { background-position: 0 0; }
+  33% { background-position: -14px 9px; }
+  66% { background-position: 11px -7px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1350,7 +1355,14 @@ a:focus-visible {
   border-bottom: 1px solid var(--pl-line);
 }
 .pl-hdr > * { padding: 8px 12px; display: flex; align-items: center; gap: var(--gap-related); }
-.pl-hdr b { white-space: nowrap; }
+/* The title yields first. This cell is `1fr`, but a grid track will not go
+   below its item's min-content, and the title is `nowrap` -- so on a phone
+   the header stayed as wide as its longest word and pushed [?] 6px past the
+   plate (worse with law 7's 32px touch floor on that button, which is not
+   negotiable). min-width:0 lets the one cell that CAN lose characters be
+   the one that does; the readings and the controls keep their full size. */
+.pl-hdr > *:first-child { min-width: 0; }
+.pl-hdr b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-hdr > * + * { border-left: 1px solid var(--pl-line); }
 .pl-hdr b { font-weight: 400; color: var(--red); }
 .pl-hdr .k span { color: var(--ink); }
@@ -1852,6 +1864,14 @@ input[type='range'] { height: 32px; }
   z-index: 3;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  /* Rows only was the bug. With no column named, the plate got ONE implicit
+     track sized `auto`, and an auto track is sized by its item's content --
+     min-width:0 on the item does not restrain it, because it is the TRACK
+     growing, not the item refusing to shrink. Measured at 390x844: a
+     correctly-sized 362px plate holding a 393px column, so the rail, the
+     stack and the document all ran 18px into horizontal scroll. minmax(0,
+     1fr) gives the track a floor of zero and a ceiling of the plate. */
+  grid-template-columns: minmax(0, 1fr);
   border: 1px solid var(--pl-line);
   pointer-events: none; /* the stage below stays grabbable */
 }
@@ -1873,7 +1893,16 @@ input[type='range'] { height: 32px; }
   display: grid;
   grid-template-columns: var(--rail-w) 1fr;
   min-height: 0;
+  /* .cn-plate is itself a grid, and a track with no explicit floor is sized
+     by its item's MIN-CONTENT. Measured at 390x844: the plate was a correct
+     362px wide and its single column resolved to 393px, because that is the
+     narrowest .cn-body would agree to be -- so the rail, the stack and the
+     whole document went 18px into horizontal scroll. min-width:0 is what
+     lets a grid item be narrower than its contents, and the rail already
+     knows how to handle that: it scrolls. */
+  min-width: 0;
 }
+.cn-body > * { min-width: 0; }
 /* the stage is a HOLE in the plate: no background, just brackets */
 .cn-stage {
   position: relative;

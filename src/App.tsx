@@ -329,7 +329,7 @@ export default function App() {
       const el = peakRef.current
       if (el) {
         const f = engineRef.current?.analyser?.features
-        const live = f && f.rms > 0.02
+        const live = f && f.rms > 0.014 // 0.02 pre-rescale, see features.ts
         el.textContent = live ? `${fmtHz(20 * Math.pow(1000, f.centroid))}` : 'idle'
       }
       raf = requestAnimationFrame(tick)
@@ -1045,7 +1045,7 @@ export default function App() {
       // restarts every frame and stands still.
       const dropEdge = en.tier === 3 && lastTier !== 3
       lastTier = en.tier
-      scene.setEnergy(en.drop, en.strong, dropEdge)
+      scene.setEnergy(en.drop, en.strong, dropEdge, en.calm)
       if (f.onset) {
         snapEnv = 1
         scene.onset()

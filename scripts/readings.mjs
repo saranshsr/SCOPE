@@ -217,13 +217,13 @@ for (let i = 0; i < 60; i++) {
 const rmsAtTiers = tierRms.slice().sort((a, c) => a - c)[Math.floor(tierRms.length / 2)]
 
 // ── DEAD CONTROLS MUST LOOK DEAD (DESIGN.md) ───────────────────────────
-// In tube mode YouTube owns the sound, so the tier faders and their
+// In jukebox mode YouTube owns the sound, so the tier faders and their
 // solo/mute buttons are `disabled`. They must SAY so. The styling rule is
 // `.layer input:disabled`, which needs a `.layer` ancestor -- when the rows
 // were `.mix-row` six faders sat at full opacity with a default cursor
 // while the buttons beside them faded. Controls that claim to work and do
 // nothing, next to controls that admit it.
-await p.evaluate(() => [...document.querySelectorAll('.rail-src button')].find(b => b.textContent.trim() === 'tube')?.click())
+await p.evaluate(() => [...document.querySelectorAll('.rail-src button')].find(b => b.textContent.trim() === 'jukebox')?.click())
 await new Promise(r => setTimeout(r, 2500))
 const dead = await p.evaluate(() => {
   const ctrls = [...document.querySelectorAll('.layer input, .layer-btn')]
@@ -232,7 +232,7 @@ const dead = await p.evaluate(() => {
   // subject, and a correct assertion over an empty set passes in green --
   // which is how `voice` passed twice over copy it never rendered and how
   // `layout` measured a half-size panel and printed ok. This branch exists
-  // so that if the setup ever stops reaching tube mode, the suite says so
+  // so that if the setup ever stops reaching jukebox mode, the suite says so
   // instead of quietly reporting a pass.
   if (!off.length) return { unreachable: ctrls.length }
   const alive = off.filter(e => { const cs = getComputedStyle(e)
@@ -246,7 +246,7 @@ const fail = []
 // the disabled sweep ran before the browser closed; report it here, where
 // the failure list exists
 if (dead && dead.unreachable != null) {
-  fail.push(`no layer control reported \`disabled\` after switching to tube, so the dead-controls law had nothing to check (${dead.unreachable} controls were on screen). This is the check failing to reach its subject, not the product failing -- but it is reported rather than passed, because an assertion over an empty set passes in green.`)
+  fail.push(`no layer control reported \`disabled\` after switching to jukebox, so the dead-controls law had nothing to check (${dead.unreachable} controls were on screen). This is the check failing to reach its subject, not the product failing -- but it is reported rather than passed, because an assertion over an empty set passes in green.`)
 } else if (dead && dead.alive.length) {
   fail.push(`${dead.alive.length} of ${dead.total} disabled controls render as if they still work (${[...new Set(dead.alive)].join(', ')}) -- full opacity, ordinary cursor. A control that cannot act must not look like it can.`)
 }

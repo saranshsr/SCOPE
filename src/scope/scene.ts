@@ -127,6 +127,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uReveal;
   uniform float uDensity;
   uniform float uTurb;
+  uniform float uCalm;
   uniform float uExpo;
   uniform float uSnap;
   uniform float uZoom;
@@ -180,7 +181,29 @@ const SHELL_VERT = /* glsl */ `
       // and leaving it in would move the body twice for one hit -- once
       // instantly and once with follow-through. Sustain stays; the
       // transient went to the physics.
-      n2 * (uMid * 0.24) +
+      // THE CALM END. In a quiet passage uLow/uMid/uHigh all collapse and
+      // this whole sum goes to n1 * 0.05 -- a body that has stopped
+      // breathing. uCalm rises as the passage falls below the track's own
+      // long-run loudness, and buys back the two FINE octaves only.
+      //
+      // Only the fine ones, on purpose. Adding swell here would make a
+      // quiet section move as much as a loud one, which is the lie Law 3
+      // forbids; the star has to read as alive but SMALL. n2 advects at
+      // 0.26 and n3 at 0.53, so what comes back is exactly the brief --
+      // mids deforming the shape, highs as fine detail.
+      //
+      // The amplitudes are bounded, not chosen for taste. 0.030 + 0.022 =
+      // 0.052 at full calm, and the sim's entire displacement budget is
+      // 0.06. Going past that re-drowns the physics three to one, which is
+      // the drowning that made the particles feel massless in the first
+      // place. The calm lift has to fit UNDER the mass, never over it.
+      // Only n2, the SHAPE octave. The fine octave is deliberately not
+      // here: measured, adding n3 to position made the body 6.8% SMOOTHER,
+      // because this is a point cloud and not a surface -- displacing
+      // points scatters the density clusters that read as detail, so the
+      // one thing meant to add fine detail was sanding it off. n3 does its
+      // half of the brief as scintillation further down instead.
+      n2 * (uMid * 0.24 + uCalm * 0.030) +
       n3 * (uHigh * 0.13) +
       n2 * bandE * 0.20) * uTurb;
 
@@ -363,7 +386,8 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10;
+    float scint = uCalm * n3;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) * (1.0 + scint * 0.22) + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -372,7 +396,19 @@ const SHELL_VERT = /* glsl */ `
     // Perspective would balloon every point as the camera closes in; the
     // zoom divisor keeps them near-crisp so detail comes from COUNT, not
     // from fatter dots.
-    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9 + dl * 0.7) * on
+    // SCINTILLATION -- the other half of the calm brief. n3 is the fine
+    // octave, advecting at 0.53, and here it modulates each point's SIZE
+    // and LIGHT instead of its position. That is what "fine detail" means
+    // on a point cloud: the grain lives in the spread between neighbours,
+    // so raising the variance sharpens it where moving the points blurred
+    // it.
+    //
+    // Zero-mean on purpose, both terms. A quiet passage must not read
+    // brighter or bigger than a loud one -- only more finely textured --
+    // and n3 in -1..1 leaves the average point exactly where it was while
+    // pulling its neighbours apart. Law 3 survives: nothing here invents
+    // energy, it only redistributes what the passage already has.
+    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9 + dl * 0.7 + scint * 0.45) * on
       * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
@@ -726,6 +762,7 @@ export class Scene {
       // Owner dials: turbulence and exposure multipliers (spin lives on the
       // CPU side of the motion law).
       uTurb: { value: 1 },
+      uCalm: { value: 0 },
       uExpo: { value: 1 },
       // The transient fast-path: sub-frame attack, ~150ms decay, NO spring.
       uSnap: { value: 0 },
@@ -1083,9 +1120,13 @@ export class Scene {
    * the caller fires it on the frame a drop is detected and never again
    * until the next one, or the ring restarts every frame and stands still.
    */
-  setEnergy(drop: number, strong: number, wave: boolean) {
+  setEnergy(drop: number, strong: number, wave: boolean, calm = 0) {
     this.uniforms.uDrop.value = Math.max(0, Math.min(1, drop))
     this.uniforms.uStrong.value = Math.max(0, Math.min(1, strong))
+    // The other end of the same tick. calm is the classifier's read of how
+    // far this passage sits below the track's own long-run loudness, so
+    // tier 0 stops being the tier where nothing happens.
+    this.uniforms.uCalm.value = Math.max(0, Math.min(1, calm))
     if (wave) this.uniforms.uWave.value = 0
     // the ground dips so a star that has outgrown its frame is actually
     // visible through the chrome rather than glowing faintly behind it
