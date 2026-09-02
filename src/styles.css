@@ -1799,6 +1799,25 @@ a:focus-visible {
   .pl-hdr > *:nth-child(3), .pl-hdr > *:nth-child(4) { display: none; }
   .pl-ftr { grid-template-columns: 1fr; }
   .pl-ftr > *:nth-child(2), .pl-ftr > *:nth-child(3) { display: none; }
+
+  /* THE CONSOLE IS NOT THE LANDING, and it shares these class names. Both
+     hides above are positional, and they reach .cn-hdr / .cn-ftr too --
+     but the console's cells are different cells, and its header LENGTH
+     varies, because //rate_ is conditional on the source.
+     Measured across the band: at 820, 780 and 740px the landing's
+     nth-child(3)/(4) hide took the console's STANDBY button in every
+     source, and in jukebox mode -- where //rate_ is absent and every index
+     shifts by one -- it took [?] as well. A console with no exit and no
+     legend, in a window size that is just a browser at half a laptop
+     screen. It went unseen because the console's own overrides started at
+     720, while the rule they exist to undo starts at 820.
+     So they start here now, and they name what goes instead of counting
+     it. Position is the wrong handle for a row whose length varies. */
+  .cn-hdr { grid-template-columns: 1fr auto auto auto; }
+  .cn-hdr > *:nth-child(3), .cn-hdr > *:nth-child(4) { display: flex; align-items: center; }
+  .cn-hdr > .cn-rate { display: none; }
+  .cn-ftr { grid-template-columns: 1fr auto; }
+  .cn-ftr > *:nth-child(2) { display: none; }
   .pl-act .power { width: 100%; min-height: 56px; }
 }
 
@@ -2150,11 +2169,6 @@ input[type='range'] { height: 32px; }
   /* the running header cannot hold four cells at phone width. The shared
      .pl-hdr rule hides children 3 AND 4 — child 4 here is [?], the only
      route to the tour and the full legend, so it is explicitly restored. */
-  .cn-hdr { grid-template-columns: 1fr auto auto auto; }
-  .cn-hdr > *:nth-child(3) { display: none; }
-  .cn-hdr > *:nth-child(4) { display: flex; align-items: center; }
-  .cn-ftr { grid-template-columns: 1fr auto; }
-  .cn-ftr > *:nth-child(2) { display: none; }
   /* the announcement lives over the stage row, not over the panel */
   .announce {
     left: var(--edge);

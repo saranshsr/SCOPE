@@ -2255,7 +2255,7 @@ export default function App() {
               <i className={`src-dot${playing ? ' live' : ''}`} />
             </div>
             {source !== 'tube' && (
-              <div className={`k${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
+              <div className={`k cn-rate${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
             )}
             {/* ONE EXIT PRIMITIVE, used at every level. This is the same
                 shape as the jukebox module's `← radio`, so the way out of
