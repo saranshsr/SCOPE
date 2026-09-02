@@ -126,9 +126,13 @@ export class Tube {
     host.appendChild(slot)
     this.player = new window.YT.Player(slot, {
       videoId: startId ?? this.list[0].id,
-      // controls stay ON: scope's transport drives the engine, and pretending
-      // to own a transport we only partly control would be a lie.
-      playerVars: { rel: 0, playsinline: 1, modestbranding: 1 },
+      // The player is mounted inside a 1px clip and never seen, so its own
+      // controls are unreachable by definition -- shipping them would leave
+      // dead chrome in a surface nobody can look at. scope's transport is
+      // now the only transport, which is the honest arrangement rather than
+      // the previous one where two of them existed and one was hidden.
+      // disablekb keeps the invisible frame from eating arrow keys.
+      playerVars: { rel: 0, playsinline: 1, modestbranding: 1, controls: 0, disablekb: 1 },
       events: {
         onError: (e: { data: number }) => {
           this.lastError = e.data

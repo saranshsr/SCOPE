@@ -2008,9 +2008,10 @@ export default function App() {
             </div>
           </div>
 
-          {/* 06 · JUKEBOX — visible only in tube mode. The player is
-              deliberately on screen: YouTube's embed policies require it,
-              and a hidden player makes "what am I listening to" unanswerable. */}
+          {/* 06 · JUKEBOX — visible only in tube mode. The player itself is
+              not: it is mounted into a 1px clip on the stage (.tube-host)
+              and never rendered. These rows are what answers "what am I
+              listening to", read from that same player. */}
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
             <div className="tube rail-sec">
               <h2 className="cn-mod"><span>06 · jukebox</span><i>//youtube_</i></h2>
@@ -2297,36 +2298,20 @@ export default function App() {
               <i className="cn-brk tl" /><i className="cn-brk tr" />
               <i className="cn-brk bl" /><i className="cn-brk br" />
 
-              {/* The jukebox is the subject while it plays, so it takes the
-                  stage as a framed plate — the same treatment the landing
-                  gives its particle field. The star burns on around it.
-                  Visible by policy: YouTube's embed terms require it. */}
+              {/* The player is mounted but never seen. It cannot be
+                  display:none or visibility:hidden — chrome throttles a
+                  player it believes is not being watched, and playback
+                  stalls — so the host is a 1px box that clips a
+                  full-size iframe at zero opacity. It stays composited,
+                  keeps playing, and shows nothing. `inert` takes it out of
+                  the tab order so the one control nobody can see is also
+                  the one control nobody can reach.
+
+                  The stage belongs to the star. What is playing is said in
+                  the rail's 06 · JUKEBOX rows, which read from the same
+                  player this host owns. */}
               {source === 'tube' && (
-                <figure className="tube-fig">
-                  <div ref={tubeHostRef} className="tube-player" />
-                  <i className="brk tl" /><i className="brk tr" />
-                  <i className="brk bl" /><i className="brk br" />
-                  <svg className="reg a" width="13" height="13" aria-hidden="true">
-                    <g stroke="var(--red)" strokeWidth="1">
-                      <line x1="6.5" y1="0" x2="6.5" y2="13" /><line x1="0" y1="6.5" x2="13" y2="6.5" />
-                    </g>
-                  </svg>
-                  <svg className="reg b" width="13" height="13" aria-hidden="true">
-                    <g stroke="var(--red)" strokeWidth="1">
-                      <line x1="6.5" y1="0" x2="6.5" y2="13" /><line x1="0" y1="6.5" x2="13" y2="6.5" />
-                    </g>
-                  </svg>
-                  <figcaption className="tube-figcap">
-                    <span>fig.02 · jukebox</span>
-                    <span className={signal === 'silent' ? 'sig-silent' : undefined}>
-                    {signal === 'live'
-                      ? 'star listening'
-                      : signal === 'silent'
-                        ? 'no audio shared'
-                        : 'star idle'}
-                  </span>
-                  </figcaption>
-                </figure>
+                <div ref={tubeHostRef} className="tube-host" aria-hidden="true" inert />
               )}
             </div>
           </div>
