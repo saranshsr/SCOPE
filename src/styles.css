@@ -1239,8 +1239,16 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 8px 12px;
   min-height: 40px;
 }
+/* A SLIDER NEEDS TRAVEL, and this one never had any. Measured at 1440x900
+   the pitch input was 20px wide and 34px at best on a phone: a 0.5..1.5
+   range at 0.01 steps is a hundred values, and twenty pixels cannot hold
+   them. It was taking one column of a three-column row inside a 320px rail,
+   less a 30px label and a 24px readout, so there was nothing left.
+   Both continuous controls take the row to themselves now. The buttons keep
+   their three columns -- a button only has to be hit, not aimed. */
+.transport .vol,
+.transport .dial-pitch { grid-column: 1 / -1; }
 .transport .dial-pitch {
-  grid-column: 3 / 4;
   display: grid;
   grid-template-columns: 30px 1fr 24px;
   align-items: center;
@@ -1505,7 +1513,10 @@ a:focus-visible {
   letter-spacing: -0.04em;
   text-transform: uppercase;
 }
-.pl-reg { font-size: 0.15em; vertical-align: 2.4em; color: var(--red); font-family: var(--font-mono); }
+/* max(), because 0.15em of a clamp is not a size you control. The h1 is
+   clamp(52px, 8.4vw, 124px) and at the 52px floor -- every phone -- 0.15em
+   is 7.8px, under §1's 8-11px mono tier. The floor travels with it now. */
+.pl-reg { font-size: max(8px, 0.15em); vertical-align: 2.4em; color: var(--red); font-family: var(--font-mono); }
 .pl-echo {
   position: absolute; left: 14px; bottom: 2px;
   font-family: var(--font-display);
@@ -1818,7 +1829,12 @@ a:focus-visible {
   .plate { position: absolute; inset: var(--edge); overflow: auto; display: block; }
   .pl-body { grid-template-columns: 1fr; }
   .pl-l { grid-template-rows: none; }
-  .pl-figwrap { height: 46vh; min-height: 260px; }
+  /* dvh as well as vh, the way lines 400 and 407 already do it. On iOS
+     Safari `vh` resolves against the LARGEST viewport -- URL bar hidden --
+     so a figure sized in vh alone is too tall for the screen you are
+     actually looking at while the bar is showing, and it pushes the rest of
+     the sheet down. dvh tracks the viewport that exists right now. */
+  .pl-figwrap { height: 46vh; height: 46dvh; min-height: 260px; }
   .pl-figcap span:last-child { display: none; }
   .pl-wave canvas { height: 64px; }
   .pl-r { border-left: 0; border-top: 1px solid var(--pl-line); }
@@ -1914,6 +1930,9 @@ input[type='range'] { height: 32px; }
   .rail-src button { min-height: 44px; }
   .layer-btn { min-width: 44px; min-height: 44px; }
   .rail-help { min-width: 44px; }
+  /* .vibe's second track is a hardcoded 34px, so a min-width on the button
+     inside it could never win. The TRACK has to grow. */
+  .vibe { grid-template-columns: 1fr 44px; }
   .rail-help,
   .deck-split,
   .tuner-chips button,
