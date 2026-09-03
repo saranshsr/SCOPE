@@ -2190,6 +2190,15 @@ export default function App() {
               <div className="pl-row pl-peak">
                 <div className="pl-peak-hd"><span className="k">//peak_</span><span ref={peakRef} className="v">idle</span></div>
                 <Scale />
+                {/* The ruler's ends, in HTML rather than inside the SVG.
+                    They were <text fontSize="6" fontFamily="monospace">, which
+                    broke §1 three ways at once: 6px is under the 8-11px floor,
+                    generic `monospace` resolves to a THIRD face in a two-face
+                    product, and the ruler is preserveAspectRatio="none", so the
+                    glyphs were being stretched 1.05x horizontally. Out here they
+                    are the sheet's own mono at the sheet's own size, undistorted,
+                    and .pl-peak-hd already is a space-between row -- no new CSS. */}
+                <div className="pl-peak-hd"><span className="k">20hz</span><span className="k">20khz</span></div>
               </div>
 
               {/* scope's real audio graph, said in the sheet's own rows */}
@@ -3127,15 +3136,13 @@ function Dial({
 /** The spectrum ruler. Drawn scale, no needle: standby has no signal. */
 function Scale() {
   return (
-    <svg width="100%" height="22" preserveAspectRatio="none" viewBox="0 0 280 22" aria-hidden="true">
+    <svg width="100%" height="12" preserveAspectRatio="none" viewBox="0 0 280 12" aria-hidden="true">
       <g stroke="currentColor">
         <line x1="0" y1="11.5" x2="280" y2="11.5" opacity=".5" />
         {[1, 36, 71, 106, 141, 176, 211, 246, 279].map((x, i) => (
           <line key={x} x1={x} y1={i % 3 === 0 ? 3 : 7} x2={x} y2="11" />
         ))}
       </g>
-      <text x="0" y="21" fill="currentColor" fontSize="6" fontFamily="monospace">20HZ</text>
-      <text x="259" y="21" fill="currentColor" fontSize="6" fontFamily="monospace">20KHZ</text>
     </svg>
   )
 }

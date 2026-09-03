@@ -1465,7 +1465,8 @@ a:focus-visible {
   position: absolute; left: 0; top: 0;
   padding: 8px 12px;
   background: rgba(8, 8, 13, 0.72);
-  color: var(--ink-dim); font-size: 7px; letter-spacing: 0.18em; text-transform: uppercase;
+  /* 8px, not 7: §1's mono tier is 8-11px and this sat under it. */
+  color: var(--ink-dim); font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase;
 }
 
 /* leader rows */
@@ -1729,12 +1730,21 @@ a:focus-visible {
   touch-action: none; /* the drag must not scroll the sheet on a phone */
   transition: background 120ms ease, color 120ms ease;
 }
+/* THE ONE HOVER LANGUAGE, which this had drifted out of. Line 52 of this
+   same file says it plainly -- "Red stays what §1 says it is: armed states,
+   the power moment, keylines, the grab point. Never a hover." -- and these
+   were tinting red on hover and pressing redder still, 1676 lines below the
+   rule. Every other choice-shaped control in the sheet lifts: --lift on
+   hover, --lift-press on press, fill reserved for .on. The dials now say the
+   same thing as the source buttons and the tuner chips.
+   The focus RING stays red, because an outline is a keyline and that is
+   exactly the job §1 gives the accent. */
 .pl-dial:hover,
-.pl-dial:focus-visible { background: rgba(225, 59, 42, 0.1); color: var(--ink); }
+.pl-dial:focus-visible { background: var(--lift); color: var(--ink); }
 .pl-dial:focus-visible { outline: 1px solid var(--red); outline-offset: -1px; }
 .pl-dial:hover circle:last-of-type,
 .pl-dial:focus-visible circle:last-of-type { r: 2.6; }
-.pl-dial:active { background: rgba(225, 59, 42, 0.18); }
+.pl-dial:active { background: var(--lift-press); }
 .pl-dial .cap b { font-weight: 400; color: var(--ink); }
 
 /* ── THE POWER-ON FLIGHT ────────────────────────────────────────────────
