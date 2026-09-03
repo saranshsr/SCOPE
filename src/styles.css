@@ -51,6 +51,11 @@
 
      Red stays what §1 says it is: armed states, the power moment,
      keylines, the grab point. Never a hover. */
+  /* The curve the sheet already eases on, named. It appears five times as a
+     literal and motion.mjs has been asking for `var(--ease)` all along, so
+     this is the token it wanted -- taken from what the stylesheet does, not
+     invented. Ease-OUT, per §6: full speed out of rest, settling in. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --lift: rgba(234, 234, 234, 0.07);
   --lift-press: rgba(234, 234, 234, 0.13);
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
@@ -1750,7 +1755,7 @@ a:focus-visible {
    visual — the face lifts and the needle arms on hover and focus. */
 .pl-dial {
   touch-action: none; /* the drag must not scroll the sheet on a phone */
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 180ms var(--ease), color 180ms var(--ease);
 }
 /* THE ONE HOVER LANGUAGE, which this had drifted out of. Line 52 of this
    same file says it plainly -- "Red stays what §1 says it is: armed states,
@@ -2294,7 +2299,7 @@ input[type='range'] { height: 32px; }
      time nobody wants a scrollbar. */
   pointer-events: none;
   opacity: 0;
-  transition: opacity 220ms ease;
+  transition: opacity 180ms var(--ease);
   z-index: 2;
 }
 .railbar.on { opacity: 1; }
