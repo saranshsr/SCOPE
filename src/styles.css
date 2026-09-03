@@ -67,6 +67,18 @@
 
 html, body, #root { height: 100%; margin: 0; }
 
+/* Tell the platform this is a dark UI. Without it the browser still styles
+   NATIVE widgets for a light page -- and this product has three real ones:
+   the vol and pitch <input type="range"> sliders, now full width and the
+   most prominent controls in the transport, plus the file picker. It also
+   fixes the scrollbar the rail would otherwise draw in light chrome. */
+:root { color-scheme: dark; }
+
+/* An instrument does not flash a translucent blue rectangle when tapped.
+   The pressed states are designed (--lift-press, :active transforms); this
+   removes the platform's own on top of them. */
+html { -webkit-tap-highlight-color: transparent; }
+
 body {
   background: var(--bg);
   color: var(--ink);

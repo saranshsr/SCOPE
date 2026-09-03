@@ -2604,8 +2604,9 @@ export default function App() {
                 <input
                   value={tubePaste}
                   onChange={(e) => setTubePaste(e.target.value)}
-                  placeholder="paste a youtube link or id"
+                  placeholder="paste a youtube link or id…"
                   aria-label="play a youtube link"
+                  autoComplete="off"
                   spellCheck={false}
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter') return
@@ -2676,8 +2677,9 @@ export default function App() {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="set your vibe · or name an artist"
+                  placeholder="set your vibe · or name an artist…"
                   aria-label="set your vibe"
+                  autoComplete="off"
                   spellCheck={false}
                 />
                 <button type="submit" aria-label="set vibe">go</button>
