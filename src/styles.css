@@ -497,9 +497,30 @@ body {
 @media (prefers-reduced-motion: reduce) {
   /* no drawn cursor to follow the hand: hand the OS its pointer back */
   .reticle { display: none; }
+  /* THIS BLOCK HAS TO OUT-SPECIFY .cursor-armed, and written as `.app, .app *`
+     it did not. That rule is `.app.cursor-armed *` -- (0,2,0), !important --
+     against this one's (0,1,0), and a media query grants no extra weight, so
+     the restoration lost every time. The reticle was hidden by the line above
+     AND the native cursor stayed suppressed underneath it: a reduced-motion
+     visitor on a mouse had NO cursor at all. Measured before the fix: POWER ON
+     reported `none`. Mirroring the armed selector is what makes the intent
+     actually take effect.
+
+     A SLIDER IS ALSO NOT A BUTTON. Naming button/a/input misses both of this
+     product's sliders -- the seek strip is a canvas, the dials are divs, both
+     role="slider" -- so each was left with a plain arrow on a draggable
+     control, and the blanket `auto` stripped the crosshair .deck-wave already
+     had. Restore what was designed, and name the dials by their drag axis. */
   .app, .app * { cursor: auto !important; }
   .app button, .app a { cursor: pointer !important; }
   .app input { cursor: text !important; }
+  .app .deck-wave { cursor: crosshair !important; }
+  .app .pl-dial { cursor: ns-resize !important; }
+  .app.cursor-armed, .app.cursor-armed * { cursor: auto !important; }
+  .app.cursor-armed button, .app.cursor-armed a { cursor: pointer !important; }
+  .app.cursor-armed input { cursor: text !important; }
+  .app.cursor-armed .deck-wave { cursor: crosshair !important; }
+  .app.cursor-armed .pl-dial { cursor: ns-resize !important; }
 }
 
 /* Grabbing the instrument: the reticle's dot swells while spinning.

@@ -43,7 +43,7 @@ const STATIC = ['room-period', 'casing-pairs', 'hover-field', 'spacing', 'motion
  * wrong, it is early, and deleting it loses the specification. What is not
  * acceptable is leaving them in the run list reporting red against the
  * shipped product, which is how eight of eighteen came to be ignored. */
-const BROWSER = ['flight', 'console-keys', 'ui-guard', 'readings', 'layout', 'offscreen', 'voice', 'failure-states', 'shadowed']
+const BROWSER = ['flight', 'console-keys', 'ui-guard', 'readings', 'layout', 'offscreen', 'voice', 'failure-states', 'shadowed', 'reduced-motion']
 
 const fast = process.argv.includes('--fast')
 const list = fast ? STATIC : [...STATIC, ...BROWSER]
