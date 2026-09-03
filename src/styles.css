@@ -190,6 +190,11 @@ body {
 @media (max-width: 560px) {
   :root { --edge: 14px; }
   .spec { right: auto; left: var(--edge); bottom: calc(var(--edge) + 118px + env(safe-area-inset-bottom, 0px)); }
+  /* Below this the label has no room to be a label. Ellipsised it renders as
+     a lone "…" beside the code -- an orphan mark that says less than nothing.
+     The code alone already separates 01 from 02, and a console announces
+     itself by being one. */
+  .pl-hdr .hlbl { display: none; }
 }
 
 /* ===========================================================================
@@ -247,9 +252,6 @@ body {
 }
 
 /* phones: the wordmark yields to the width, the unit line wraps under it */
-@media (max-width: 560px) {
-}
-
 /* ===========================================================================
    THE CONSOLE — live-state architecture.
    One engineered rail instead of four floating corners; the disc yields
@@ -1391,7 +1393,16 @@ a:focus-visible {
    negotiable). min-width:0 lets the one cell that CAN lose characters be
    the one that does; the readings and the controls keep their full size. */
 .pl-hdr > *:first-child { min-width: 0; }
-.pl-hdr b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* THE CODE IS IDENTITY, so it is not what gives way. §3.1: "codes are
+   identity, never data." The ellipsis used to sit on the <b>, which meant
+   the nameplate degraded [SCOPE-01] -> [SCOPE-01… -> [SCO… -> [S… as the
+   screen narrowed, until the one thing naming the instrument was a single
+   letter. Seen on an iPhone SE; no measurement caught it, because nothing
+   overflowed -- it truncated exactly as it was told to.
+   The LABEL yields instead. It is the half a reader can lose and still know
+   what they are looking at. */
+.pl-hdr b { white-space: nowrap; flex: 0 0 auto; }
+.pl-hdr .hlbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-hdr > * + * { border-left: 1px solid var(--pl-line); }
 .pl-hdr b { font-weight: 400; color: var(--red); }
 .pl-hdr .k span { color: var(--ink); }

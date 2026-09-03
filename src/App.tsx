@@ -2092,7 +2092,7 @@ export default function App() {
       {!started && (
         <div className={`plate${boot ? ` ${boot}` : ''}${arrive ? ' arrive' : ''}`}>
           <header className="pl-hdr">
-            <div><b>[scope-01]</b> polar audio instrument</div>
+            <div><b>[scope-01]</b> <span className="hlbl">polar audio instrument</span></div>
             <div className="k">//unit_ <span>d-01</span></div>
             <div className="k">//rev_ <span>2.6</span></div>
             <div className="k">//ch_ <span>01</span></div>
@@ -2258,7 +2258,7 @@ export default function App() {
           {/* the brand and the src/pitch plate stop being rail children:
               both are running-header cells now (mockup, header row) */}
           <header className="pl-hdr cn-hdr">
-            <div><b>[scope-02]</b> console</div>
+            <div><b>[scope-02]</b> <span className="hlbl">console</span></div>
             <div className="k">
               //src_ <span>{SOURCE_ID[source]}</span>
               <i className={`src-dot${playing ? ' live' : ''}`} />
