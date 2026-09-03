@@ -7,3 +7,14 @@ local-media
 
 # design-lint tooling: installed on demand via npx, not product code
 .github/skills/impeccable/
+
+# Local-only, deliberately. The remote is a PUBLIC repo.
+#   PRODUCT.md records a chosen position on YouTube's embed terms and the
+#   internal "undecided" list. Committing it would publish an admission,
+#   which is worse than the judgement itself.
+#   .agents/ is 2.1MB of vendored third-party skills, not product code.
+PRODUCT.md
+.agents/
+.kb.mjs
+.prox2.mjs
+PORT-MAP.md
