@@ -17,6 +17,11 @@ import './styles.css'
 // screen. Everything else about this branch matches main.
 const accent = new URLSearchParams(location.search).get('accent') ?? 'noon'
 document.documentElement.dataset.accent = accent === 'red' ? '' : accent
+// ?ink=quiet steps the two inks down so the accent has something to be
+// louder than. Separate flag on purpose: yellow-with-loud-ink and
+// yellow-with-quiet-ink are two different answers and want comparing.
+const ink = new URLSearchParams(location.search).get('ink')
+if (ink) document.documentElement.dataset.ink = ink
 readAccent()
 
 // No StrictMode: the app owns one AudioContext and one rAF loop in a

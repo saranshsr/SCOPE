@@ -90,6 +90,30 @@ html, body, #root { height: 100%; margin: 0; }
    ground where --ink is 16.46 -- which is the thing to judge: at equal
    weight to the primary text, does the accent still read as an accent?
    That question is why this is a flag and not a commit. */
+/* ── ?ink=quiet ──────────────────────────────────────────────────────────
+   THE SECOND HALF OF THE YELLOW QUESTION.
+   An accent recedes because the text is louder than it. Vermillion works at
+   4.58:1 precisely because --ink is 16.46 -- 3.6x brighter -- so red reads as
+   a mark ON the sheet. Yellow is 16.45, which is --ink to two decimal places,
+   so nothing recedes and the accent competes with the prose.
+   Yellow cannot go up; it is already near the ceiling of this ground. So the
+   inks come down, and noon's own system says how far: these are Field DS
+   muted and tertiary, and scope's --ink-dim #9a9db4 was already within three
+   values of the first one. The hierarchy then inverts the right way round --
+   the accent becomes the brightest thing on the plate, which is what a
+   16:1 accent should be.
+        --ink  7.49:1, still clear of the AA body floor
+        chrome 3.86:1, decorative only, which §1 already allows
+        yellow now 2.2x the primary ink instead of 1.0x */
+:root[data-ink="quiet"] {
+  --ink: #989fb3;
+  --ink-dim: #666d85;
+  --dim: rgba(152, 159, 179, 0.62);
+  --faint: rgba(152, 159, 179, 0.16);
+  --lift: rgba(152, 159, 179, 0.08);
+  --lift-press: rgba(152, 159, 179, 0.15);
+}
+
 :root[data-accent="noon"] {
   --red: #feee00;
   --red-rgb: 254, 238, 0;
