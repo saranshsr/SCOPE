@@ -213,12 +213,46 @@ function watchPopover(): () => void {
       clampToPlate()
     })
   }
-  const mo = new MutationObserver(run)
-  mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class'] })
+
+  // WATCH THE POPOVER, NOT THE PAGE.
+  //
+  // This observed document.body with { subtree: true, attributes: true },
+  // which is every style and class mutation anywhere in the app -- and the
+  // reticle rewrites its own transform on every pointer move. So moving the
+  // mouse during the tour fired this on every frame, and each firing runs
+  // clampToPlate, which reads three bounding rects. Measured at 1440x900,
+  // over a second of continuous pointer movement:
+  //
+  //     tour open    73 mutations   99 getBoundingClientRect
+  //     tour closed   6 mutations    0 getBoundingClientRect
+  //
+  // A forced synchronous layout every frame, stacked on a 108k-particle
+  // GPGPU render and a full-viewport SVG overlay. Headless swiftshader still
+  // reported 60fps, which is exactly why CHECKS.md §6 says that number is for
+  // measuring and a real browser is for judging -- on Chrome it read as lag.
+  //
+  // Only one element's position is in question, so only that element is
+  // watched. The body observer is childList ONLY, to notice driver creating
+  // or replacing the popover between steps.
+  let watched: Element | null = null
+  let popMo: MutationObserver | null = null
+  const attach = () => {
+    const pop = document.querySelector('.driver-popover')
+    if (!pop || pop === watched) return
+    watched = pop
+    popMo?.disconnect()
+    popMo = new MutationObserver(run)
+    popMo.observe(pop, { attributes: true, attributeFilter: ['style', 'class'] })
+    run()
+  }
+  const bodyMo = new MutationObserver(attach)
+  bodyMo.observe(document.body, { childList: true })
+  attach()
+
   window.addEventListener('resize', run)
-  run()
   return () => {
-    mo.disconnect()
+    bodyMo.disconnect()
+    popMo?.disconnect()
     window.removeEventListener('resize', run)
   }
 }
