@@ -292,7 +292,28 @@ const SHELL_VERT = /* glsl */ `
       // MATTER warps — slow angular noise bends each ring out of round,
       // band energy spikes its own arc, and hits kick the whole rim.
       float rwarp = snoise(vec3(cos(th2) * 1.7, sin(th2) * 1.7, tier * 3.7 + uTime * 0.2));
-      float ringR = uR * (0.50 + bandE * 0.26 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.10)
+      // A STEM HAS ONE LEVEL, NOT TWENTY-FOUR.
+      //
+      // bandE is this sector's slice of the 24-band ladder, which is the
+      // right drive for a frequency tier and an arbitrary one for a stem:
+      // the map is positional, so vocals drew bands 18-23 and measured 0.282
+      // against bass's 0.574 over 606 frames. Half the drive, decided by
+      // nothing but where the word "vocals" sorted. Under Law 3 that is a
+      // decorative number wearing a reading's clothes, and the per-sector
+      // variation it produced described a spectrum the stem does not have.
+      //
+      // Dissected into stems, the drive is the stem's OWN measured level.
+      // All four then differ by the one thing that is true about them, and a
+      // loud stem reads bigger than a quiet one. The angular life does not
+      // go with it -- n2, rwarp and undul are still here and are honest,
+      // because they are texture and never claimed to be readings.
+      //
+      // Gated on uStems * dl so it applies only where it is true: the whole
+      // sphere is still spectral, and so is every frequency tier.
+      // 0.45 puts a stem at tl 1.0 alongside the ~0.4 a healthy band reads,
+      // so the two modes stay the same size on screen.
+      float ringE = mix(bandE, min(tl, 1.4) * 0.45, uStems * dl);
+      float ringR = uR * (0.50 + ringE * 0.26 + n2 * 0.05 * uTurb) * eqBody * mix(1.0, depth, 0.10)
         * prof * (0.45 + 0.55 * min(tl, 1.4))
         * (1.0 + rwarp * (0.05 + uPulse * 0.08) + uSnap * 0.06);
       // The drawing's vocabulary: a quarter of each tier forms a nested
@@ -396,8 +417,12 @@ const SHELL_VERT = /* glsl */ `
     // Interior burns slightly dimmer than the surface — the fabric reads
     // as one mass with depth, not two nested skins.
     // Snap is unsprung: the kick flashes the frame it lands.
+    // Same substitution as ringE, recomputed because that one is scoped to
+    // the dissect branch. Without this the radius stopped favouring bass and
+    // the brightness carried on doing it.
+    float glowE = mix(bandE, min(tl, 1.4) * 0.45, uStems * dl);
     float scint = uCalm * n3;
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + bandE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) * (1.0 + scint * 0.22) + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10;
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + glowE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) * (1.0 + scint * 0.22) + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
