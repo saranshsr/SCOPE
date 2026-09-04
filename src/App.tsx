@@ -2995,7 +2995,7 @@ function NoonMark() {
 }
 
 /**
- * The accent, as numbers, for the surfaces that cannot say var(--red).
+ * The accent, as numbers, for the surfaces that cannot say var(--accent).
  *
  * The survey is drawn on a 2D canvas and fillStyle takes a string, so the
  * accent has to arrive as digits. Read from the stylesheet rather than
@@ -3008,14 +3008,14 @@ function NoonMark() {
  */
 let ACCENT_RGB = '225, 59, 42'
 export function readAccent() {
-  const v = getComputedStyle(document.documentElement).getPropertyValue('--red-rgb').trim()
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim()
   if (v) ACCENT_RGB = v
 }
 
 function Reg({ className }: { className: string }) {
   return (
     <svg className={className} width="13" height="13" aria-hidden="true">
-      <g stroke="var(--red)" strokeWidth="1">
+      <g stroke="var(--accent)" strokeWidth="1">
         <line x1="6.5" y1="0" x2="6.5" y2="13" />
         <line x1="0" y1="6.5" x2="13" y2="6.5" />
       </g>
@@ -3146,7 +3146,7 @@ function Dial({
           y2={(21 - Math.cos(a) * 12).toFixed(1)}
           stroke="var(--ink)" strokeWidth="1.5"
         />
-        <circle cx="21" cy="21" r="1.6" fill="var(--red)" />
+        <circle cx="21" cy="21" r="1.6" fill="var(--accent)" />
       </svg>
       <span className="cap">{cap} <b>{Math.round(v * 100)}</b></span>
     </div>
@@ -3324,7 +3324,7 @@ function drawSurvey(
   if (a <= 0.01) return
   const n = tiers.length
   const ink = (al: number) => `rgba(234,234,234,${al * a})`
-  const red = (al: number) => `rgba(${ACCENT_RGB},${al * a})`
+  const accent = (al: number) => `rgba(${ACCENT_RGB},${al * a})`
   g.textBaseline = 'middle'
   g.lineWidth = 1
 
@@ -3354,7 +3354,7 @@ function drawSurvey(
     const hot = scene.hiTier === i
 
     // the ring's true projected ellipse — heats with its row
-    g.strokeStyle = soloed ? red(0.8) : ink(hot ? 0.85 : muted ? 0.14 : 0.38)
+    g.strokeStyle = soloed ? accent(0.8) : ink(hot ? 0.85 : muted ? 0.14 : 0.38)
     g.beginPath()
     for (let k = 0; k <= 48; k++) {
       const p = scene.surveyPoint(i, (k / 48) * Math.PI * 2)
@@ -3364,7 +3364,7 @@ function drawSurvey(
     g.stroke()
 
     // the nested inner ring — the drawing's concentric vocabulary
-    g.strokeStyle = soloed ? red(0.4) : ink(muted ? 0.08 : 0.2)
+    g.strokeStyle = soloed ? accent(0.4) : ink(muted ? 0.08 : 0.2)
     g.beginPath()
     for (let k = 0; k <= 36; k++) {
       const p = scene.surveyPoint(i, (k / 36) * Math.PI * 2, 0.46)
@@ -3405,16 +3405,16 @@ function drawSurvey(
     const ctr = scene.surveyPoint(i, 0, 0)
     const lx = plateX
     g.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace'
-    g.fillStyle = soloed ? red(0.95) : muted ? red(0.75) : ink(hot ? 1 : 0.9)
+    g.fillStyle = soloed ? accent(0.95) : muted ? accent(0.75) : ink(hot ? 1 : 0.9)
     g.fillText(`0${i + 1} · ${tiers[i].label.toUpperCase()}`, lx, ctr.y - 7)
     g.font = '9px "JetBrains Mono", ui-monospace, monospace'
-    g.fillStyle = muted ? red(0.6) : soloed ? red(0.7) : ink(0.55)
+    g.fillStyle = muted ? accent(0.6) : soloed ? accent(0.7) : ink(0.55)
     g.fillText(
       muted ? 'MUTED' : soloed ? 'SOLO' : `LVL ${String(Math.round(levels[i] * 99)).padStart(2, '0')}`,
       lx,
       ctr.y + 6,
     )
-    g.fillStyle = soloed ? red(0.8) : ink(0.8)
+    g.fillStyle = soloed ? accent(0.8) : ink(0.8)
     g.fillRect(lx, ctr.y + 13, Math.max(1, levels[i] * 46), 2)
   }
 
@@ -3434,7 +3434,7 @@ function drawSurvey(
   g.stroke()
   const bth = performance.now() * 0.0011
   const bp = scene.projectLocal(Math.cos(bth) * rB, yB, Math.sin(bth) * rB)
-  g.fillStyle = red(0.55 + Math.min(0.45, beat))
+  g.fillStyle = accent(0.55 + Math.min(0.45, beat))
   g.fillRect(bp.x - 2, bp.y - 2, 4, 4)
   const cB = scene.projectLocal(0, yB, 0)
   g.font = '9px "JetBrains Mono", ui-monospace, monospace'

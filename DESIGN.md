@@ -14,13 +14,32 @@ this file or changes this file first.
 
 | token | value | job |
 |---|---|---|
-| `--ink` | `#eaeaea` | primary content: values, titles, controls |
-| `--ink-dim` | `#9a9db4` (used at 0.35–0.8 alpha) | chrome tier: module labels, decorative data, diagrams, borders — the blueprint-grey of the CHANNEL sheet |
-| `--red` | `#e13b2a` | THE accent — the OUTER poster's warm vermillion, not neon. Armed states, the power moment, keylines, grab point |
-| `--red-dim` | `rgba(225, 59, 42, 0.5)` | red keylines / frames |
+| `--ink` | `#989fb3` (7.49:1) | primary content: values, titles, controls. Field DS `muted` |
+| `--ink-dim` | `#7d8499` (5.31:1) | chrome tier: module labels, decorative data, diagrams, borders. Interpolated between Field DS `muted` and `tertiary` — tertiary itself is 3.86:1, and this tier carries every `//LABEL_`, which is functional text |
+| `--accent` | `#feee00` (16.45:1) | THE accent — noon's brand yellow. Armed states, the power moment, keylines, grab point |
+| `--accent-rgb` | `254, 238, 0` | the same value as a triple, for alpha variants and the survey canvas, which draws with `fillStyle` and cannot say `var()` |
+| `--accent-dim` | `rgba(var(--accent-rgb), 0.78)` | accent keylines / frames |
+| `--accent-hot` | `#fff44d` | the one brightening, on POWER ON's hover and the rev |
 | ground | `#0a0a0a` | never flat: always textured (see §4) |
 
-Rules: functional text never below 0.6 alpha of `--ink` (WCAG floor);
+**Why the inks are dim.** An accent recedes because the text is brighter
+than it. Vermillion measured 4.58:1 against an `--ink` of 16.46 — the text
+was 3.6× louder, so red read as a mark *on* the sheet. Yellow is 16.45:1,
+which is that old `--ink` to two decimal places: at equal weight nothing
+receded and the accent argued with the prose. Yellow cannot go up, it is
+already near this ground's ceiling, so the inks came down. The accent is now
+**2.2× the primary ink** where it was 1.0×.
+
+Both ink values are Field DS tokens, and the sheet was most of the way there
+already — the old `--ink-dim` `#9a9db4` sat three values from Field DS
+`muted`. The name `--red` went with the colour: it was the last thing still
+asserting a palette the product had left.
+
+Rules: functional text never below **4.5:1 against the ground**, measured,
+not estimated from alpha. The old wording said "never below 0.6 alpha of
+`--ink`", which was a safe proxy only while `--ink` was 16.46:1 — at the
+current ink, 0.6 alpha blends to 3.4:1 and fails. State the floor in the
+unit the floor is actually in.
 decorative chrome may go as dim as it likes. Red is never tinted, never
 gradiented, and appears at full strength in at most one zone per view.
 
@@ -82,9 +101,12 @@ No third face. No italics. Numbers always mono.
    piece 6), never smooth gradients.
 7. **Accessibility floors are law.** ≥44px touch targets, `:focus-visible`
    outlines, `aria-pressed` on toggles, reduced-motion strips animation
-   and restores native cursors, contrast floors per §1. Filled-red cells
-   carry INK type, never white: white on `--red` measures 4.3:1 and fails
-   AA, ink measures 4.6:1 — and it keeps the one-accent law intact.
+   and restores native cursors, contrast floors per §1. Filled accent cells
+   carry GROUND type `#0a0a0a`, never ink: ground on `--accent` measures
+   16.04:1, while `--ink` on it is 1.00:1 and invisible. (The rule this
+   replaces said ink on vermillion measured 4.6:1 and passed. Measured, it
+   is 3.59:1 and fails AA at body size — the build had always used ground,
+   so the button was right and the sentence describing it was wrong.)
 8. **A plate is FULL or it is not a plate.** Density ≥60% of the canvas
    carrying composed content. The references measure 31% lit *pixels*;
    round 1 shipped ~4% and read as decoration around emptiness. Sparse

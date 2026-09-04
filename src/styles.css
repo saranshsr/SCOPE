@@ -9,24 +9,44 @@
 
 :root {
   --bg: #0a0a0a;
-  --ink: #eaeaea;
+  --ink: #989fb3;
   /* chrome tier: the blueprint-grey of the CHANNEL sheet — module labels,
      decorative data, diagrams. Functional text stays on --ink. */
-  --ink-dim: #9a9db4;
-  --red-dim: rgba(var(--red-rgb), 0.78);
+  --ink-dim: #7d8499;
+  --accent-dim: rgba(var(--accent-rgb), 0.78);
   /* the plate's shared cell border — one weight, one colour, everywhere */
   /* 0.68, not 0.5: at 0.5 this measured 2.37:1 and it is the border of
      every control in the app. 1.4.11 wants 3:1 — this reads 3.05:1. */
   --pl-line: rgba(141, 144, 168, 0.68);
-  --dim: rgba(234, 234, 234, 0.55);
-  --faint: rgba(234, 234, 234, 0.14);
-  /* The accent, and the two things derived from it. --red-rgb exists so
+  --dim: rgba(152, 159, 179, 0.80);
+  --faint: rgba(152, 159, 179, 0.16);
+  /* THE ACCENT IS NOON'S YELLOW, and the inks came down to let it work.
+     An accent recedes because the text is brighter than it: vermillion sat
+     at 4.58:1 against --ink's 16.46, so the text was 3.6x louder and red
+     read as a mark ON the sheet. Yellow is 16.45 -- --ink to two decimals --
+     so at the old ink nothing receded and the accent argued with the prose.
+     Yellow cannot go up, it is already near this ground's ceiling, so the
+     inks came down. --ink is Field DS muted, 7.49:1, and yellow is now 2.2x
+     it instead of 1.0x.
+
+     --ink-dim is NOT Field DS tertiary, though the first pass used it.
+     Tertiary is 3.86:1, and this tier carries every //LABEL_ on the plate --
+     a label that names a reading is functional text, whatever §1's "chrome
+     may go as dim as it likes" allows, so it holds the 4.5 floor. #7d8499
+     is interpolated between muted and tertiary at 5.31:1: dimmer than --ink
+     by a clear step, still readable. --dim follows at 0.80 alpha, 5.10:1;
+     at the 0.62 the first pass used it blended to 3.46 and failed.
+
+     Named --accent, not --red, because it is not red. The name was the last
+     thing still asserting the old palette.
+
+     The accent, and the two things derived from it. --accent-rgb exists so
      alpha variants and the survey canvas can be built from the same value
      instead of respelling 225, 59, 42 in nineteen places -- which is what
      made the accent impossible to change without missing some. */
-  --red: #e13b2a;
-  --red-rgb: 225, 59, 42;
-  --red-hot: #f04a37;
+  --accent: #feee00;
+  --accent-rgb: 254, 238, 0;
+  --accent-hot: #fff44d;
   --edge: 24px;
   /* one source of truth: JS reads this too (App.tsx RAIL) */
   --rail-w: 320px;
@@ -62,8 +82,8 @@
      this is the token it wanted -- taken from what the stylesheet does, not
      invented. Ease-OUT, per §6: full speed out of rest, settling in. */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --lift: rgba(234, 234, 234, 0.07);
-  --lift-press: rgba(234, 234, 234, 0.13);
+  --lift: rgba(152, 159, 179, 0.08);
+  --lift-press: rgba(152, 159, 179, 0.15);
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
   font-family: var(--font-mono);
@@ -79,22 +99,6 @@ html, body, #root { height: 100%; margin: 0; }
    most prominent controls in the transport, plus the file picker. It also
    fixes the scrollbar the rail would otherwise draw in light chrome. */
 :root { color-scheme: dark; }
-
-/* ── ?accent=noon ────────────────────────────────────────────────────────
-   A TEST HARNESS for the noon-yellow question, not a shipped second accent.
-   It REPLACES the one accent rather than adding to it, so §6's "a second
-   accent color" still holds: there is never more than one on screen.
-   Contrast improves rather than needing new rules. Filled cells already
-   carry ground type, and #0a0a0a measures 16.04:1 on this yellow against
-   4.58:1 on the vermillion. Yellow is also ink-weight -- 16.45:1 on the
-   ground where --ink is 16.46 -- which is the thing to judge: at equal
-   weight to the primary text, does the accent still read as an accent?
-   That question is why this is a flag and not a commit. */
-:root[data-accent="noon"] {
-  --red: #feee00;
-  --red-rgb: 254, 238, 0;
-  --red-hot: #fff44d;
-}
 
 /* An instrument does not flash a translucent blue rectangle when tapped.
    The pressed states are designed (--lift-press, :active transforms); this
@@ -198,7 +202,7 @@ body {
   text-transform: uppercase;
 }
 
-:focus-visible { outline: 1px solid var(--red); outline-offset: 2px; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 /* --- film ------------------------------------------------------------------------ */
 
@@ -507,7 +511,7 @@ body {
   width: 4px;
   height: 4px;
   transform: translate(-50%, -50%);
-  background: var(--red);
+  background: var(--accent);
   box-shadow: 0 0 0 1.5px rgba(10, 10, 10, 0.85);
 }
 
@@ -720,12 +724,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .app.ambient { cursor: none; }
 
 /* A cell in a non-default state — the machine admitting it. */
-.titleblock .armed dt { color: rgba(var(--red-rgb), 0.75); }
-.titleblock .armed dd { color: var(--red); }
+.titleblock .armed dt { color: rgba(var(--accent-rgb), 0.75); }
+.titleblock .armed dd { color: var(--accent); }
 
 /* Mixing: the reticle's dot goes red — you are holding the audio. */
-.app.mixing .ret-dot { width: 7px; height: 7px; background: var(--red); }
-.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(var(--red-rgb), 0.7); }
+.app.mixing .ret-dot { width: 7px; height: 7px; background: var(--accent); }
+.app.mixing .reticle .ret-h, .app.mixing .reticle .ret-v { background: rgba(var(--accent-rgb), 0.7); }
 
 /* the live parameter riding the reticle while you hold audio */
 .ret-label {
@@ -736,7 +740,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--red);
+  color: var(--accent);
   /* the readout sits over live matter: keep it readable on white */
   background: rgba(10, 10, 10, 0.82);
   padding: 4px 6px;
@@ -836,11 +840,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-btn-m.on {
   color: #0a0a0a;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--accent);
+  border-color: var(--accent);
 }
-.layer-muted .layer-name { color: var(--red); }
-.layer-muted .layer-meter b { background: var(--red); }
+.layer-muted .layer-name { color: var(--accent); }
+.layer-muted .layer-meter b { background: var(--accent); }
 .layer-solo { border-color: var(--pl-line); }
 
 /* ── the tuner: the radio is a dial ─────────────────────────────────── */
@@ -881,7 +885,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .tuner-chips button:active:not(.on) { background: var(--lift-press); }
 .tuner-chips button.on {
   color: var(--bg);
-  background: var(--red);
+  background: var(--accent);
   border-color: #eaeaea;
 }
 /* §3 primitive: the entry cell. One field, one send, sharing a hairline.
@@ -985,9 +989,9 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-meta > div + div { border-top: 1px solid var(--pl-line); }
 .deck-meta dt { color: var(--ink-dim); }
 .deck-meta dd { margin: 0; color: var(--ink); text-align: right; }
-.deck-meta .deck-bpm.locked { color: var(--red); }
+.deck-meta .deck-bpm.locked { color: var(--accent); }
 .deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid var(--pl-line); }
-.deck-meta a:hover { border-color: var(--red); color: var(--red); }
+.deck-meta a:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── first-contact calibration ──────────────────────────────────────────
    The tour is driver.js wearing the plate. Everything the library ships
@@ -1037,7 +1041,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .plate-tour .driver-popover-progress-text {
   font-size: 9px;
   letter-spacing: 0.18em;
-  color: var(--red);
+  color: var(--accent);
 }
 .plate-tour .driver-popover-footer-btn {
   font: inherit;
@@ -1060,8 +1064,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border-color: #eaeaea;
 }
 .plate-tour .driver-popover-navigation-btns button:last-child:hover {
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--accent);
+  border-color: var(--accent);
   color: #0a0a0a;
 }
 .plate-tour .driver-popover-close-btn {
@@ -1071,13 +1075,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   height: 32px;
   line-height: 32px;
 }
-.plate-tour .driver-popover-close-btn:hover { color: var(--red); background: none; }
+.plate-tour .driver-popover-close-btn:hover { color: var(--accent); background: none; }
 .plate-tour .driver-popover-arrow { border-color: var(--pl-line); }
 .plate-tour .driver-popover-arrow-side-left { border-left-color: var(--pl-line); }
 .plate-tour .driver-popover-arrow-side-right { border-right-color: var(--pl-line); }
 .plate-tour .driver-popover-arrow-side-top { border-top-color: var(--pl-line); }
 .plate-tour .driver-popover-arrow-side-bottom { border-bottom-color: var(--pl-line); }
-.plate-tour :focus-visible { outline: 1px solid var(--red); outline-offset: 1px; }
+.plate-tour :focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* the closing step: the keyboard map, as plate rows. It used to be two
    <kbd> lines in the rail's foot, in the half of the column that fell off
@@ -1105,7 +1109,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   display: block;
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
-  color: var(--red);
+  color: var(--accent);
   font-size: 8px;
   font-weight: 400;
   letter-spacing: 0.18em;
@@ -1178,7 +1182,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   cursor: pointer;
 }
 .deck-split:hover:not(:disabled) { color: #0a0a0a; background: #eaeaea; }
-.deck-split:disabled { color: var(--red); cursor: wait; }
+.deck-split:disabled { color: var(--accent); cursor: wait; }
 
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
 .railfold {
@@ -1263,8 +1267,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .t-btn:active { transform: translateY(1px); }
 .transport .t-mute.on {
   color: #0a0a0a;
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .transport .vol {
   grid-column: 1 / 3;
@@ -1299,7 +1303,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   min-height: 40px;
   font-size: 9px;
 }
-.transport .dial-pitch data.armed { color: var(--red); }
+.transport .dial-pitch data.armed { color: var(--accent); }
 /* with the pitch dial gone, vol takes the whole row rather than leaving
    column 3 unfilled — in a gap:1px grid an empty cell paints the line
    colour through, reading as a gap in the plate. */
@@ -1312,8 +1316,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--red);
-  border: 1px solid var(--red-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
   padding: 4px 8px;
 }
 .chip.on { display: inline-block; }
@@ -1349,7 +1353,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 button:focus-visible,
 input:focus-visible,
 a:focus-visible {
-  outline: 1px solid var(--red);
+  outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1443,7 +1447,7 @@ a:focus-visible {
 .pl-hdr b { white-space: nowrap; flex: 0 0 auto; }
 .pl-hdr .hlbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-hdr > * + * { border-left: 1px solid var(--pl-line); }
-.pl-hdr b { font-weight: 400; color: var(--red); }
+.pl-hdr b { font-weight: 400; color: var(--accent); }
 .pl-hdr .k span { color: var(--ink); }
 
 /* ── body: image cell + dense data column ── */
@@ -1489,7 +1493,7 @@ a:focus-visible {
 .pl-fig {
   position: relative;
   height: 100%;
-  border: 1px solid var(--red-dim);
+  border: 1px solid var(--accent-dim);
   background: transparent;
 }
 .pl-figcap {
@@ -1541,7 +1545,7 @@ a:focus-visible {
 .pl-leads li + li { border-top: 1px solid var(--pl-line); }
 .pl-leads .no { color: var(--ink-dim); font-size: 8px; }
 .pl-leads .ln { flex: 1; height: 1px; background: var(--pl-line); }
-.pl-leads .dot { width: 9px; height: 9px; background: var(--red); }
+.pl-leads .dot { width: 9px; height: 9px; background: var(--accent); }
 @keyframes p-lead-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1566,7 +1570,7 @@ a:focus-visible {
 /* max(), because 0.15em of a clamp is not a size you control. The h1 is
    clamp(52px, 8.4vw, 124px) and at the 52px floor -- every phone -- 0.15em
    is 7.8px, under §1's 8-11px mono tier. The floor travels with it now. */
-.pl-reg { font-size: max(8px, 0.15em); vertical-align: 2.4em; color: var(--red); font-family: var(--font-mono); }
+.pl-reg { font-size: max(8px, 0.15em); vertical-align: 2.4em; color: var(--accent); font-family: var(--font-mono); }
 .pl-echo {
   position: absolute; left: 14px; bottom: 2px;
   font-family: var(--font-display);
@@ -1575,7 +1579,7 @@ a:focus-visible {
   letter-spacing: -0.04em;
   text-transform: uppercase;
   color: transparent;
-  -webkit-text-stroke: 1px var(--red-dim);
+  -webkit-text-stroke: 1px var(--accent-dim);
   clip-path: inset(56% 0 0 0);
   pointer-events: none;
 }
@@ -1583,7 +1587,7 @@ a:focus-visible {
   align-self: stretch;
   margin: 0 12px;
   background:
-    repeating-conic-gradient(var(--red) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+    repeating-conic-gradient(var(--accent) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
   opacity: 0.85;
   min-height: 14px;
   max-height: 14px;
@@ -1602,14 +1606,14 @@ a:focus-visible {
      on the one action that matters. Ink reads 4.6:1 here, 5.4:1 on hover,
      and keeps the language's single accent hue. */
   color: #0a0a0a;
-  background: var(--red);
+  background: var(--accent);
   border: 0;
   padding: 0 34px;
   height: 100%;
   min-height: 64px;
   cursor: pointer;
 }
-.pl-act .power:hover { background: var(--red-hot); }
+.pl-act .power:hover { background: var(--accent-hot); }
 
 /* ── right column: the sheet's one primitive, repeated ── */
 .pl-row {
@@ -1653,14 +1657,14 @@ a:focus-visible {
    stage into the readout below -- that is an armed state. The ground
    lifts like every other hover rather than going maroon. */
 .pl-prow:hover { background: var(--lift); }
-.pl-prow:hover .nm { color: var(--red); }
-.pl-prow.sub .nm { position: relative; padding-left: 24px; color: var(--red); }
+.pl-prow:hover .nm { color: var(--accent); }
+.pl-prow.sub .nm { position: relative; padding-left: 24px; color: var(--accent); }
 .pl-prow.sub .nm::before {
   content: '';
   position: absolute; left: 10px; top: 50%;
   width: 6px; height: 6px;
-  border-left: 1px solid var(--red-dim);
-  border-bottom: 1px solid var(--red-dim);
+  border-left: 1px solid var(--accent-dim);
+  border-bottom: 1px solid var(--accent-dim);
   transform: translateY(-6px);
 }
 .pl-pathcap {
@@ -1673,7 +1677,7 @@ a:focus-visible {
 
 .pl-pills { display: flex; gap: var(--gap-tight); padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
 .pl-pills .pill { border: 1px solid var(--pl-line); color: var(--ink-dim); padding: 4px 8px; font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
-.pl-pills .pill.on { border-color: var(--red); color: var(--red); }
+.pl-pills .pill.on { border-color: var(--accent); color: var(--accent); }
 .pl-strip {
   min-height: 12px;
   background: repeating-conic-gradient(var(--ink-dim) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px;
@@ -1744,7 +1748,7 @@ a:focus-visible {
   content: '';
   position: absolute; right: 0; top: -3px;
   width: 4px; height: 6px;
-  background: var(--red);
+  background: var(--accent);
 }
 @keyframes sig-tx { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 
@@ -1762,8 +1766,8 @@ a:focus-visible {
 
 .pl-fig { animation: frame-breathe 5.4s ease-in-out infinite; }
 @keyframes frame-breathe {
-  0%, 100% { border-color: var(--red-dim); }
-  50% { border-color: var(--red); }
+  0%, 100% { border-color: var(--accent-dim); }
+  50% { border-color: var(--accent); }
 }
 
 /* the machine self-checks while it waits: one faint pass, rarely */
@@ -1802,7 +1806,7 @@ a:focus-visible {
    exactly the job §1 gives the accent. */
 .pl-dial:hover,
 .pl-dial:focus-visible { background: var(--lift); color: var(--ink); }
-.pl-dial:focus-visible { outline: 1px solid var(--red); outline-offset: -1px; }
+.pl-dial:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .pl-dial:hover circle:last-of-type,
 .pl-dial:focus-visible circle:last-of-type { r: 2.6; }
 .pl-dial:active { background: var(--lift-press); }
@@ -1818,20 +1822,20 @@ a:focus-visible {
   position: absolute;
   left: 0; right: 0; top: 0;
   height: 2px;
-  background: var(--red);
+  background: var(--accent);
   animation: rev-scan 900ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes rev-scan { from { top: 0; } to { top: 100%; } }
 
-.plate.rev .pl-pills .pill { border-color: var(--red); color: var(--red); }
+.plate.rev .pl-pills .pill { border-color: var(--accent); color: var(--accent); }
 .plate.rev .pl-carrier { animation-duration: 460ms; }
 .plate.rev .pl-leads .dot { animation-duration: 420ms; }
 .plate.rev .pl-pills .pill.on { animation-duration: 380ms; }
 .plate.rev .pl-fig { animation-duration: 400ms; }
 .plate.rev .pl-mark h1 { animation: rev-load 300ms steps(2) 3; }
 @keyframes rev-load { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
-.plate.rev .pl-act .power { background: var(--red-hot); }
-.plate.rev .pl-fig { border-color: var(--red); }
+.plate.rev .pl-act .power { background: var(--accent-hot); }
+.plate.rev .pl-fig { border-color: var(--accent); }
 
 /* the sheet flies past you, it does not politely fade */
 .plate.dive {
@@ -2019,7 +2023,7 @@ input[type='range'] { height: 32px; }
 }
 .cn-plate > * { pointer-events: auto; }
 .cn-hdr { background: rgba(10, 10, 10, calc(0.94 - var(--drop, 0) * 0.22)); }
-.cn-hdr .armed span { color: var(--red); }
+.cn-hdr .armed span { color: var(--accent); }
 .cn-hdr .rail-help {
   border: 0;
   border-left: 1px solid var(--pl-line);
@@ -2029,7 +2033,7 @@ input[type='range'] { height: 32px; }
   cursor: pointer;
   padding: 0 12px;
 }
-.cn-hdr .rail-help:hover { color: var(--red); }
+.cn-hdr .rail-help:hover { color: var(--accent); }
 
 .cn-body {
   display: grid;
@@ -2080,7 +2084,7 @@ input[type='range'] { height: 32px; }
   align-items: center;
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
-  color: var(--red);
+  color: var(--accent);
   font-size: 8px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -2138,8 +2142,8 @@ input[type='range'] { height: 32px; }
   content: '';
   position: absolute; left: 12px; top: 50%;
   width: 6px; height: 6px;
-  border-left: 1px solid var(--red-dim);
-  border-bottom: 1px solid var(--red-dim);
+  border-left: 1px solid var(--accent-dim);
+  border-bottom: 1px solid var(--accent-dim);
   transform: translateY(-6px);
 }
 .cn-track .k { color: var(--ink-dim); }
@@ -2186,7 +2190,7 @@ input[type='range'] { height: 32px; }
 /* §3.10 keyline: the seam turns red while the stack still has rail below
    it, and only then. Dim red, not full strength -- it is a keyline, not
    the accent zone, and POWER ON already spent that on the landing. */
-.cn-plate .rail.more .rail-dock { border-top-color: var(--red-dim); }
+.cn-plate .rail.more .rail-dock { border-top-color: var(--accent-dim); }
 .cn-plate .rail-dock .cn-mod { border-top: 0; }
 /* the level meter is a row of the dock now, on the plate's own 8/12 */
 .cn-plate .rail-dock .level {
@@ -2281,8 +2285,8 @@ input[type='range'] { height: 32px; }
 /* ══ BROWSER SURFACES ══════════════════════════════════════════════════
    Selection, caret, scrollbars and numerals ship with browser defaults
    that belong to no design system. They are part of the sheet. */
-::selection { background: var(--red); color: #0a0a0a; }
-.app input { caret-color: var(--red); }
+::selection { background: var(--accent); color: #0a0a0a; }
+.app input { caret-color: var(--accent); }
 
 /* The stack scrolls, so the bar belongs to the stack. This was on .rail
    and was written believing it made the overflow visible; it does not.
@@ -2443,15 +2447,15 @@ input[type='range'] { height: 32px; }
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
 /* granted but silent is a fault state, so it takes the accent — and no
    breathing dot, because nothing is arriving to breathe with. */
-.sig-silent { color: var(--red); }
+.sig-silent { color: var(--accent); }
 /* the one step people miss gets the accent, nothing else in the copy does */
-.tube-step b { color: var(--red); font-weight: 400; }
+.tube-step b { color: var(--accent); font-weight: 400; }
 .listening-dot::before {
   content: '';
   display: inline-block;
   width: 6px; height: 6px;
   margin-right: 6px;
-  background: var(--red);
+  background: var(--accent);
   animation: pill-breathe 5.4s ease-in-out infinite;
 }
 
@@ -2478,7 +2482,7 @@ input[type='range'] { height: 32px; }
 .tube-list button:hover:not(.on) { color: var(--ink); background: var(--lift); }
 .tube-list button:active:not(.on) { background: var(--lift-press); }
 .tube-list button.on { color: var(--ink); }
-.tube-list button.on span::before { content: '▸ '; color: var(--red); }
+.tube-list button.on span::before { content: '▸ '; color: var(--accent); }
 .tube-paste { border-bottom: 1px solid var(--pl-line); }
 /* the list's own label: a caption on the rows below it, not a module */
 .tube-or { color: var(--ink-dim); }
