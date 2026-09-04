@@ -2994,6 +2994,24 @@ function NoonMark() {
   )
 }
 
+/**
+ * The accent, as numbers, for the surfaces that cannot say var(--red).
+ *
+ * The survey is drawn on a 2D canvas and fillStyle takes a string, so the
+ * accent has to arrive as digits. Read from the stylesheet rather than
+ * respelled here, or ?accent=noon would repaint the chrome and leave the
+ * survey vermillion.
+ *
+ * Cached deliberately. getComputedStyle in a draw loop is a forced style
+ * read on every frame, which is the exact cost just removed from the tour --
+ * the accent changes at most once per page load, so it is read then.
+ */
+let ACCENT_RGB = '225, 59, 42'
+export function readAccent() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--red-rgb').trim()
+  if (v) ACCENT_RGB = v
+}
+
 function Reg({ className }: { className: string }) {
   return (
     <svg className={className} width="13" height="13" aria-hidden="true">
@@ -3225,7 +3243,7 @@ function drawWave(
     }
     // The playhead — the same red as the crosshair tags; one instrument.
     // 2 buffer px = 1 CSS px on the retina buffer.
-    g.fillStyle = '#e13b2a'
+    g.fillStyle = `rgba(${ACCENT_RGB},1)`
     g.fillRect(px, 0, 2, H)
     return
   }
@@ -3286,7 +3304,7 @@ function drawSurvey(
     g.lineTo(b.x, b.y)
     g.stroke()
     g.setLineDash([])
-    g.fillStyle = `rgba(225, 59, 42,${Math.min(1, sa + 0.25)})`
+    g.fillStyle = `rgba(${ACCENT_RGB},${Math.min(1, sa + 0.25)})`
     g.beginPath()
     g.moveTo(t.x - 4, t.y - 6)
     g.lineTo(t.x + 4, t.y - 6)
@@ -3306,7 +3324,7 @@ function drawSurvey(
   if (a <= 0.01) return
   const n = tiers.length
   const ink = (al: number) => `rgba(234,234,234,${al * a})`
-  const red = (al: number) => `rgba(225, 59, 42,${al * a})`
+  const red = (al: number) => `rgba(${ACCENT_RGB},${al * a})`
   g.textBaseline = 'middle'
   g.lineWidth = 1
 
@@ -3452,7 +3470,7 @@ function drawSpectrum(
     // agreeing with the sculptural one.
     if (mixBand != null) {
       const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
-      if (inBand) g.fillStyle = `rgba(225, 59, 42,${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
+      if (inBand) g.fillStyle = `rgba(${ACCENT_RGB},${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
     }
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly
