@@ -128,6 +128,7 @@ const SHELL_VERT = /* glsl */ `
   uniform float uDensity;
   uniform float uTurb;
   uniform float uCalm;
+  uniform float uStems;
   uniform float uExpo;
   uniform float uSnap;
   uniform float uZoom;
@@ -277,7 +278,16 @@ const SHELL_VERT = /* glsl */ `
       vec2 az = vec2(cos(th2), sin(th2));
       // The reference's silhouette: small crown, wide middle tiers, small
       // base — a sine profile over the stack, not six equal donuts.
-      float prof = 0.72 + 0.48 * sin(3.14159 * (tier + 0.5) / uTiers);
+      // THE SILHOUETTE IS A FREQUENCY IDEA, so it only applies to frequencies.
+      // 0.72 + 0.48*sin() is "small crown, wide middle, small base" -- it
+      // says the extremes of the SPECTRUM are narrow, which is true of sub
+      // and air and meaningless for four stems. Applied to a stem stack it
+      // made tiers 0 and 3 narrow for no reason, and tier 3 is vocals.
+      // Measured at 4 tiers: 0.904 against 1.163 for the middle pair, a 22%
+      // smaller ring, and vocals also draws the weakest band slice -- so the
+      // one ring you look at when you solo vocals was the worst-formed one
+      // on screen. Stems are peers; a cylinder is the honest form for them.
+      float prof = mix(0.72 + 0.48 * sin(3.14159 * (tier + 0.5) / uTiers), 1.0, uStems);
       // Reality vs the survey: the CHROME stays an ideal ellipse while the
       // MATTER warps — slow angular noise bends each ring out of round,
       // band energy spikes its own arc, and hits kick the whole rim.
@@ -763,6 +773,7 @@ export class Scene {
       // CPU side of the motion law).
       uTurb: { value: 1 },
       uCalm: { value: 0 },
+      uStems: { value: 0 },
       uExpo: { value: 1 },
       // The transient fast-path: sub-frame attack, ~150ms decay, NO spring.
       uSnap: { value: 0 },
@@ -1153,9 +1164,16 @@ export class Scene {
     this.tierCount = count
     this.uniforms.uTiers.value = count
     this.uniforms.uGap.value = 1.95 / Math.max(1, count - 1)
+    // vocalTier is only ever passed by applyStemTiers, so it is also the
+    // signal that these tiers are stems rather than frequency bands.
+    this.stems = vocalTier >= 0
+    this.uniforms.uStems.value = this.stems ? 1 : 0
     this.uniforms.uCoronaY.value = vocalTier >= 0 ? this.tierYFull(vocalTier) : 0
     this.uniforms.uGroundY.value = this.tierYFull(0) - (this.uniforms.uGap.value as number) * 0.9
   }
+
+  /** true while the tiers are stems, not frequency bands */
+  stems = false
 
   get tiers(): number {
     return this.tierCount
@@ -1197,6 +1215,11 @@ export class Scene {
 
   /** The stack's silhouette — mirrors the shader's ring-radius profile. */
   ringProfile(tier: number): number {
+    // Mirrors the shader exactly, including the stems case. If these two ever
+    // disagree the drawn ellipse and the particles it describes come apart,
+    // which is the whole reason this function exists rather than being
+    // reimplemented at each call site.
+    if (this.stems) return 1
     return 0.72 + 0.48 * Math.sin((Math.PI * (tier + 0.5)) / this.tierCount)
   }
 
