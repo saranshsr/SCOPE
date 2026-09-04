@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>SCOPE :: console makeover mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ═══ THE CONSOLE, IN THE LANDING'S LANGUAGE ═══════════════════════════
+   Audit finding: the console renders 10 distinct hairline colours, 16
+   floating layers, gapped control boxes and 5 UA-default range inputs,
+   while the landing renders ONE line token, gapless bordered cells and
+   drawn dial faces. Powering on currently changes design language.
+   This mockup speaks one language on both sides of the flight.         */
+:root{
+  --ground:#0b0b11; --ground-2:#0e0e15;
+  --ink:#eaeaef; --dim:#a2a5bd; --line:rgba(141,144,168,.5);
+  --red:#e13b2a; --red-dim:rgba(225,59,42,.55);
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --display:'Archivo Black',sans-serif;
+  --edge:18px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+::selection{background:var(--red);color:#fff}
+html,body{height:100%}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+  text-transform:uppercase; overflow:hidden;
+}
+.plate{
+  position:fixed; inset:var(--edge);
+  border:1px solid var(--line);
+  display:grid; grid-template-rows:auto 1fr auto;
+}
+
+/* ── running header: the floating SRC/PITCH island lands here ── */
+.hdr{display:grid; grid-template-columns:1fr auto auto auto; border-bottom:1px solid var(--line)}
+.hdr > *{padding:7px 12px; display:flex; align-items:center; gap:10px}
+.hdr > * + *{border-left:1px solid var(--line)}
+.hdr b{font-weight:400; color:var(--red)}
+.hdr .k{color:var(--dim)}
+.hdr .k span{color:var(--ink)}
+.dot{width:7px;height:7px;background:var(--red);display:inline-block}
+
+.body{display:grid; grid-template-columns:320px 1fr; min-height:0}
+.rail{border-right:1px solid var(--line); display:grid; grid-template-rows:auto auto auto auto auto auto 1fr auto; min-height:0; overflow:hidden}
+.stage{position:relative; min-height:0; overflow:hidden}
+.stage canvas{display:block;width:100%;height:100%}
+.stage .brk{position:absolute;width:13px;height:13px;border:1px solid var(--ink);opacity:.7}
+.stage .brk.tl{top:11px;left:11px;border-right:0;border-bottom:0}
+.stage .brk.tr{top:11px;right:11px;border-left:0;border-bottom:0}
+.stage .brk.bl{bottom:11px;left:11px;border-right:0;border-top:0}
+.stage .brk.br{bottom:11px;right:11px;border-left:0;border-top:0}
+/* the ONE display moment, and it lives on the stage, not in the rail */
+.nowbig{
+  position:absolute; left:16px; bottom:14px; right:16px;
+  font-family:var(--display); font-size:clamp(28px,3.6vw,52px); line-height:.9;
+  letter-spacing:-.03em; pointer-events:none;
+}
+.nowbig small{display:block;font-family:var(--mono);font-size:8px;letter-spacing:.18em;color:var(--dim);margin-top:6px}
+
+/* ── the sheet's one primitive ── */
+.mod{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:6px 12px; border-bottom:1px solid var(--line);
+  color:var(--red); font-size:8px; letter-spacing:.18em;
+}
+.mod i{color:var(--dim);font-style:normal}
+.row{
+  display:flex; justify-content:space-between; align-items:center; gap:10px;
+  padding:8px 12px; border-bottom:1px solid var(--line);
+}
+.row .k{color:var(--dim)}
+.row .v{color:var(--ink)}
+.row a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line)}
+
+/* gapless control cells: borders SHARE, never double, never gap */
+.cells{display:grid; border-bottom:1px solid var(--line)}
+.cells.c1{grid-template-columns:1fr}
+.cells.c3{grid-template-columns:repeat(3,1fr)}
+.cells.c2{grid-template-columns:1fr auto}
+.cells > *{
+  padding:12px 8px; text-align:center; background:none; border:0;
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink); cursor:pointer; min-height:44px;
+}
+.cells > * + *{border-left:1px solid var(--line)}
+.cells > *:hover{background:rgba(225,59,42,.12); color:var(--red)}
+.cells > .on{background:var(--red); color:#0a0a0a; font-weight:700}
+
+/* the scrubber keeps its glitch strip, but inside a cell */
+.wave{border-bottom:1px solid var(--line); position:relative}
+.wave canvas{display:block;width:100%;height:56px}
+.wave .pos{position:absolute;left:0;top:0;bottom:0;width:1px;background:var(--red)}
+
+/* level as a block meter, not a bar */
+.meter{display:flex;gap:3px}
+.meter i{width:7px;height:9px;background:var(--ink);display:block}
+.meter i.off{background:none;border:1px solid var(--dim)}
+
+/* THE SAME DIAL FACE THE LANDING USES — one control, one look */
+.dials{display:grid;grid-template-columns:repeat(3,1fr);border-bottom:1px solid var(--line)}
+.dials > div{padding:10px 6px;text-align:center;color:var(--dim);font-size:8px;cursor:ns-resize}
+.dials > div + div{border-left:1px solid var(--line)}
+.dials > div:hover{background:rgba(225,59,42,.1);color:var(--ink)}
+.dials .cap{display:block;margin-top:6px}
+.dials .cap b{font-weight:400;color:var(--ink)}
+
+/* the spectrum DOCKS into the grid instead of floating bottom-right */
+.spec{border-bottom:1px solid var(--line); padding:10px 12px 8px}
+.spec .hz{display:flex;justify-content:space-between;color:var(--dim);font-size:7px;margin-top:5px}
+.spec canvas{display:block;width:100%;height:66px}
+
+.vibe{display:grid;grid-template-columns:1fr auto;border-bottom:1px solid var(--line)}
+.vibe input{
+  background:none;border:0;padding:10px 12px;color:var(--ink);
+  font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;min-height:44px;
+}
+.vibe input::placeholder{color:var(--dim)}
+.vibe button{border:0;border-left:1px solid var(--line);background:none;color:var(--red);
+  font-family:var(--mono);font-size:10px;letter-spacing:.16em;padding:0 16px;cursor:pointer;text-transform:uppercase}
+.vibe button:hover{background:var(--red);color:#0a0a0a}
+
+.pills{display:flex;gap:6px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.pill{border:1px solid var(--line);color:var(--dim);padding:3px 9px;font-size:8px}
+.pill.on{border-color:var(--red);color:var(--red)}
+.hint{padding:8px 12px;color:var(--dim);font-size:8px;line-height:1.6;text-transform:none;letter-spacing:.06em}
+
+.ftr{display:grid;grid-template-columns:auto 1fr auto;border-top:1px solid var(--line);color:var(--dim);font-size:8px}
+.ftr > *{padding:6px 12px}
+.ftr > * + *{border-left:1px solid var(--line)}
+.ftr > *:nth-child(2){text-align:center}
+
+.grain,.scan{position:fixed;inset:0;pointer-events:none}
+.grain{opacity:.085;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E")}
+.scan{background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.5)),repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.13) 2px,rgba(0,0,0,.13) 3px)}
+
+@media (max-width:820px){
+  :root{--edge:10px}
+  body{overflow:auto}
+  .plate{position:relative;inset:auto;margin:var(--edge);min-height:calc(100dvh - var(--edge)*2)}
+  .body{grid-template-columns:1fr;grid-template-rows:46vh auto}
+  /* the STAGE takes the fixed row; the rail flows and must not clip, or
+     everything below the fold of its own box disappears */
+  .stage{order:-1}
+  .rail{border-right:0;border-top:1px solid var(--line);grid-template-rows:none;overflow:visible}
+  .hdr{grid-template-columns:1fr auto}
+  .hdr > *:nth-child(3),.hdr > *:nth-child(4){display:none}
+  .ftr{grid-template-columns:1fr}
+  .ftr > *:nth-child(2),.ftr > *:nth-child(3){display:none}
+}
+</style>
+</head>
+<body>
+<div class="plate">
+
+  <header class="hdr">
+    <div><b>[scope-02]</b> console</div>
+    <div class="k">//src_ <span>radio 01</span> <i class="dot"></i></div>
+    <div class="k">//rate_ <span>1.00×</span></div>
+    <div class="k">//ch_ <span>01</span></div>
+  </header>
+
+  <div class="body">
+    <!-- LEFT: one continuous instrument column, no floating islands -->
+    <div class="rail">
+
+      <div class="mod">01 · now playing <i>//deck_</i></div>
+      <div class="row"><span class="k">//track_</span><span class="v">springtime</span></div>
+      <div class="row"><span class="k">//bpm_</span><span class="v">91 / 85</span></div>
+      <div class="row"><span class="k">//key_</span><span class="v">b flat minor</span></div>
+      <div class="row"><span class="k">//artist_</span><a href="#">byte ↗</a></div>
+
+      <div class="wave"><canvas id="wv"></canvas><i class="pos" style="left:38%"></i></div>
+      <div class="row"><span class="k">1:35</span><span class="v">2:18</span></div>
+
+      <div class="cells c3">
+        <button>pause</button><button>skip</button><button>mute</button>
+      </div>
+      <div class="row"><span class="k">//level_</span>
+        <span class="meter"><i></i><i></i><i></i><i></i><i></i><i class="off"></i><i class="off"></i><i class="off"></i></span>
+      </div>
+      <div class="cells c1"><button>split into stems</button></div>
+
+      <div class="mod">02 · feed <i>//source_</i></div>
+      <div class="cells c3">
+        <button class="on">radio</button><button>file</button><button>mic</button>
+      </div>
+      <div class="vibe">
+        <input value="rainy study" aria-label="set a vibe" />
+        <button>go</button>
+      </div>
+      <div class="hint">read as melancholy/sentimental · lo-fi/downtempo · 60-110bpm</div>
+
+      <div class="mod">03 · visuals <i>//how the star reacts_</i></div>
+      <!-- the same dial faces as the landing: one control, one look -->
+      <div class="dials">
+        <div><svg width="42" height="42" viewBox="0 0 42 42"><rect x=".5" y=".5" width="41" height="41" fill="none" stroke="#a2a5bd" opacity=".5"/><circle cx="21" cy="21" r="13" fill="none" stroke="#a2a5bd"/><line x1="21" y1="21" x2="21" y2="9" stroke="#eaeaef" stroke-width="1.5"/><circle cx="21" cy="21" r="1.6" fill="#e13b2a"/></svg><span class="cap">turb <b>100</b></span></div>
+        <div><svg width="42" height="42" viewBox="0 0 42 42"><rect x=".5" y=".5" width="41" height="41" fill="none" stroke="#a2a5bd" opacity=".5"/><circle cx="21" cy="21" r="13" fill="none" stroke="#a2a5bd"/><line x1="21" y1="21" x2="30" y2="13" stroke="#eaeaef" stroke-width="1.5"/><circle cx="21" cy="21" r="1.6" fill="#e13b2a"/></svg><span class="cap">expo <b>128</b></span></div>
+        <div><svg width="42" height="42" viewBox="0 0 42 42"><rect x=".5" y=".5" width="41" height="41" fill="none" stroke="#a2a5bd" opacity=".5"/><circle cx="21" cy="21" r="13" fill="none" stroke="#a2a5bd"/><line x1="21" y1="21" x2="12" y2="14" stroke="#eaeaef" stroke-width="1.5"/><circle cx="21" cy="21" r="1.6" fill="#e13b2a"/></svg><span class="cap">spin <b>76</b></span></div>
+      </div>
+
+      <div class="mod">04 · spectrum <i>//24 bands_</i></div>
+      <div class="spec">
+        <canvas id="sp"></canvas>
+        <div class="hz"><span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span></div>
+      </div>
+
+      <div class="pills">
+        <span class="pill on">( playing )</span>
+        <span class="pill">( 44.1k )</span>
+        <span class="pill">( radio )</span>
+      </div>
+    </div>
+
+    <!-- RIGHT: the star owns the stage, uninterrupted by islands -->
+    <div class="stage">
+      <canvas id="orb"></canvas>
+      <i class="brk tl"></i><i class="brk tr"></i><i class="brk bl"></i><i class="brk br"></i>
+      <div class="nowbig">springtime<small>byte · lo-fi · audius</small></div>
+    </div>
+  </div>
+
+  <footer class="ftr">
+    <span>/ webgl · 108k particles</span>
+    <span>/ grab the star to mix</span>
+    <span>/ audius · artist-owned radio</span>
+  </footer>
+</div>
+
+<div class="grain"></div><div class="scan"></div>
+
+<script>
+const c=document.getElementById('orb'),x=c.getContext('2d');
+function orb(){
+  const w=c.clientWidth,h=c.clientHeight,d=Math.min(2,devicePixelRatio||1);
+  c.width=w*d;c.height=h*d;x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,w,h);
+  const cx=w/2,cy=h/2,R=Math.min(w,h)*0.42,N=26000,GA=Math.PI*(3-Math.sqrt(5));
+  for(let i=0;i<N;i++){
+    const yy=1-(i/(N-1))*2,r=Math.sqrt(1-yy*yy),th=GA*i;
+    const px=Math.cos(th)*r,py=yy,pz=Math.sin(th)*r;
+    const n=1+(Math.sin(px*5.5+pz*4)*Math.cos(py*4.5))*0.06;
+    const dep=0.55+0.45*((pz+1)/2);
+    const a=dep*dep*0.9*(0.35+0.65*Math.random());
+    x.fillStyle='rgba(234,234,239,'+a.toFixed(3)+')';
+    x.fillRect(cx+px*R*n,cy+py*R*n*0.98,dep>1.3?1.6:1,dep>1.3?1.6:1);
+  }
+}
+const wc=document.getElementById('wv'),wx=wc.getContext('2d');
+function wave(){
+  const w=wc.clientWidth,h=wc.clientHeight,d=Math.min(2,devicePixelRatio||1);
+  wc.width=w*d;wc.height=h*d;wx.setTransform(d,0,0,d,0,0);wx.clearRect(0,0,w,h);
+  const mid=h/2;
+  for(let i=0;i<w;i++){
+    const t=i/w;
+    const env=Math.abs(Math.sin(t*Math.PI*3.1))*Math.abs(Math.cos(t*Math.PI*7.3))*0.75+0.08;
+    const a=env*(0.6+0.4*Math.sin(i*0.7))*(h*0.46);
+    const lit=i/w<0.38?0.95:0.34;
+    wx.fillStyle='rgba(234,234,239,'+(lit*(0.4+Math.random()*0.6)).toFixed(3)+')';
+    wx.fillRect(i,mid-a,1,a*2);
+  }
+}
+const sc=document.getElementById('sp'),sx=sc.getContext('2d');
+function spec(){
+  const w=sc.clientWidth,h=sc.clientHeight,d=Math.min(2,devicePixelRatio||1);
+  sc.width=w*d;sc.height=h*d;sx.setTransform(d,0,0,d,0,0);sx.clearRect(0,0,w,h);
+  const n=24,bw=w/n;
+  for(let i=0;i<n;i++){
+    const v=Math.pow(1-i/n,1.5)*(0.55+0.45*Math.sin(i*1.7))*h*0.92;
+    sx.fillStyle='rgba(234,234,239,.82)';
+    sx.fillRect(i*bw+1,h-v,bw-2,v);
+    sx.fillStyle='rgba(234,234,239,.34)';
+    sx.fillRect(i*bw+1,h-v-4,bw-2,1);
+  }
+}
+function all(){orb();wave();spec()}
+all();addEventListener('resize',all);
+</script>
+</body>
+</html>
