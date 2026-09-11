@@ -276,6 +276,24 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
         if (s.stack === 'open') ops.openStack()
         else ops.closeStack()
       },
+      // THE HOLE IS CUT ONCE, AND THE RAIL MOVES AFTERWARDS.
+      //
+      // driver re-renders its overlay on WINDOW scroll. Four of these six
+      // steps anchor inside .rail-stack, which is an inner scroll container,
+      // and driver's own smoothScroll is what moves it -- so the element
+      // arrives in view and the hole stays where the element used to be.
+      // Measured at 1280x800 on "every ring, a visible fader": the anchor
+      // sat at 25,184 and the cut-out at 17,221.5. x, width and height were
+      // all exactly right (17 = 25 less the 8px stagePadding); only y was
+      // wrong, by 45.5px, which is the shape of a stale scroll and nothing
+      // else. On screen that lights the rows above the ones being described.
+      //
+      // refresh() re-measures and repaints. It runs after the scroll has
+      // settled rather than immediately, because immediately is the moment
+      // that produced the wrong number in the first place.
+      onHighlighted: () => {
+        setTimeout(() => d.refresh(), calm ? 0 : 320)
+      },
 
       popover: {
         title: s.title,
@@ -329,8 +347,24 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
 
     d.drive()
     const unwatch = watchPopover()
+
+    // Scroll does not bubble, so a listener on window never hears .rail-stack.
+    // Capture phase hears every scroll in the document, including the rail's
+    // -- whether driver moved it or the reader did. rAF-coalesced, because
+    // refresh() measures and this fires at scroll rate.
+    let queuedRefresh = false
+    const onAnyScroll = () => {
+      if (queuedRefresh) return
+      queuedRefresh = true
+      requestAnimationFrame(() => {
+        queuedRefresh = false
+        if (d.isActive()) d.refresh()
+      })
+    }
+    document.addEventListener('scroll', onAnyScroll, { capture: true, passive: true })
     return () => {
       unwatch()
+      document.removeEventListener('scroll', onAnyScroll, { capture: true })
       if (d.isActive()) d.destroy()
     }
     // one tour per mount: App remounts this component to reopen it
