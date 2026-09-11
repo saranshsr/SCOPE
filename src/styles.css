@@ -1571,18 +1571,6 @@ a:focus-visible {
    clamp(52px, 8.4vw, 124px) and at the 52px floor -- every phone -- 0.15em
    is 7.8px, under §1's 8-11px mono tier. The floor travels with it now. */
 .pl-reg { font-size: max(8px, 0.15em); vertical-align: 2.4em; color: var(--accent); font-family: var(--font-mono); }
-.pl-echo {
-  position: absolute; left: 14px; bottom: 2px;
-  font-family: var(--font-display);
-  font-size: clamp(52px, 8.4vw, 124px);
-  line-height: 0.82;
-  letter-spacing: -0.04em;
-  text-transform: uppercase;
-  color: transparent;
-  -webkit-text-stroke: 1px var(--accent-dim);
-  clip-path: inset(56% 0 0 0);
-  pointer-events: none;
-}
 .pl-checks {
   align-self: stretch;
   margin: 0 12px;

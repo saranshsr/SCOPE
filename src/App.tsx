@@ -2153,7 +2153,6 @@ export default function App() {
               <div className="pl-band">
                 <div className="pl-mark">
                   <h1>scope<span className="pl-reg">®</span></h1>
-                  <div className="pl-echo" aria-hidden="true">scope</div>
                 </div>
                 <div className="pl-checks" aria-hidden="true" />
                 <div className="pl-act">

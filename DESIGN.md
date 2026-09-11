@@ -47,7 +47,7 @@ gradiented, and appears at full strength in at most one zone per view.
 
 | role | face | treatment |
 |---|---|---|
-| display | Archivo Black | ONE moment per view. clamp-scaled, tracking −0.04em, may carry an echo ghost (see §3.8) |
+| display | Archivo Black | ONE moment per view. clamp-scaled, tracking −0.04em |
 | everything else | JetBrains Mono | 8–11px, uppercase, letter-spacing 0.08–0.18em |
 
 No third face. No italics. Numbers always mono.
@@ -138,8 +138,13 @@ No third face. No italics. Numbers always mono.
    a label to its subject. (OUTER's consciousness list.)
 7. **Morse divider** — a row of dots/dashes of varying width as section
    separator. Pattern only.
-8. **Echo type** — the display moment may repeat once beneath itself as
-   a red outlined ghost (033/933). Standby wordmark only.
+8. **Echo type** — RETIRED. The display moment used to repeat once beneath
+   itself as an outlined ghost, clipped to its lower half. It read as a
+   shadow while the accent was a dim vermillion; against `--accent` it
+   stopped being a shadow and became a second word, argued with the first,
+   and made the one display moment look like two. Law 2 is about how many
+   things shout, and an outline at 16:1 shouts. Removed rather than
+   re-tinted: the wordmark does not need help.
 9. **Corner meta** — `/ label — value` slash-prefixed annotations pinned
    to view corners. Honest values only (particle count, source, unit).
 10. **Keyline frame** — a dim red inset rectangle framing a hero zone
