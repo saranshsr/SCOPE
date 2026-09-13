@@ -37,7 +37,7 @@ for (const m of flat.matchAll(/letter-spacing:\s*([^;]+);/g)) {
   const open = flat.lastIndexOf('{', m.index)
   const sel = flat.slice(Math.max(flat.lastIndexOf('}', open), flat.lastIndexOf('{', open - 1)) + 1, open)
   if (POWER.test(sel)) continue
-  fail.push(`${SRC}:${n}  letter-spacing: ${v.trim()} — tracking must name a step token (--track-caps-micro/label/body, --track-prose, --track-display).\n      ${line(n)}`)
+  fail.push(`${SRC}:${n}  letter-spacing: ${v.trim()} — tracking must name a step token (--track-caps-micro/label/body, --track-cta, --track-none, --track-display).\n      ${line(n)}`)
 }
 
 // 2 · text colour must name a token, never a raw alpha of the ink
@@ -62,11 +62,24 @@ for (const m of flat.matchAll(/line-height:\s*([^;}]+);/g)) {
 // 4 · font-size must name a ramp token. A unit glyph scaled to its own
 // numeral (`em`) is not a ramp step and is allowed: `%` after a value belongs
 // to the value, and pinning it to the ramp would be false precision.
+//
+// max() and min() join clamp() here. `.pl-reg` is the ® on the wordmark and
+// reads `max(var(--t-micro), 0.15em)` — 0.15em of a clamped h1 is not a size
+// anyone controls, so the ramp travels with it as a floor. That names the
+// ramp; refusing it taught nothing.
+//
+// KNOWN HOLE, recorded rather than quietly fixed: these three functions are
+// trusted WHOLESALE, so `clamp(9px, 1vw, 13px)` would pass. It is how the
+// display tier is written today (`clamp(52px, 8.4vw, 124px)`, Archivo, which
+// is an outline face and deliberately off the mono grid), so closing it means
+// first deciding what a display ramp IS. Separate job, named here so the next
+// person finds it before it finds them.
+const EXPR = /^(clamp|max|min)\(/
 for (const m of flat.matchAll(/font-size:\s*([^;]+);/g)) {
   const v = m[1].trim()
-  if (v.startsWith('var(--t-') || v.startsWith('clamp(') || v.endsWith('em') || v === 'inherit') continue
+  if (v.startsWith('var(--t-') || EXPR.test(v) || v.endsWith('em') || v === 'inherit') continue
   const n = at(m.index)
-  fail.push(`${SRC}:${n}  font-size: ${v} — sizes come from the six-step ramp (--t-micro … --t-hero).\n      ${line(n)}`)
+  fail.push(`${SRC}:${n}  font-size: ${v} — sizes come from the ramp (--t-micro 11px, --t-read 22px), or a clamp for the display tier.\n      ${line(n)}`)
 }
 
 if (fail.length) {

@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client'
 import App, { readAccent } from './App'
 import '@fontsource/archivo-black'
-import '@fontsource-variable/jetbrains-mono'
 import './styles.css'
 
 // The survey canvas draws with fillStyle, which takes a string, so it cannot

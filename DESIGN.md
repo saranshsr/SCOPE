@@ -47,10 +47,90 @@ gradiented, and appears at full strength in at most one zone per view.
 
 | role | face | treatment |
 |---|---|---|
-| display | Archivo Black | ONE moment per view. clamp-scaled, tracking −0.04em |
-| everything else | JetBrains Mono | 8–11px, uppercase, letter-spacing 0.08–0.18em |
+| display | Archivo Black | ONE moment per view. clamp-scaled, `--track-display` |
+| everything else | Departure Mono | `--t-micro` 11px, uppercase, tracking by role |
 
-No third face. No italics. Numbers always mono.
+No third face. No italics. Numbers always mono. **No bold** — Departure Mono
+ships Regular only, and the browser answers `font-weight: 700` by smearing
+the glyph sideways, which is the one thing a face drawn on a pixel grid
+cannot survive. Emphasis is the two inks and tracking.
+
+#### The ramp has two steps because the face has two
+
+Departure Mono (Helena Zhang, SIL OFL, in `src/fonts/` with its licence) is
+drawn on an **eleven-cell-per-em grid**: `unitsPerEm` is 550 and every
+outline coordinate is a multiple of 50. It is therefore pixel-exact only
+where `font-size × devicePixelRatio` is a whole multiple of 11 — which on
+any display means **11px and 22px**.
+
+| token | value | job |
+|---|---|---|
+| `--t-micro` | 11px | the entire chrome |
+| `--t-read` | 22px | the one larger mono moment |
+| — | `clamp()` | the display tier, Archivo, deliberately off this grid |
+
+The sheet previously ran eight sizes from 8 to 20px; **all but three of them
+were off this face's grid.** Inventing a `--t-label` at 9px to preserve a
+six-step ramp would be a token that lies about what it renders, so the ramp
+says two because two is true.
+
+**The consequence is the point, not a cost.** With one size doing the whole
+chrome, hierarchy has to come from the two inks and from tracking — which is
+what §2 asked for all along, and what a real instrument does: one legend
+size, read by colour and position. Six tracking roles now carry what
+thirteen ad-hoc values used to:
+
+`--track-caps-body` 1px · `--track-caps-label` 2px ·
+`--track-caps-micro` 3px · `--track-cta` 4px (POWER ON alone) ·
+`--track-none` 0 · `--track-display` −0.04em (Archivo only)
+
+**Tracking is in whole pixels, and that is not fussiness.** A glyph lands on
+the pixel grid only if its ORIGIN does, and the origin is the sum of the
+advances before it — so fractional tracking walks every glyph after the first
+off the grid even when the size is perfect. Measured on black at DPR 1,
+counting antialiased pixels as a fraction of inked ones:
+
+| tracking at 11px | fuzzy |
+|---|---|
+| 0, 1px, 2px — whole pixels | **0.0%** |
+| 0.18em = 1.98px | 59.1% |
+| 0.14em = 1.54px | 68.9% |
+| 0.10em = 1.10px | 70.2% |
+| *(10px, off-grid size, any tracking)* | *95.2%* |
+
+Confirmed on the shipped plate by A/B — same region, same metric, counting
+distinct colours, because no absolute threshold can work on a surface that
+carries several deliberate ink levels: the header renders **102** distinct
+colours as shipped, **165** with `em` tracking, **297** at 10px. Getting the
+size right and leaving tracking in `em` recovered barely a third of what the
+grid was worth.
+
+`--track-display` stays proportional because Archivo is an outline face that
+scales with its clamp and owes this grid nothing.
+
+**One knock-on, and it is the kind that only the eye finds.** §1 names
+`--gap-tight` 4px for "icon + label", which separated cleanly while the
+footer tracked 0.18em of 8px = 1.44px between letters. In whole pixels that
+row now tracks 3px — so a 4px gap and a 4px letter gap are the same gap, and
+the noon stamp stopped reading as a mark and started reading as the first
+glyph of MADE. It uses `--gap-related` 8px. When tracking changes, every
+icon-to-label pair has to be re-looked-at, because proximity is relative.
+
+Leading likewise: `--leading-prose` 1.5 · `--leading-display` 0.95 ·
+`--leading-hero` 0.82 · `--leading-none` 1.
+
+`scripts/type-scale.mjs` enforces all three and had been red at ~118 values
+since it was written, against a ramp that was specified here and never
+built. Re-basing on 11px is what finally built it.
+
+**One thing the ramp broke, and how it was caught.** The noon stamp in the
+footer is sized `0.72em`, not `1em`. noon's ring is 15.55% of its box, so
+the ring's painted weight *is* the mark's size × 0.1555 — at the old 8px
+footer that landed on 1.24px, the plate's hairline, which is the whole
+reason the real artwork could be used at chrome scale at all. Moving the
+footer to 11px took the ring to 1.71px and quietly broke "hairlines only".
+0.72em puts it back at 1.23px and keeps the mark a consequence of the type
+tier rather than a free parameter, so Law 2 still holds by geometry.
 
 ### Space & line
 
