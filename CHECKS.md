@@ -37,7 +37,23 @@ cannot be verified against its own runner is decoration.
 | `offscreen` | every child sits inside its surface and on screen | browser | — |
 | `voice` | no em dash in user-visible copy | browser | — |
 | `failure-states` | what the console says when it breaks | browser | — |
-| `shadowed` | no rule declares something the product never does | browser | holds |
+| `shadowed` | no rule declares something the product never does | browser | **red, 14 rules** |
+| `governor` | quality can fall AND rise, on every refresh rate | static | holds |
+| `leak` | nothing accumulates: use it for an hour, pay the same | browser, **`--gpu` only** | holds |
+| `reduced-motion` | a reduced-motion visitor still has a cursor | browser | holds |
+
+`leak` is in neither run list and that is deliberate, not an oversight. It
+needs a real GPU: under swiftshader the page renders at ~3fps, eight cycles
+of pointer drags take over twenty minutes, and CDP's mouse dispatch wedges.
+Run it by hand — `node scripts/leak.mjs --gpu --verbose` — before anything
+that touches the render loop, the audio graph or the governor.
+
+`shadowed` is red and was recorded here as holding — it reports 14 rules
+that never apply, most of them driver.js popover overrides the tour's own
+stylesheet outranks. It is not new and it is not caused by anything in §1.2;
+verified by stashing those changes and re-running. Recorded honestly rather
+than left as a stale green, because a table that disagrees with the runner
+is the fault this suite exists to catch.
 
 **Parked, on disk, in neither run list:** `room-geometry` derives a far
 wall from `.curve`, which exists once in `public/dome.html` and zero times
@@ -80,6 +96,127 @@ rather than *the value looks wrong*.
 
 Dampers without a published target (dissect) still rely on stillness, so run
 the suite on a quiet machine.
+
+---
+
+## 1.2 · The cost that arrives is never the cost you measured
+
+The report was: smooth for the first minutes, laggy after about five, worse
+the more you play with the orb, the sliders and the track list. The obvious
+reading is fill rate, and fill rate had already been measured — 5.18 Mpx per
+pass across RenderPass, AfterimagePass and UnrealBloomPass at DPR 2. That
+number is real and it is also **irrelevant to this report**, because it is
+the same in minute one as in minute thirty. A cost that ARRIVES is a cost
+that ACCUMULATES, and the two need completely different instruments.
+
+`leak.mjs` is that instrument. It censuses eight things that can grow —
+WebGL objects, live audio nodes, AudioParam writes, DOM listeners, DOM
+nodes, JS heap, rAF registrations, and Chrome's own style and layout time —
+drives eight full interaction cycles, and regresses each against the cycle
+index. Only the slope is asserted. Every absolute value in that table is a
+design decision and none of them is this check's business.
+
+Three ways it lied to me before it told the truth, all of them the same
+family as §2 and §4:
+
+**Vsync quantised the symptom out of existence.** Frame time came back
+16.7ms or 33.3ms and nothing between, so the first run reported a flat line
+that was really a display refresh rate. A cost growing 18ms → 31ms was
+invisible. Fixed by `--disable-gpu-vsync` and by timing `Scene.render`
+directly rather than the gap between frames.
+
+**The audio census counted almost nothing.** `create*` is defined on
+`BaseAudioContext`, not `AudioContext`, so hooking own properties of
+`AudioContext.prototype` finds `createMediaElementSource` and little else.
+The run reported ONE live audio node for a page holding a six-filter desk,
+and would have reported one forever. Fixed by walking the prototype chain,
+and guarded by failing outright if the count comes back implausibly low.
+
+**A one-time step read as a slope.** Powering on adds ~90 DOM nodes, once.
+Regressing from the pre-boot sample turned that into "DOM nodes grow 2.87
+per cycle" — a leak that was the console being built. Fixed by regressing
+from cycle 1.
+
+And one finding that was pure instrument error, caught before it was
+believed: `setQuality` appeared to cost **700ms of synchronous main-thread
+time**, which would have been a superb explanation for "it hangs". It was
+`--disable-frame-rate-limit`. Unlocked, the page runs 300fps, and resizing
+the drawing buffer has to drain every queued frame. With vsync on — a real
+browser — the same call costs 3-6ms. **The flag that made the symptom
+visible also manufactured a symptom.** Measure the fix under the conditions
+the product actually runs in, not the conditions that made measuring easy.
+
+### What was actually wrong
+
+Two real faults, both found by reading and then confirmed by measurement:
+
+`StemDeck.loadBuffers` and `.load` replaced `this.stems` with a fresh array
+without disconnecting the old nodes. Dropping a reference does not remove a
+node from the audio graph: the gain and the tap were still wired to the mix
+bus and still summed by the audio thread. Eight orphans per split, forever.
+`leak.mjs` measures exactly eight when the fix is reverted.
+
+`setEchoTime` was called from the frame loop unconditionally, so a locked
+tempo wrote the same number to a delay line 60 times a second — 17,139
+automation writes in one run, on a delay that sits inside a feedback loop
+and therefore never settles. These do **not** accumulate; Chrome prunes the
+timeline behind `currentTime`, and a five-minute soak measured a hammered
+param costing no more to write than a virgin one. It was waste, not a leak,
+and it is worth knowing the difference. After the guard: 32 writes.
+
+### A fourth way it lied: endpoints instead of a trend
+
+Proving `leak` can see a timing regression meant injecting one — a spin in
+`Scene.render` that grows with session length, which is the exact fault the
+check claims to detect. It produced a textbook ramp across the eight cycles:
+
+    rndr50   0.70  1.40  1.00  1.10  1.20  1.40  1.50  1.70
+
+and the check passed. The assertion compared the mean of the first three
+cycles to the mean of the last three, got +0.50ms, found it under the
+absolute floor, and said nothing. **Every sample in the middle — which is
+where the evidence of a trend lives — was discarded before the comparison.**
+
+Two thresholds now guard the same claim from different directions, and both
+are needed. A ratio alone fires on noise: the render call measures 0.6ms one
+sample and 2.0ms the next, so three-sample averages turn 0.3ms of jitter
+into "grew 37%", which this check duly reported against a run whose object
+counts were flat to the integer and whose p99 was 3.10ms in every single
+cycle. A percentage of a sub-millisecond quantity is not a finding. So a
+failure now requires all three: it rose proportionally, it rose by an amount
+worth a person's attention, and least squares over ALL the cycles agrees it
+rose.
+
+Re-run against a steeper mutation, it reports
+
+    render call (median) grew 145% (2.00 -> 4.90, +2.90, slope 0.577/cycle)
+
+and against the shipped code, `p99 2.93 -> 2.93`. The gap between those two
+is the check's real sensitivity, and it is worth knowing rather than
+assuming: **a check proven only against a mutation it was tuned on has been
+tuned, not proven.**
+
+### The one that needed no browser at all
+
+The quality governor dropped above 24ms and restored below 14ms. rAF is
+vsync-bound, so on a 60Hz panel `dt` cannot fall below 16.7ms however fast
+the render is: **the restore threshold was below the floor of the commonest
+display in the world.** One transient dip halved the particles and the
+resolution for the rest of the session, and nothing brought them back. On a
+120Hz panel the same pair does the opposite — 8.3ms clears the restore bar,
+full quality fails the drop bar, and it strobes every five seconds.
+
+Neither needed a GPU, a soak, or a screenshot to find. They needed the
+control loop to be reachable from a test, and it was buried in a 3000-line
+component inside a rAF closure. It now lives in `src/scope/governor.ts` and
+`scripts/governor.mjs` runs it closed-loop — the model plays the machine, so
+the governor's own action changes the frame time it then measures, which is
+the entire failure mode. Nine cases across three refresh rates, in 0.1s.
+Reverting either fault turns it red with the diagnosis written out.
+
+**The rule: a threshold in absolute milliseconds is a different threshold on
+every display.** If a control loop cannot be run without a browser, a GPU
+and five minutes of patience, it will not be tested, and it will be wrong.
 
 ---
 

@@ -3,6 +3,7 @@ import { AudioEngine, type SourceKind, type TrackInfo } from './audio/graph'
 import { FingerprintTracker } from './audio/fingerprint'
 import { BeatClock } from './audio/beat'
 import { Scene } from './scope/scene'
+import { Governor } from './scope/governor'
 import { playlist } from './data/tracks'
 import { loadPeaks, peaksFromFile, energyAhead, type TrackPeaks } from './scope/peaks'
 import { fetchAudiusRadio, fetchVibe } from './audio/audius'
@@ -1074,7 +1075,19 @@ export default function App() {
 
     // The grid sweeps ride the music: Web Animations playbackRate is the
     // one dial that changes a running CSS animation's speed without a jump.
-    const perf = { ema: 0.016, cool: 3, q: 1 }
+    // The quality governor. Its thresholds are relative to the display's own
+    // frame period, and src/scope/governor.ts explains at length why an
+    // absolute one is not a threshold at all. Tested by scripts/governor.mjs.
+    const perf = new Governor()
+
+    // Worst frame in the last second, for the diag line. The governor's EMA
+    // has a time constant near a second, so a 200ms stall barely moves it —
+    // which is exactly why "it hangs sometimes" was invisible to every
+    // number the product reported about itself. A peak is not an average
+    // and the two answer different questions.
+    let hitchMax = 0
+    let hitchAcc = 0
+    let hitchShown = 0
 
     // rms history for the scrolling waveform strip.
     const wave = new Float32Array(220)
@@ -1098,7 +1111,13 @@ export default function App() {
 
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame)
-      const dt = Math.min(0.05, (now - prev) / 1000)
+      // The raw gap, before the clamp. Simulation reads `dt`, which is
+      // capped at 50ms so one long frame cannot fling the physics across the
+      // room — but a readout fed the capped value says "50ms" for a 50ms
+      // stutter and for a 900ms freeze alike, which is the one case it
+      // exists to tell apart.
+      const rawDt = (now - prev) / 1000
+      const dt = Math.min(0.05, rawDt)
       prev = now
 
       const f = engine.analyser.update(dt)
@@ -1303,24 +1322,28 @@ export default function App() {
         reticleRef.current.style.opacity = armed ? '1' : '0'
       }
 
-      // Self-profiler: a slow EMA of real frame time. Two seconds of
-      // sustained >24ms and the scene sheds half its particles and the
-      // retina buffer; it climbs back only if the device proves fast.
-      // Only measured while visible — hidden tabs report garbage timing.
+      hitchMax = Math.max(hitchMax, rawDt)
+      hitchAcc += dt
+      if (hitchAcc >= 1) {
+        hitchShown = hitchMax
+        hitchMax = 0
+        hitchAcc = 0
+      }
+
+      // The quality governor. Sustained slowness and the scene sheds half
+      // its particles and the retina buffer; it climbs back once the device
+      // proves fast again. Only measured while visible — a hidden tab
+      // reports garbage timing.
+      //
+      // The decision lives in src/scope/governor.ts, not here, because a
+      // control loop that needs a browser and five minutes to exercise is a
+      // control loop nobody tests — and this one shipped with a restore
+      // threshold below the 60Hz frame period, so on most displays a drop
+      // was permanent. scripts/governor.mjs now proves both directions are
+      // reachable at 60, 120 and 144Hz.
       if (document.visibilityState === 'visible' && startedRef.current) {
-        perf.ema += (dt - perf.ema) * 0.02
-        perf.cool -= dt
-        if (perf.cool <= 0) {
-          if (perf.ema > 0.024 && perf.q > 0.55) {
-            perf.q = 0.55
-            scene.setQuality(perf.q)
-            perf.cool = 5
-          } else if (perf.ema < 0.014 && perf.q < 1) {
-            perf.q = 1
-            scene.setQuality(perf.q)
-            perf.cool = 5
-          }
-        }
+        const nq = perf.update(dt)
+        if (nq !== null) scene.setQuality(nq)
       }
 
       // Is captured audio actually arriving? Ask the engine what is wired up,
@@ -1379,7 +1402,7 @@ export default function App() {
         }
         // diagnostics: one dim line, only for those who ask
         if (diagRef.current)
-          diagRef.current.textContent = `fps ${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))} · pts ${Math.round((108000 * scene.densityNow + 2600 + 3600) / 1000)}k · quality ${perf.q < 1 ? 'reduced' : 'full'}`
+          diagRef.current.textContent = `fps ${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))} · worst ${Math.round(hitchShown * 1000)}ms · pts ${Math.round((108000 * scene.densityNow + 2600 + 3600) / 1000)}k · quality ${perf.q < 1 ? 'reduced' : 'full'}`
         setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : (engineRef.current?.el.paused ?? false))
         // the layer rows: visible whenever stems are loaded or the stack
         // is open — top ring first, mirroring the drawing
@@ -2879,7 +2902,7 @@ export default function App() {
               <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
                 diag {diag ? '[-]' : '[+]'}
               </button>
-              {diag && <samp ref={diagRef} className="diag-line">fps -- · pts -- · quality --</samp>}
+              {diag && <samp ref={diagRef} className="diag-line">fps -- · worst -- · pts -- · quality --</samp>}
             </span>
           </footer>
         </div>

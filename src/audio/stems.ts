@@ -69,8 +69,7 @@ export class StemDeck {
   /** Load pre-decoded stems (the in-browser splitter's output) — same
    *  node graph as file loads, no re-decode. */
   loadBuffers(stems: { role: StemRole; name: string; buffer: AudioBuffer }[]) {
-    this.disposeSources()
-    this.stems = []
+    this.disposeStems()
     this.soloRole = null
     for (const s of stems) {
       const gain = this.ctx.createGain()
@@ -90,8 +89,7 @@ export class StemDeck {
   }
 
   async load(files: File[]) {
-    this.disposeSources()
-    this.stems = []
+    this.disposeStems()
     for (const f of files) {
       const buffer = await this.ctx.decodeAudioData(await f.arrayBuffer())
       const gain = this.ctx.createGain()
@@ -243,10 +241,32 @@ export class StemDeck {
     }
   }
 
-  dispose() {
+  /**
+   * Retire the whole per-stem graph, not just the sources.
+   *
+   * Both load paths used to stop the sources and then assign
+   * `this.stems = []`, which drops only OUR references. The gain and the
+   * tap are still wired to the mix bus, so the audio thread keeps summing
+   * them for the life of the page — and a GainNode with no input is not
+   * free, it is a node in the render graph. Every split left four gains
+   * and four analysers behind: measured at eight orphans per split by
+   * scripts/leak.mjs, which is the check that must stay green here.
+   *
+   * Disconnect first, THEN drop the references. The other order leaves
+   * nothing to disconnect.
+   */
+  private disposeStems() {
     this.disposeSources()
-    this.out.disconnect()
+    for (const s of this.stems) {
+      s.gain.disconnect()
+      s.tap.disconnect()
+    }
     this.stems = []
+  }
+
+  dispose() {
+    this.disposeStems()
+    this.out.disconnect()
     this._playing = false
   }
 }

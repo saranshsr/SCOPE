@@ -20,7 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 // favour of --red and which now appear zero times in styles.css. Restoring
 // it would turn a loud MODULE_NOT_FOUND into a silent vacuous pass, which
 // is strictly worse. Write it against --red or leave it out.
-const STATIC = ['room-period', 'casing-pairs', 'hover-field', 'spacing', 'motion', 'type-scale']
+const STATIC = ['room-period', 'casing-pairs', 'hover-field', 'spacing', 'motion', 'type-scale', 'governor']
 /* PARKED, not deleted, and not in either list:
  *
  *   room-geometry — asserts a far wall derived from `.curve`. That selector
@@ -44,6 +44,26 @@ const STATIC = ['room-period', 'casing-pairs', 'hover-field', 'spacing', 'motion
  * acceptable is leaving them in the run list reporting red against the
  * shipped product, which is how eight of eighteen came to be ignored. */
 const BROWSER = ['flight', 'console-keys', 'ui-guard', 'readings', 'layout', 'offscreen', 'voice', 'failure-states', 'shadowed', 'reduced-motion']
+/* NOT in either list, on purpose: `leak`.
+ *
+ * It is a real law -- nothing may accumulate, so an hour of playing costs
+ * what the first minute did -- and it is the only check that can see an
+ * object created and never released. But it needs a real GPU. Every other
+ * browser check here runs under swiftshader, and `leak` drives eight full
+ * interaction cycles of pointer drags; on the software rasteriser the page
+ * renders at ~3fps, a run takes over twenty minutes, and CDP's mouse
+ * dispatch wedges outright. Its timing assertions are meaningless there
+ * too, and are disabled.
+ *
+ * A twenty-minute check that hangs is a check people learn to skip, and a
+ * skipped check is how eight of eighteen came to be ignored. So it is run
+ * deliberately, on hardware, before anything that touches the render loop,
+ * the audio graph or the governor:
+ *
+ *     node scripts/leak.mjs --gpu --verbose      ~4min, the gate
+ *     node scripts/leak.mjs --gpu --soak         40 cycles, the deep run
+ *
+ * CHECKS.md 1.2 records what it found and the three ways it lied first. */
 
 const fast = process.argv.includes('--fast')
 const list = fast ? STATIC : [...STATIC, ...BROWSER]
@@ -56,16 +76,19 @@ const list = fast ? STATIC : [...STATIC, ...BROWSER]
 // themselves keep making: blaming the product for the room it runs in.
 //
 // One request, before anything runs, and one line if it is not there.
-if (!fast) {
-  const URL = process.env.SCOPE_URL || 'http://localhost:5260/'
-  let up = false
+const SERVE_URL = process.env.SCOPE_URL || 'http://localhost:5260/'
+const serving = async () => {
   try {
     const c = new AbortController()
     const t = setTimeout(() => c.abort(), 4000)
-    const r = await fetch(URL, { signal: c.signal })
+    const r = await fetch(SERVE_URL, { signal: c.signal })
     clearTimeout(t)
-    up = r.ok
-  } catch { up = false }
+    return r.ok
+  } catch { return false }
+}
+if (!fast) {
+  const URL = SERVE_URL
+  const up = await serving()
   if (!up) {
     console.error(`check: nothing is serving ${URL}, so the ${BROWSER.length} browser laws cannot run.`)
     console.error('  This is the harness, NOT the product. Start the dev server and try again.')
@@ -95,6 +118,20 @@ for (const name of list) {
       process.stdout.write(`        timed out after ${LIMIT_MS / 1000}s and was killed. The slowest honest check is ~110s,\n`)
       process.stdout.write('        so this is a hang — the harness or the machine, NOT the product.\n')
   } else if (!ok) process.stdout.write((r.stderr || r.stdout || '(no output)').trimEnd().split('\n').map(l => '        ' + l).join('\n') + '\n')
+
+  // RE-PROBE THE SERVER ON EVERY FAILURE. The preflight above runs once, and
+  // a dev server that is up at the start can still die in the middle: vite
+  // under memory pressure kept its process alive while answering nothing, so
+  // every remaining check hung on a page blocked mid-load and reported as a
+  // failed law. Seven of them. The meaning was "restart vite".
+  //
+  // One request costs nothing and turns a mystery into a sentence.
+  if (!ok && !fast && !(await serving())) {
+    process.stdout.write(`        ...and ${SERVE_URL} is not serving. THIS IS THE ROOM, NOT THE PRODUCT (CHECKS.md 2.2):\n`)
+    process.stdout.write('        restart the dev server and re-run. Every check after this one will fail the same way.\n')
+    console.error(`\ncheck: stopping — the dev server went away mid-run, so nothing below would mean anything.`)
+    process.exit(1)
+  }
 }
 
 const total = ((Date.now() - t0) / 1000).toFixed(1)

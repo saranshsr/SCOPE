@@ -510,9 +510,25 @@ export class AudioEngine {
     this.echoFb.gain.setTargetAtTime(a * 0.72, t, 0.06)
   }
 
+  /** Last value actually written to the delay line, so a repeat is free. */
+  private _echoT = -1
+
   /** Lock the echo to the music when the beat clock knows the tempo. */
   setEchoTime(sec: number) {
-    this.echoDelay.delayTime.setTargetAtTime(Math.max(0.05, Math.min(1.8, sec)), this.ctx.currentTime, 0.1)
+    const v = Math.max(0.05, Math.min(1.8, sec))
+    // The frame loop calls this EVERY frame while a tempo is locked, and a
+    // locked tempo means the same number arrives sixty times a second.
+    // Measured at 284 automation writes per second with nobody touching
+    // anything (scripts/leak.mjs reports the caller). They do not
+    // accumulate — Chrome prunes the timeline behind currentTime — but a
+    // delay line whose delayTime is re-targeted every frame never settles,
+    // so the tap is perpetually resampling for no musical reason.
+    //
+    // 1ms of hysteresis: below that the echo cannot be heard to move, and
+    // the tempo estimator's own jitter is larger.
+    if (Math.abs(v - this._echoT) < 0.001) return
+    this._echoT = v
+    this.echoDelay.delayTime.setTargetAtTime(v, this.ctx.currentTime, 0.1)
   }
 
   /** Solo one of the 24 log bands (60..12k), or null to hear everything.
