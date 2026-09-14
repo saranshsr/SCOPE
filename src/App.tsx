@@ -2423,8 +2423,10 @@ export default function App() {
             <canvas
               ref={waveRef}
               className="deck-wave"
-              width={464}
-              height={104}
+              /* A first-paint size only: drawWave re-sizes the buffer to the
+                 element every frame, because this strip is fluid. */
+              width={640}
+              height={48}
               role="slider"
               tabIndex={0}
               aria-label="seek"
@@ -3340,6 +3342,24 @@ function drawWave(
 ) {
   const g = cv?.getContext('2d')
   if (!cv || !g) return
+
+  // SIZE THE BUFFER TO THE BOX. The element carried a fixed 464x104 buffer
+  // from when it drew a waveform in a 220x52 cell, and the strip is now
+  // 24px tall and full-width: 464 into ~319 squashed every horizontal by
+  // 1.45x, and 104 into 24 squashed the rule from 2 buffer px to under half
+  // a CSS pixel. It rendered as a grey smudge rather than a hairline, and
+  // only at a high deviceScaleFactor did it look right -- which is exactly
+  // the kind of thing a screenshot at 4x hides and a real 1x screen shows.
+  //
+  // Measured from the element every frame, because the rail is fluid and
+  // this is one comparison against a number the browser already has.
+  const dpr = Math.min(2, window.devicePixelRatio || 1)
+  const wantW = Math.max(1, Math.round(cv.clientWidth * dpr))
+  const wantH = Math.max(1, Math.round(cv.clientHeight * dpr))
+  if (cv.width !== wantW || cv.height !== wantH) {
+    cv.width = wantW
+    cv.height = wantH
+  }
   g.clearRect(0, 0, cv.width, cv.height)
 
   // The buffer is retina, so a 1px rule is 2 buffer px. Hairlines only (§1).

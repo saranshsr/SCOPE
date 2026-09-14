@@ -4,18 +4,36 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 /**
- * Bakes the deploy origin into the social-card meta tags. Scrapers require
- * absolute URLs; build with:
+ * Bakes the deploy origin into the social-card meta tags.
  *
- *     VITE_SITE_URL=https://your-domain npm run build
+ * Scrapers require ABSOLUTE urls. Unset, this stripped the placeholder and
+ * left `og:image="/og.png"` and `og:url="/"` — which is not a degraded card,
+ * it is NO card: every scraper drops a relative image. The production deploy
+ * shipped that way for its whole life, because the only thing standing
+ * between a rich unfurl and nothing was one environment variable that
+ * nobody had set.
  *
- * Unset, the placeholder is stripped (relative fallback) instead of shipping
- * a literal %VITE_SITE_URL% string. Runs before Vite's own %ENV% pass, which
- * would otherwise substitute first and leave double slashes.
+ * So it is derived now, and the manual value is only an override:
+ *
+ *   1. VITE_SITE_URL          an explicit answer, e.g. a custom domain
+ *   2. VERCEL_PROJECT_PRODUCTION_URL   the project's stable production host
+ *   3. VERCEL_URL             this specific deployment, so PREVIEWS unfurl too
+ *   4. ''                     local dev, where relative is correct
+ *
+ * 2 and 3 are Vercel build-time vars and carry no VITE_ prefix, so loadEnv
+ * cannot see them by design — they are read from process.env directly. They
+ * are also build-only and never reach the client; only the resolved origin
+ * is baked into the html.
  */
+function resolveOrigin(mode: string): string {
+  const explicit = loadEnv(mode, process.cwd(), 'VITE_').VITE_SITE_URL
+  if (explicit) return explicit.replace(/\/+$/, '')
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL
+  return host ? `https://${host.replace(/^https?:\/\//, '').replace(/\/+$/, '')}` : ''
+}
+
 function siteUrl(mode: string): Plugin {
-  const raw = loadEnv(mode, process.cwd(), 'VITE_').VITE_SITE_URL ?? ''
-  const origin = raw.replace(/\/+$/, '')
+  const origin = resolveOrigin(mode)
   return {
     name: 'scope-site-url',
     transformIndexHtml: {
