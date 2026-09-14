@@ -31,6 +31,7 @@
 // edge at 900px) is caught by `layout` instead. Two checks, one fault: that
 // is the design, not an oversight.
 import puppeteer from 'puppeteer'
+import { readFileSync } from 'node:fs'
 
 const URL = process.env.SCOPE_URL || 'http://localhost:5260/'
 const b = await puppeteer.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox'] })
@@ -109,20 +110,58 @@ await dissectTo(true, 'dissected')
 // Properties where the computed value is comparable to the declared one.
 // letter-spacing is excluded because it is authored in `em` and computes to
 // px; `type-scale` already holds that axis to its tokens.
+// KNOWN BLIND SPOT, found while mutation-testing this file and recorded
+// rather than left for someone to trip over: the pass/fail is keyed on
+// SELECTOR + PROPERTY, so if the same selector sets the same property in two
+// separate rules, the one that wins satisfies the pair and the dead one is
+// never reported. A dead `.deck-time { display: inline }` went unseen because
+// an earlier `.deck-time { display: flex }` rendered. Closing it means keying
+// on the declaration rather than the pair, which is a bigger change than the
+// bug currently justifies.
+
 const WATCH = ['display', 'text-transform', 'font-weight', 'font-size', 'gap']
+
+// Every selector this repository actually writes, whitespace-normalised, so
+// the page can tell our rules from a vendor's injected ones.
+const OURS = (() => {
+  // NOT `new URL(...)`: this module shadows URL with the target address.
+  const css = readFileSync(import.meta.dirname + '/../src/styles.css', 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  const sels = []
+  for (const m of css.matchAll(/([^{}]+)\{/g)) {
+    const t = m[1].trim()
+    if (!t || t.startsWith('@')) continue
+    sels.push(t.replace(/\s+/g, '').toLowerCase())
+  }
+  return sels
+})()
 
 // INERT, not merely shadowed. A base rule that a modifier overrides is the
 // cascade working -- `.chip { display: none }` beaten by `.chip.on` is
 // correct, and so is `.keyline` beaten by `.keyline-open`. The defect is
 // narrower: a rule that matches elements and yet NONE of them ever render
 // its value. That is a rule saying something the product never does.
-const scan = (WATCH) => {
+const scan = ({ WATCH, OURS }) => {
   const rules = []
   // A rule inside a media query that does not currently match has not failed
   // to apply -- it is simply not for this room. `.reticle { display: none }`
   // lives under `pointer: coarse` and reported on every desktop run.
+  // ONLY RULES WE AUTHOR. This check's whole argument is that a dead rule
+  // "still reads as the intended behaviour to whoever comes next" — which is
+  // true of code we maintain and false of a vendor's. driver.js injects its
+  // own stylesheet at runtime, and six of its defaults were reported here for
+  // the crime of being correctly overridden by our scoped `.plate-tour` rules.
+  // That is not a dead rule, that is what overriding a vendor looks like.
+  const norm = t => t.replace(/\s+/g, '').toLowerCase()
+  const mine = sel => OURS.includes(norm(sel))
+  // A pseudo-ELEMENT cannot be measured this way: `el.matches()` cannot test
+  // one, and getComputedStyle(el) returns the host's style, not the
+  // scrollbar's. `.rail-stack::-webkit-scrollbar { display: none }` was
+  // reported as rendering `grid`, which is the rail's display, not the
+  // scrollbar's. The rule is fine; the instrument could not read it.
+  const measurable = sel => !sel.includes('::')
   const walk = (list, live = true) => { for (const r of list) {
-    if (r.selectorText && r.style) { if (live) rules.push(r) }
+    if (r.selectorText && r.style) { if (live && mine(r.selectorText) && measurable(r.selectorText)) rules.push(r) }
     else if (r.cssRules) {
       const cond = r.conditionText || r.media?.mediaText
       let on = live
@@ -195,9 +234,9 @@ const scan = (WATCH) => {
 // `.reads { display: flex }` is exactly right until the star is pulled apart,
 // when the ring grid replaces it -- and sampling only the dissected room
 // reported the whole-instrument readings as a rule that never applies.
-const dissected = await p.evaluate(scan, WATCH)
+const dissected = await p.evaluate(scan, { WATCH, OURS })
 await dissectTo(false, 'whole')
-const whole = await p.evaluate(scan, WATCH)
+const whole = await p.evaluate(scan, { WATCH, OURS })
 
 // A rule is inert if it MATCHED elements somewhere and was never observed
 // applying ANYWHERE. Intersecting the two states was wrong: a rule whose

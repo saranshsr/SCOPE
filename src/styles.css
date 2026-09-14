@@ -399,15 +399,15 @@ body {
 /* --cx is written by the app: the disc centers in the space the rail leaves. */
 
 .rail {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: var(--rail-w);
-  display: flex;
-  flex-direction: column;
-  padding: calc(var(--edge) + 4px) 16px calc(var(--edge) + env(safe-area-inset-bottom, 0px));
-  background: rgba(10, 10, 10, 0.82);
+  /* This rule used to open with `position: absolute`, a --rail-w width,
+     `display: flex; flex-direction: column`, its own padding and its own
+     background — all written for a floating standby rail. The rail is
+     console-only now (measured: zero matches outside .cn-plate), and
+     `.cn-plate .rail` overrides every one of them at (0,2,0): relative,
+     auto, grid with two rows, no padding, a --drop-reactive ground. They
+     described a layout the product has not had for some time, which is what
+     `shadowed` exists to find — it could only SEE the display, because that
+     is the one of them in its watch list. */
   border-right: 1px solid var(--pl-line);
   z-index: 3;
 }
@@ -759,15 +759,16 @@ body {
 /* the .t-btn rule below is the one that applies; this used to say
    something different for the same elements and lose silently */
 .transport button:active { transform: translateY(1px); }
-.vol { display: flex; align-items: center; gap: var(--gap-related); flex: 1; }
+/* `.vol` had its own flex row here; `.transport .vol` below sets the grid
+   that actually runs it, and .vol never renders outside .transport. */
 .vol span { color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); }
 
 .tuning {
   margin-top: var(--gap-sep);
-  padding-top: 12px;
   border-top: 1px solid var(--pl-line);
-  display: grid;
-  gap: var(--gap-related);
+  /* no display/gap/padding-top: `.cn-plate .tuning` is `display: block;
+     padding: 0`, so the grid never formed and the gap spaced nothing. The
+     rows share edges instead — see the note at .cn-plate .nowplaying. */
 }
 .dial {
   display: grid;
@@ -951,10 +952,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 
 /* ── the tuner: the radio is a dial ─────────────────────────────────── */
 .tuner {
-  display: grid;
-  gap: var(--gap-related);
   border-top: 1px solid var(--pl-line);
-  padding-top: 8px;
+  /* see .tuning: .cn-plate makes this block with no padding */
 }
 .tuner-chips {
   display: grid;
@@ -1176,14 +1175,21 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border-color: var(--accent);
   color: #0a0a0a;
 }
-.plate-tour .driver-popover-close-btn {
+/* `display: flex !important`, and the important is earned rather than
+   reached for: driver.js sets `display: block` as an INLINE STYLE on this
+   button from JavaScript, and an inline style beats every selector no matter
+   how specific — (0,3,0) loses to it exactly as (0,2,0) did. `!important` is
+   the only thing in the cascade above it, which is what it is for.
+   The extra `.driver-popover` class stays anyway: driver injects its sheet at
+   runtime, so on any tie IT is the later rule and wins. */
+.driver-popover.plate-tour .driver-popover-close-btn {
   color: var(--ink-dim);
   font-size: var(--t-micro);
   width: 32px;
   height: 32px;
   /* was `line-height: 32px` — a box height wearing a leading's name. A glyph
      is centred in a box by centring it in the box. */
-  display: flex;
+  display: flex !important;
   align-items: center;
   justify-content: center;
   line-height: var(--leading-none);
@@ -1331,10 +1337,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 
 /* ── NOW PLAYING: the most-used block, structured like every player ──── */
 .nowplaying {
-  display: grid;
-  gap: var(--gap-related);
   border-top: 1px solid var(--pl-line);
-  padding-top: 10px;
+  /* see .tuning: .cn-plate makes this block with no padding */
 }
 .deck-time {
   display: flex;
