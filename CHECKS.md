@@ -27,8 +27,8 @@ cannot be verified against its own runner is decoration.
 | `casing-pairs` | uppercase is for labels, never prose | static | holds |
 | `hover-field` | the hand parts the field, unsprung, with compact support | static | holds |
 | `spacing` | every gap is a step on §1's scale, 0, or a 1px hairline | static | holds |
-| `motion` | every duration is on the table, and nothing eases in | static | **see §9** |
-| `type-scale` | every size, tracking and leading names a token | static | **see §9** |
+| `motion` | every duration is on the table, and nothing eases in | static | holds |
+| `type-scale` | every size, tracking and leading names a token | static | holds |
 | `flight` | the power-on flight: rev, dive, arrival | browser | holds |
 | `console-keys` | every control has a key, and the key moves something | browser | holds |
 | `ui-guard` | the star does not answer to the console | browser | — |
@@ -792,7 +792,15 @@ looked green, and the green is what stopped anyone asking.
 
 ---
 
-## 9 · A check the constitution does not back
+## 9 · A check the constitution does not back — RESOLVED, path 1
+
+**Both checks are green. The section below is the diagnosis as written at the
+time; the resolution is at the end.** Neither was fixed by loosening a check
+until it passed — `type-scale` gained one expression form it should always
+have accepted, `motion` gave up jurisdiction it never had, and everything
+else moved in the product or into DESIGN.md.
+
+## 9 (as diagnosed) · A check the constitution does not back
 
 Two checks cannot pass as written, and not because the product is wrong.
 
@@ -834,3 +842,47 @@ Two honest paths, and it is the owner's call which:
 Until then they are listed here as unbacked rather than left to read as
 product faults. A red that nobody can act on trains people to ignore red,
 which is §2.6's whole argument.
+
+### Resolution — path 1, both of them
+
+**`type-scale`.** Forced by the typeface change, and the constraint wrote the
+answer: Departure Mono is drawn on an eleven-cell-per-em grid, so it is
+pixel-exact only at 11px and 22px. The ramp is those two, because inventing a
+`--t-label` at 9px would be a token that lies about what it renders. 55
+sizes, 51 tracking values and 8 leadings now name a step, and DESIGN.md §1
+carries the ramp. `--ink-prose` and `--ink-rgb` turned out to be unreachable
+by rule 2 as written and no longer appear in its message. The one loosening —
+`max()` and `min()` joining `clamp()` as expressions that may name the ramp —
+is narrow, was forced by a real value (`max(var(--t-micro), 0.15em)`), and
+the hole it leaves is recorded in the check itself rather than left implicit.
+
+**`motion`.** Three separate faults, and only one of them was the product:
+
+1. *No table in the constitution.* There is one now — DESIGN.md §1, Motion.
+   It is 0 / **140** / 420 / 900. Not the 180 the check had always asserted:
+   the sheet hand-authored its hover-and-press motion ten times at 90, 120,
+   140×5, 150, 180×2, which is one tier with drift whose median is 140, and
+   only two of the ten ever sat on 180. The table was derived from what the
+   product does, the way §1's type ramp was derived from what the face can
+   render.
+
+2. *Jurisdiction it never had.* It judged infinite animations by a table for
+   one-shot transitions, so it and `room-period` claimed the same
+   declarations and disagreed — one recording `.grain @ 0.45s` as a material
+   exception while the other demanded 420ms, and the 6.2s carrier and 11s
+   idle scan read as UI transitions 5.8× and 11× too slow. `room-period`
+   states the boundary in its own header; `motion` now honours the
+   reciprocal.
+
+3. *The flight.* `.plate.rev` runs five elements at 460 / 420 / 380 / 400 /
+   300ms. Those are not drift — they are deliberately out of step so the rev
+   reads as several systems straining. 600 and 1000 were already exempt as
+   flight beats; the rest of the flight is now exempt for the same reason.
+   **This is the one that mattered most.** A blind migration would have
+   snapped all five to `--block`, deleted the product's signature moment, and
+   reported it as a fix — which is precisely the failure §2.6 is about, with
+   a green tick on top.
+
+`--ease` is also defined now, so the remedy the check prescribes names a real
+token. Its other arm was always grounded and always right: nothing eases in,
+and six declarations had crept back to the bare `ease` keyword.

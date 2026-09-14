@@ -132,6 +132,49 @@ footer to 11px took the ring to 1.71px and quietly broke "hairlines only".
 0.72em puts it back at 1.23px and keeps the mark a consequence of the type
 tier rather than a free parameter, so Law 2 still holds by geometry.
 
+### Motion
+
+Four durations, and they are derived from what the sheet already did rather
+than picked. `scripts/motion.mjs` had cited "§6" for this table since it was
+written; §6 is Anti-patterns, and grepping this document for the values
+returned nothing. It is here now, so the check enforces the constitution
+instead of one nobody agreed to.
+
+| token | value | job |
+|---|---|---|
+| `--star` | 0 | no transition; the star answers the hand directly |
+| `--light` | 140ms | a touch acknowledged — hover, press, a colour moving |
+| `--block` | 420ms | a block of the plate changing state — dissect, fades |
+| `--room` | 900ms | the room itself |
+
+**140, not 180.** The product hand-authored its hover-and-press motion ten
+times across the sheet — 90, 120, 140×5, 150, 180×2 — which is one tier with
+drift, median 140, and only two of the ten ever sat on the value the check
+used to name. Ten authoring decisions outrank one table entry.
+
+**Nothing eases in.** Every transition uses `--ease`
+(`cubic-bezier(0.16, 1, 0.3, 1)`) — full speed out of rest, settling in. The
+bare `ease` keyword is `cubic-bezier(0.25, 0.1, 0.25, 1)`, which accelerates
+from rest, and it had crept into six declarations.
+
+**Two things this table does not govern, and must not.**
+
+*Idle texture.* Only finite motion answers a user. Infinite animations are
+the room breathing and belong to §7's shared period, which
+`scripts/room-period.mjs` enforces — it says so itself: "Only INFINITE
+animations are idle motion. A one-shot transition is a response to the user
+and is governed by the motion table, not by this law." Both laws used to
+claim them and then disagree: room-period records `.grain @ 0.45s` as a
+material exception while motion demanded 420ms, and it read the 6.2s carrier
+and the 11s idle scan as UI transitions 5.8× and 11× too slow.
+
+*The flight.* POWER ON is the one earned exception. Its rev runs the carrier,
+leads, pills, figure and wordmark at 460 / 420 / 380 / 400 / 300ms, and those
+five are not values that drifted — they are **deliberately out of step**, so
+the machine reads as several systems straining rather than one animation
+playing. Snapping them to a single `--block` would delete the effect, and the
+check would have called it a fix.
+
 ### Space & line
 
 - Hairlines only: 1px. Borders share edges (gapless cell grids), never

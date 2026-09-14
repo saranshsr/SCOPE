@@ -457,7 +457,7 @@ body {
   letter-spacing: var(--track-caps-body);
   text-transform: uppercase;
   cursor: pointer;
-  transition: color 140ms ease, background 140ms ease;
+  transition: color 140ms var(--ease), background 140ms var(--ease);
 }
 
 /* CHOICE: lift, never fill -- .on owns the fill */
@@ -619,7 +619,7 @@ body {
 /* Tap feedback on the remaining pressables (skill: press = scale 0.95-0.98). */
 .power:active { transform: scale(0.97); }
 .deck-wave:active { transform: scaleY(0.94); }
-.power, .deck-wave { transition: transform 90ms ease; }
+.power, .deck-wave { transition: transform 140ms var(--ease); }
 
 @media (prefers-reduced-motion: reduce) {
   /* no drawn cursor to follow the hand: hand the OS its pointer back */
@@ -654,7 +654,7 @@ body {
    Transform, not width/height — the dot rides a 60fps pointer, and
    animating box dimensions thrashes layout on every frame of the swell. */
 .app.grabbing .ret-dot { transform: translate(-50%, -50%) scale(2.25); }
-.ret-dot { transition: transform 120ms ease; }
+.ret-dot { transition: transform 140ms var(--ease); }
 
 @media (max-width: 720px) {
   .titleblock { grid-template-columns: 1fr 1fr; }
@@ -801,7 +801,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
      visible focus ring and no way back. visibility removes them from the
      tab order once the fade completes. */
   visibility: hidden;
-  transition: opacity 500ms ease, visibility 0s linear 500ms;
+  transition: opacity 420ms var(--ease), visibility 0s linear 420ms;
 }
 .app.ambient { cursor: none; }
 
@@ -861,7 +861,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   .app.dissected .survey-legend {
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.3s;
+    transition: opacity 420ms;
   }
 }
 
@@ -883,7 +883,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border: 0;
   background: #0a0a0a;
   padding: 8px 12px;
-  transition: border-color 0.15s;
+  transition: border-color 140ms;
 }
 .layer-hot { border-color: var(--pl-line); }
 .layer-name {
@@ -1285,14 +1285,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
      (1px outline + 2px offset), so keyboard focus still shows a full ring. */
   overflow: clip;
   overflow-clip-margin: 3px;
-  transition: grid-template-rows 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: grid-template-rows 420ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .railfold.open { grid-template-rows: minmax(0, 1fr); }
 .railfold > * {
   overflow: hidden;
   min-height: 0;
   visibility: hidden;
-  transition: visibility 0s 0.45s;
+  transition: visibility 0s 420ms;
 }
 .railfold.open > * {
   visibility: visible;
@@ -1319,7 +1319,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   opacity: 0.7;
   margin-top: -4px;
 }
-.deck-bpm { opacity: 0.62; transition: opacity 0.3s; }
+.deck-bpm { opacity: 0.62; transition: opacity 140ms; }
 .deck-bpm.locked { opacity: 1; }
 
 /* the transport: three equal ≥44px targets — the loudest row in the rail */
@@ -1907,7 +1907,7 @@ a:focus-visible {
    visual — the face lifts and the needle arms on hover and focus. */
 .pl-dial {
   touch-action: none; /* the drag must not scroll the sheet on a phone */
-  transition: background 180ms var(--ease), color 180ms var(--ease);
+  transition: background 140ms var(--ease), color 140ms var(--ease);
 }
 /* THE ONE HOVER LANGUAGE, which this had drifted out of. Line 52 of this
    same file says it plainly -- "Red stays what §1 says it is: armed states,
@@ -1942,10 +1942,10 @@ a:focus-visible {
 @keyframes rev-scan { from { top: 0; } to { top: 100%; } }
 
 .plate.rev .pl-pills .pill { border-color: var(--accent); color: var(--accent); }
-.plate.rev .pl-carrier { animation-duration: 460ms; }
-.plate.rev .pl-leads .dot { animation-duration: 420ms; }
-.plate.rev .pl-pills .pill.on { animation-duration: 380ms; }
-.plate.rev .pl-fig { animation-duration: 400ms; }
+.plate.rev .pl-carrier { animation: 420ms; }
+.plate.rev .pl-leads .dot { animation: 420ms; }
+.plate.rev .pl-pills .pill.on { animation: 380ms; }
+.plate.rev .pl-fig { animation: 400ms; }
 .plate.rev .pl-mark h1 { animation: rev-load 300ms steps(2) 3; }
 @keyframes rev-load { 0%, 100% { opacity: 1; } 50% { opacity: 0.58; } }
 .plate.rev .pl-act .power { background: var(--accent-hot); }
@@ -2227,7 +2227,7 @@ input[type='range'] { height: 32px; }
   padding: 2px 0 2px 8px;
   min-height: 24px;
   cursor: pointer;
-  transition: color 140ms ease;
+  transition: color 140ms var(--ease);
 }
 .cn-mod-back:hover { color: var(--ink); }
 
@@ -2249,7 +2249,7 @@ input[type='range'] { height: 32px; }
   align-items: center;
   gap: var(--gap-tight);
   cursor: pointer;
-  transition: color 140ms ease, background 140ms ease;
+  transition: color 140ms var(--ease), background 140ms var(--ease);
 }
 .cn-back span { color: var(--ink); }
 .cn-back:hover { color: #0a0a0a; background: #eaeaea; }
@@ -2458,7 +2458,7 @@ input[type='range'] { height: 32px; }
      time nobody wants a scrollbar. */
   pointer-events: none;
   opacity: 0;
-  transition: opacity 180ms var(--ease);
+  transition: opacity 140ms var(--ease);
   z-index: 2;
 }
 .railbar.on { opacity: 1; }
