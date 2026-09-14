@@ -293,6 +293,22 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
       // that produced the wrong number in the first place.
       onHighlighted: () => {
         setTimeout(() => d.refresh(), calm ? 0 : 320)
+        // FOCUS THE WAY FORWARD, NOT THE WAY OUT. driver.js focuses its close
+        // button when a step opens, and this sheet gives :focus-visible an
+        // accent outline -- so the first thing a visitor met was a yellow ring
+        // around the X, pointing at "leave" while the card explained the
+        // instrument. Moving it to NEXT keeps the keyboard path intact (tab
+        // and enter still work, and the ring is still there for whoever is
+        // driving by keyboard) and points it at the action the card is asking
+        // for. The close button is still one shift-tab away.
+        requestAnimationFrame(() => {
+          const pop = document.querySelector('.driver-popover.plate-tour')
+          const next = pop?.querySelector<HTMLElement>('.driver-popover-next-btn')
+          const active = document.activeElement
+          if (next && (!active || active === document.body || (active as HTMLElement).classList?.contains('driver-popover-close-btn'))) {
+            next.focus()
+          }
+        })
       },
 
       popover: {

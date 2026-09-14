@@ -134,6 +134,7 @@ export default function App() {
   // slider, solo/mute. Nothing about the stack requires a hidden gesture.
   type LayerRow = { i: number; label: string; level: number; gain: number; muted: boolean; solo: boolean; hot: boolean }
   const [layerUi, setLayerUi] = useState<LayerRow[] | null>(null)
+  const layersFoldRef = useRef<HTMLDivElement>(null)
   const lastLayersRef = useRef<LayerRow[] | null>(null)
   // the effect owns tier state; split (component-level) arms it through here
   const stemsUiRef = useRef<{ arm: (infos: StemInfo[]) => void } | null>(null)
@@ -393,15 +394,23 @@ export default function App() {
         engine.setPlaylist(list)
       }
     })
-    void fetch(`${import.meta.env.BASE_URL}tracks-local/manifest.json`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((local: TrackInfo[] | null) => {
-        if (local?.length && engine.kind === 'radio' && !startedRef.current) {
-          radioTier = 2
-          engine.setPlaylist(local)
-        }
-      })
-      .catch(() => {})
+    // DEV ONLY, and the guard is not caution -- it is the truth about where
+    // this file can exist. The owner's library is served by a vite plugin
+    // that runs in dev and nowhere else, so in production this fetch is
+    // GUARANTEED to 404. It was handled and harmless, and it still put a red
+    // 404 in the network log of every visitor who opened devtools on the
+    // deployed site. A request that cannot succeed should not be made.
+    if (import.meta.env.DEV) {
+      void fetch(`${import.meta.env.BASE_URL}tracks-local/manifest.json`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((local: TrackInfo[] | null) => {
+          if (local?.length && engine.kind === 'radio' && !startedRef.current) {
+            radioTier = 2
+            engine.setPlaylist(local)
+          }
+        })
+        .catch(() => {})
+    }
     engine.onTrackChange = (tr) => {
       energy.reset()
       if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
@@ -1856,6 +1865,32 @@ export default function App() {
   }
 
   /** The star listens to this tab. Separate ask, plainly explained. */
+  /**
+   * Pull the star apart and six ring faders unfold in the rail — beneath NOW
+   * PLAYING and FEED, which puts the module at y=710. Measured at 1440x900:
+   * FOUR of the six fit the fold and two hang below it, on the one screen
+   * whose whole subject is those six rings. The tour's third step calls them
+   * "every ring, a visible fader" and two of them were not.
+   *
+   * `block: 'end'` rather than 'nearest', because nearest stops as soon as
+   * the top edge is in view and the last fader stays hidden — the exact
+   * failure being fixed.
+   */
+  useEffect(() => {
+    if (!layerUi) return
+    const el = layersFoldRef.current
+    if (!el) return
+    const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const t = window.setTimeout(
+      () => el.scrollIntoView({ block: 'end', behavior: calm ? 'auto' : 'smooth' }),
+      // after the fold's own 420ms grid-template-rows transition, or it
+      // scrolls to a height the module has not reached yet.
+      calm ? 0 : 460,
+    )
+    return () => window.clearTimeout(t)
+    // the ROWS change every chrome tick; only the open/shut edge matters here
+  }, [!!layerUi])
+
   const startListening = async () => {
     const eng = engineRef.current
     const ok = (await eng?.useTabAudio()) ?? false
@@ -2797,7 +2832,7 @@ export default function App() {
           {/* 3 · LAYERS — every ring's visible twin. */}
           <h2 className="cn-mod">
             <span>03 · layers</span>
-            <i>{source === 'tube' ? '//meters only_' : '//each row is a ring_'}</i>
+            <i>{source === 'tube' ? '//meters only_' : '//6 rings_'}</i>
           </h2>
           {source === 'tube' && layerUi && (
             <p className="cn-hint">
@@ -2808,7 +2843,7 @@ export default function App() {
           {!layerUi && (
             <p className="cn-hint">pull the star apart (or press d) to mix its rings</p>
           )}
-          <div className={`railfold${layerUi ? ' open' : ''}`}>
+          <div ref={layersFoldRef} className={`railfold${layerUi ? ' open' : ''}`}>
             <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
               {(layerUi ?? lastLayersRef.current ?? []).map((L) => (
                 <div
@@ -2862,7 +2897,7 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
-          <h2 className="cn-mod"><span>04 · visuals</span><i>//how the star reacts_</i></h2>
+          <h2 className="cn-mod"><span>04 · visuals</span><i>//3 dials_</i></h2>
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             {/* The SAME dial the landing ships. These were UA-default range
                 inputs rendering the same three parameters in a second
@@ -3094,11 +3129,16 @@ let ACCENT_RGB = '225, 59, 42'
    pass retired from the whole stylesheet. A canvas takes a string, so no CSS
    migration could reach it, and it kept drawing in a colour the product no
    longer has. Read the tokens instead, and it cannot drift again. */
-let INK_ON = 'rgba(192, 198, 214, 0.92)'
-/* The unplayed run is the PLATE'S OWN HAIRLINE, read from --pl-line rather
-   than invented as another alpha of the ink. At 0.28 it measured 1.9:1 and
-   read as nothing at all — the strip looked like a playhead floating in an
-   empty row instead of a head on a track. --pl-line is the line every cell
+/* The ink as a raw triple, because a canvas composes its own alphas. EVERY
+   canvas in this file used to paint `rgba(234,234,234, …)` — the neutral grey
+   family the palette pass retired from the whole stylesheet. A canvas takes a
+   string, so no CSS migration could reach them, and the three biggest painted
+   surfaces in the product went on drawing in a colour it no longer has: the
+   dissected survey, the spectrum bars, and the seek strip. */
+let INK_RGB = '192, 198, 214'
+/* The unplayed run of the seek strip is the PLATE'S OWN HAIRLINE, read from
+   --pl-line rather than invented as another alpha of the ink. At 0.28 it
+   measured 1.9:1 and read as nothing at all. --pl-line is the line every cell
    in the plate is already drawn with, which is exactly what this is. */
 let INK_LINE = 'rgba(141, 144, 168, 0.68)'
 export function readAccent() {
@@ -3106,7 +3146,7 @@ export function readAccent() {
   const v = cs.getPropertyValue('--accent-rgb').trim()
   if (v) ACCENT_RGB = v
   const ink = cs.getPropertyValue('--ink-rgb').trim()
-  if (ink) INK_ON = `rgba(${ink}, 0.92)`
+  if (ink) INK_RGB = ink
   const line = cs.getPropertyValue('--pl-line').trim()
   if (line) INK_LINE = line
 }
@@ -3372,7 +3412,7 @@ function drawWave(
   // Unplayed, then played over it: two inks, no third.
   g.fillStyle = INK_LINE
   g.fillRect(0, mid, W, rule)
-  g.fillStyle = INK_ON
+  g.fillStyle = `rgba(${INK_RGB}, 0.92)`
   g.fillRect(0, mid, px, rule)
 
   // The playhead is the full height of the strip, so the hit area reads as
@@ -3415,7 +3455,7 @@ function drawSurvey(
     const sa = 0.55 * (1 - dis * 2)
     const t = scene.projectLocal(0, 0.78, 0)
     const b = scene.projectLocal(0, -0.78, 0)
-    g.strokeStyle = `rgba(234,234,234,${sa})`
+    g.strokeStyle = `rgba(${INK_RGB},${sa})`
     g.lineWidth = 1
     g.setLineDash([3, 6])
     g.beginPath()
@@ -3442,7 +3482,7 @@ function drawSurvey(
   const a = Math.max(0, Math.min(1, (dis - 0.25) / 0.55))
   if (a <= 0.01) return
   const n = tiers.length
-  const ink = (al: number) => `rgba(234,234,234,${al * a})`
+  const ink = (al: number) => `rgba(${INK_RGB},${al * a})`
   const accent = (al: number) => `rgba(${ACCENT_RGB},${al * a})`
   g.textBaseline = 'middle'
   g.lineWidth = 1
@@ -3584,7 +3624,7 @@ function drawSpectrum(
     const v = shown[i]
     peaks[i] = Math.max(v, peaks[i] - 0.012)
     const bh = v * (cv.height - 4)
-    g.fillStyle = 'rgba(234,234,234,0.88)'
+    g.fillStyle = `rgba(${INK_RGB},0.88)`
     // The HELD EQ range tints red while you bend it — the analytical view
     // agreeing with the sculptural one.
     if (mixBand != null) {
@@ -3594,7 +3634,7 @@ function drawSpectrum(
     g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
     // hanging peak cap — dimmer, falls slowly
     const py = cv.height - peaks[i] * (cv.height - 4)
-    g.fillStyle = 'rgba(234,234,234,0.35)'
+    g.fillStyle = `rgba(${INK_RGB},0.35)`
     g.fillRect(i * bw + 1, py - 2, bw - 2, 2)
   }
 }

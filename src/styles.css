@@ -1118,6 +1118,9 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
    popover in what is left. */
 .driver-popover.plate-tour {
   --driver-popover-font-family: var(--font-mono);
+  /* The root sat at 16px, so every child had to restate its size and anything
+     that forgot to landed off the ramp entirely. */
+  font-size: var(--t-micro);
   border-radius: 0;
   box-shadow: none;
   border: 1px solid var(--pl-line);
@@ -1129,11 +1132,17 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 /* the cells inside the card are cells: one row height, shared edges */
 .plate-tour .driver-popover-title {
-  font-family: var(--font-display);
+  /* MONO, not the display face. §2 allows one display moment per view and
+     this spent it on a tooltip: Archivo Black at 22px over the console read
+     as a different product's headline sitting on top of the instrument,
+     while every word around it was Departure. Size still carries the
+     hierarchy -- 22px against the body's 11 -- and the card now speaks in
+     the room's own voice. */
+  font-family: var(--font-mono);
   font-size: var(--t-read);
   font-weight: 400;
   line-height: var(--leading-none);
-  letter-spacing: var(--track-none);
+  letter-spacing: var(--track-caps-label);
   text-transform: uppercase;
   color: var(--ink);
   padding: 12px 12px 0;
@@ -1192,6 +1201,11 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .driver-popover.plate-tour .driver-popover-close-btn {
   color: var(--ink-dim);
   font-size: var(--t-micro);
+  /* driver.js asks for 500 and Departure Mono ships Regular only, so the
+     browser was synthesising it -- a smeared glyph in a face whose whole
+     argument is that its stems land on the pixel grid. Same fault as the
+     three 700s the ramp removed from the sheet. */
+  font-weight: 400;
   width: 32px;
   height: 32px;
   /* was `line-height: 32px` — a box height wearing a leading's name. A glyph
@@ -2303,6 +2317,16 @@ input[type='range'] { height: 32px; }
   text-transform: uppercase;
 }
 .cn-mod i { color: var(--ink-dim); font-style: normal; }
+/* A MODULE HEADER IS ONE ROW. `.cn-mod` is a space-between flex with a label
+   and an annotation, and nothing stopped either from wrapping: at 11px with
+   3px tracking, `03 · LAYERS` beside `//each row is a ring_` needed 320px in
+   a 295px line and broke across two rows, so the rings module announced
+   itself in four fragments. The copy is terse now to match `//24 bands_`,
+   and this makes the row structurally unable to wrap whatever anyone writes
+   next: the label holds its width, the annotation takes what is left and
+   clips. `min-width: 0` is what permits a flex child to clip at all. */
+.cn-mod > * { white-space: nowrap; }
+.cn-mod > i { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* the module's own exit, in the slot the source annotation usually holds:
    same tier as that annotation at rest, and it names its destination
    rather than saying "back", because "back" from a mode is ambiguous */
