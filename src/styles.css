@@ -32,17 +32,32 @@
 
 :root {
   --bg: #0a0a0a;
-  --ink: #989fb3;
+  /* 11.59:1 on the ground. It was #989fb3 at 7.49:1, lowered in the accent
+     pass so the yellow would lead — and the yellow does lead, but the result
+     was a product where the primary reading tier sat closer to the secondary
+     than to anything else and the whole console read grey.
+
+     The measured reason it read grey was worse than dimness: a SECOND grey
+     family, #eaeaea, was still in the sheet from before the accent change,
+     30 declarations of it. #eaeaea is 16.46:1 and the accent is 16.45:1 —
+     the brightest thing in the product was a grey that tied exactly with the
+     accent, so the accent had no luminance advantage at all, only hue.
+
+     One hue now, three steps, each visibly apart:
+        accent  16.45:1
+        --ink   11.59:1   accent is 1.42x it
+        --ink-dim 6.22:1  --ink is 1.86x it                        */
+  --ink: #c0c6d6;
+  --ink-rgb: 192, 198, 214;
   /* chrome tier: the blueprint-grey of the CHANNEL sheet — module labels,
      decorative data, diagrams. Functional text stays on --ink. */
-  --ink-dim: #7d8499;
+  --ink-dim: #8a90a3;
   --accent-dim: rgba(var(--accent-rgb), 0.78);
   /* the plate's shared cell border — one weight, one colour, everywhere */
   /* 0.68, not 0.5: at 0.5 this measured 2.37:1 and it is the border of
      every control in the app. 1.4.11 wants 3:1 — this reads 3.05:1. */
   --pl-line: rgba(141, 144, 168, 0.68);
-  --dim: rgba(152, 159, 179, 0.80);
-  --faint: rgba(152, 159, 179, 0.16);
+  --faint: rgba(var(--ink-rgb), 0.16);
   /* THE ACCENT IS NOON'S YELLOW, and the inks came down to let it work.
      An accent recedes because the text is brighter than it: vermillion sat
      at 4.58:1 against --ink's 16.46, so the text was 3.6x louder and red
@@ -105,8 +120,8 @@
      this is the token it wanted -- taken from what the stylesheet does, not
      invented. Ease-OUT, per §6: full speed out of rest, settling in. */
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --lift: rgba(152, 159, 179, 0.08);
-  --lift-press: rgba(152, 159, 179, 0.15);
+  --lift: rgba(var(--ink-rgb), 0.08);
+  --lift-press: rgba(var(--ink-rgb), 0.15);
   --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Departure Mono', ui-monospace, Menlo, monospace;
 
@@ -227,7 +242,7 @@ body {
 .x-v, .x-h {
   position: absolute;
   pointer-events: none;
-  background: rgba(234, 234, 234, 0.14);
+  background: var(--lift-press);
 }
 .x-v { left: var(--cx, 50%); top: 0; bottom: 0; width: 1px; transition: left 900ms cubic-bezier(0.16, 1, 0.3, 1); }
 .x-h { top: 50%; left: 0; right: 0; height: 1px; }
@@ -236,7 +251,7 @@ body {
   width: 9px;
   height: 9px;
   /* §1: radius 0 everywhere. A square block reads as an indicator, not a bubble. */
-  border: 1px solid var(--dim);
+  border: 1px solid var(--ink-dim);
   background: transparent;
 }
 .src-dot.live { background: var(--ink); border-color: var(--ink); }
@@ -268,14 +283,14 @@ body {
    carried real content while hovering over the star — that is what made
    it a card rather than a cell (law 1). */
 .spec {
-  margin-top: 8px;
+  margin-top: var(--gap-related);
 }
 
 .spec canvas { display: block; width: 100%; height: 60px; border: 1px solid var(--pl-line); padding: 4px; }
 .spec-hz {
   display: flex;
   justify-content: space-between;
-  color: var(--dim);
+  color: var(--ink-dim);
   margin-top: var(--gap-tight);
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-body);
@@ -347,7 +362,7 @@ body {
    zones, not floating clusters. */
 .spec {
   border: 1px solid var(--pl-line);
-  padding: 8px 10px;
+  padding: 8px 12px;
 }
 
 .spec canvas {
@@ -391,7 +406,7 @@ body {
   width: var(--rail-w);
   display: flex;
   flex-direction: column;
-  padding: calc(var(--edge) + 4px) 18px calc(var(--edge) + env(safe-area-inset-bottom, 0px));
+  padding: calc(var(--edge) + 4px) 16px calc(var(--edge) + env(safe-area-inset-bottom, 0px));
   background: rgba(10, 10, 10, 0.82);
   border-right: 1px solid var(--pl-line);
   z-index: 3;
@@ -427,7 +442,7 @@ body {
 .rail-reg {
   font-size: var(--t-micro);
   vertical-align: 1em;
-  color: var(--dim);
+  color: var(--ink-dim);
 }
 
 .barcode-s { width: 44px; height: 9px; }
@@ -452,7 +467,7 @@ body {
   padding: 8px 0;
   background: var(--bg);
   border: none;
-  color: var(--dim);
+  color: var(--ink-dim);
   font: inherit;
   letter-spacing: var(--track-caps-body);
   text-transform: uppercase;
@@ -575,7 +590,7 @@ body {
    original was missing; the shape is unchanged. */
 .ret-h, .ret-v {
   position: absolute;
-  background: rgba(234, 234, 234, 0.92);
+  background: var(--ink);
   box-shadow: 0 0 0 1px rgba(10, 10, 10, 0.8);
 }
 .ret-h { left: 0; right: 0; top: 50%; height: 1px; }
@@ -663,7 +678,7 @@ body {
      below the fold for the curious thumb. Desktop keeps the pinned foot. */
   .rail { display: flex; }
   .rail-brand { order: 0; }
-  .rail-foot { order: 1; margin-top: 12px; }
+  .rail-foot { order: 1; margin-top: var(--gap-sep); }
   .rail-src { order: 2; }
   .transport { order: 3; }
   .level { order: 5; }
@@ -685,11 +700,16 @@ body {
 /* Touch: fingers need 44px targets; the source switch grows without
    changing the composition. */
 @media (pointer: coarse) {
+  /* These were reaching Law 7's 44px target by ADDING UP: 14 + content + 15,
+     which is why the top and bottom differed by a pixel. State the target
+     and let the padding be a value from the scale. */
   .rail-src button {
-    padding: 14px 0 15px;
+    padding: 12px 0;
+    min-height: 44px;
   }
   .power {
-    padding: 14px 18px;
+    padding: 12px 16px;
+    min-height: 44px;
   }
 }
 
@@ -702,9 +722,9 @@ body {
   display: flex;
   align-items: center;
   gap: var(--gap-related);
-  margin-top: 10px;
+  margin-top: var(--gap-related);
 }
-.level-tag { color: rgba(234, 234, 234, 0.55); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); text-transform: uppercase; }
+.level-tag { color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); text-transform: uppercase; }
 /* §3.4 block meter: discrete cells, not a continuous bar. */
 .level-meter { flex: 1; display: flex; gap: var(--gap-tight); }
 .level-meter i {
@@ -729,7 +749,7 @@ body {
 .transport button {
   background: none;
   border: none;
-  color: var(--dim);
+  color: var(--ink-dim);
   font: inherit;
   letter-spacing: var(--track-caps-body);
   text-transform: uppercase;
@@ -739,23 +759,23 @@ body {
 /* the .t-btn rule below is the one that applies; this used to say
    something different for the same elements and lose silently */
 .transport button:active { transform: translateY(1px); }
-.vol { display: flex; align-items: center; gap: 8px; flex: 1; }
-.vol span { color: rgba(234, 234, 234, 0.55); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); }
+.vol { display: flex; align-items: center; gap: var(--gap-related); flex: 1; }
+.vol span { color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); }
 
 .tuning {
-  margin-top: 12px;
+  margin-top: var(--gap-sep);
   padding-top: 12px;
   border-top: 1px solid var(--pl-line);
   display: grid;
-  gap: 8px;
+  gap: var(--gap-related);
 }
 .dial {
   display: grid;
   grid-template-columns: 74px 1fr 30px;
   align-items: center;
-  gap: 8px;
+  gap: var(--gap-related);
 }
-.dial span { color: var(--dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); text-transform: uppercase; }
+.dial span { color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); text-transform: uppercase; }
 .dial data { color: var(--ink); font-size: var(--t-micro); text-align: right; font-variant-numeric: tabular-nums; }
 
 /* brutalist range inputs: hairline track, square white thumb */
@@ -825,7 +845,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   color: var(--accent);
   /* the readout sits over live matter: keep it readable on white */
   background: rgba(10, 10, 10, 0.82);
-  padding: 4px 6px;
+  padding: 4px 8px;
 }
 .ret-label:empty { background: none; padding: 0; }
 
@@ -893,7 +913,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   display: grid;
   gap: var(--gap-tight);
 }
-.layer-meter { display: flex; gap: var(--gap-tight); margin-top: 4px; }
+.layer-meter { display: flex; gap: var(--gap-tight); margin-top: var(--gap-tight); }
 .layer-meter b {
   flex: 1;
   height: 5px;
@@ -909,7 +929,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: var(--t-micro);
   text-transform: uppercase;
   letter-spacing: var(--track-caps-label);
-  color: rgba(234, 234, 234, 0.55);
+  color: var(--ink-dim);
   background: none;
   border: 1px solid var(--pl-line);
   padding: 4px 0;
@@ -917,8 +937,8 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-btn.on {
   color: #0a0a0a;
-  background: #eaeaea;
-  border-color: #eaeaea;
+  background: var(--ink);
+  border-color: var(--ink);
 }
 .layer-btn-m.on {
   color: #0a0a0a;
@@ -957,7 +977,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-body);
   text-transform: uppercase;
-  color: var(--dim);
+  color: var(--ink-dim);
   background: var(--bg);
   border: 0;
   padding: 8px 12px;
@@ -968,7 +988,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .tuner-chips button.on {
   color: var(--bg);
   background: var(--accent);
-  border-color: #eaeaea;
+  border-color: var(--ink);
 }
 /* §3 primitive: the entry cell. One field, one send, sharing a hairline.
    It was written here as `.tuner-find` and the jukebox's paste row was
@@ -985,25 +1005,31 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .vibe input {
   font: inherit;
   font-size: var(--t-micro);
-  color: #eaeaea;
-  background: rgba(234, 234, 234, 0.05);
+  color: var(--ink);
+  background: var(--lift);
   border: 1px solid var(--pl-line);
   padding: 8px 12px;
   outline: none;
 }
 .vibe input:focus { border-color: var(--pl-line); }
-.vibe input::placeholder { color: rgba(234, 234, 234, 0.55); }
+.vibe input::placeholder { color: var(--ink-dim); }
 .vibe button {
   font: inherit;
+  /* Explicit, because a <button> with no padding rule takes the UA's — and
+     the UA's is `1px 6px` in Chrome and something else in Safari and Firefox,
+     so GO was a different size in every browser and both values were off
+     §1's scale. The 34px track and the 40px min-height define this box; the
+     padding's only remaining job was to clip the label. */
+  padding: 0;
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-label);
   text-transform: uppercase;
-  color: rgba(234, 234, 234, 0.7);
+  color: var(--ink);
   background: none;
   border: 1px solid var(--pl-line);
   cursor: pointer;
 }
-.vibe button:hover { color: #0a0a0a; background: #eaeaea; }
+.vibe button:hover { color: #0a0a0a; background: var(--ink); }
 
 /* §3 primitive: the action cell. Full-bleed buttons carrying the plate's
    own 8/12 row, so an action reads as a cell of the sheet rather than a
@@ -1030,12 +1056,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
      the plate rows and the hints above and below it. */
   padding: 8px 12px;
   min-height: 40px;
-  color: #eaeaea;
+  color: var(--ink);
   background: var(--bg);
   border: 0;
   cursor: pointer;
 }
-.cells button:hover { color: #0a0a0a; background: #eaeaea; }
+.cells button:hover { color: #0a0a0a; background: var(--ink); }
 
 .tuner-state {
   /* It had NO padding: measured at 0px from the rail's edge while every
@@ -1072,7 +1098,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-meta dt { color: var(--ink-dim); }
 .deck-meta dd { margin: 0; color: var(--ink); text-align: right; }
 .deck-meta .deck-bpm.locked { color: var(--accent); }
-.deck-meta a { color: #eaeaea; text-decoration: none; border-bottom: 1px solid var(--pl-line); }
+.deck-meta a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--pl-line); }
 .deck-meta a:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── first-contact calibration ──────────────────────────────────────────
@@ -1110,7 +1136,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: var(--t-micro);
   line-height: var(--leading-prose);
   letter-spacing: var(--track-none);
-  color: rgba(234, 234, 234, 0.72);
+  color: var(--ink);
   padding: 8px 12px 12px;
   margin: 0;
 }
@@ -1135,15 +1161,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border-radius: 0;
   border: 1px solid var(--pl-line);
   background: none;
-  color: rgba(234, 234, 234, 0.55);
+  color: var(--ink-dim);
   text-shadow: none;
 }
 .plate-tour .driver-popover-footer-btn:hover { color: var(--ink); background: none; }
 /* the forward action is the filled cell, the way POWER ON is */
 .plate-tour .driver-popover-navigation-btns button:last-child {
   color: #0a0a0a;
-  background: #eaeaea;
-  border-color: #eaeaea;
+  background: var(--ink);
+  border-color: var(--ink);
 }
 .plate-tour .driver-popover-navigation-btns button:last-child:hover {
   background: var(--accent);
@@ -1151,7 +1177,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   color: #0a0a0a;
 }
 .plate-tour .driver-popover-close-btn {
-  color: rgba(234, 234, 234, 0.55);
+  color: var(--ink-dim);
   font-size: var(--t-micro);
   width: 32px;
   height: 32px;
@@ -1235,7 +1261,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .rail-help {
   font: inherit;
   font-size: var(--t-micro);
-  color: rgba(234, 234, 234, 0.55);
+  color: var(--ink-dim);
   background: none;
   border: 1px solid var(--pl-line);
   width: 22px;
@@ -1246,7 +1272,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
      auto track -- so the help cell's stroke was drawn 8px inboard and the
      header had exactly one seam that was not a shared edge. */
 }
-.rail-help:hover { color: #0a0a0a; background: #eaeaea; border-color: #eaeaea; }
+.rail-help:hover { color: #0a0a0a; background: var(--ink); border-color: var(--ink); }
 
 /* SPLIT: any track becomes stems, right where the track is named */
 .deck-split {
@@ -1254,7 +1280,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-label);
   text-transform: uppercase;
-  color: #eaeaea;
+  color: var(--ink);
   background: none;
   border: 0;
   border-bottom: 1px solid var(--pl-line);
@@ -1268,7 +1294,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-align: left;
   cursor: pointer;
 }
-.deck-split:hover:not(:disabled) { color: #0a0a0a; background: #eaeaea; }
+.deck-split:hover:not(:disabled) { color: #0a0a0a; background: var(--ink); }
 .deck-split:disabled { color: var(--accent); cursor: wait; }
 
 /* ── rail folds: mode changes breathe instead of popping ────────────── */
@@ -1306,7 +1332,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 /* ── NOW PLAYING: the most-used block, structured like every player ──── */
 .nowplaying {
   display: grid;
-  gap: 8px;
+  gap: var(--gap-related);
   border-top: 1px solid var(--pl-line);
   padding-top: 10px;
 }
@@ -1335,7 +1361,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
      line-coloured band above the buttons */
   padding-top: 0;
   border-top: 1px solid var(--pl-line);
-  margin-top: 10px;
+  margin-top: var(--gap-related);
 }
 .transport .t-btn {
   font: inherit;
@@ -1346,13 +1372,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   letter-spacing: var(--track-caps-label);
   text-transform: uppercase;
   min-height: 44px;
-  color: #eaeaea;
+  color: var(--ink);
   background: #0a0a0a;
   border: 0;
   cursor: pointer;
 }
 /* ACTION: inversion */
-.transport .t-btn:hover { color: #0a0a0a; background: #eaeaea; }
+.transport .t-btn:hover { color: #0a0a0a; background: var(--ink); }
 .transport .t-btn:active { transform: translateY(1px); }
 .transport .t-mute.on {
   color: #0a0a0a;
@@ -1362,7 +1388,14 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .vol {
   grid-column: 1 / 3;
   display: grid;
-  grid-template-columns: 28px 1fr;
+  /* 48px, shared by VOL and PITCH so their tracks begin at one x, and wide
+     enough for the longest label at the ramp's 11px. It was 28px on one row
+     and 30px on the other — fitted to JetBrains Mono at 9px, where PITCH
+     measured about 31px. Departure Mono at 11px measures it at 45, so the
+     label overran its track by 15px and sat ON the slider. A track sized to
+     a face is a track that breaks when the face changes; this one is sized
+     to the scale with room to spare. */
+  grid-template-columns: 48px 1fr;
   align-items: center;
   gap: var(--gap-related);
   font-size: var(--t-micro);
@@ -1384,9 +1417,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .transport .dial-pitch { grid-column: 1 / -1; }
 .transport .dial-pitch {
   display: grid;
-  grid-template-columns: 30px 1fr 24px;
+  /* matches .vol above: one label track, so the two sliders start together */
+  grid-template-columns: 48px 1fr 24px;
   align-items: center;
-  gap: var(--gap-tight);
+  /* --gap-related, matching .vol. With --gap-tight here the two rows shared a
+     label track and still began their sliders 4px apart, which is the kind of
+     near-miss that reads as sloppiness without ever looking like a bug. */
+  gap: var(--gap-related);
   background: #0a0a0a;
   padding: 8px 12px;
   min-height: 40px;
@@ -1417,7 +1454,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border: 1px solid var(--pl-line);
   background: var(--pl-line);
   gap: 1px;
-  margin-top: 8px;
+  margin-top: var(--gap-related);
 }
 .console-dials .pl-dial { background: #0a0a0a; }
 .console-dials .pl-dial + .pl-dial { border-left: 0; }
@@ -1429,13 +1466,13 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-label);
   text-transform: uppercase;
-  color: rgba(234, 234, 234, 0.55);
+  color: var(--ink-dim);
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
 }
-.diag-toggle:hover { color: rgba(234, 234, 234, 0.8); }
+.diag-toggle:hover { color: var(--ink); }
 .diag-line { font-size: var(--t-micro); letter-spacing: var(--track-caps-body); opacity: 0.62; }
 
 /* keyboard reach: every control shows where focus is (WCAG 2.4.7) */
@@ -1592,7 +1629,7 @@ a:focus-visible {
   left: 0; right: 0; bottom: 0;
   display: flex;
   justify-content: space-between;
-  padding: 6px 8px;
+  padding: 8px 12px;
   font-size: var(--t-micro);
   color: var(--ink-dim);
   background: rgba(8, 8, 13, 0.72);
@@ -1625,7 +1662,7 @@ a:focus-visible {
 .pl-leads li {
   text-transform: uppercase;
   letter-spacing: var(--track-caps-body);
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: var(--gap-sep);
   padding: 8px 12px; font-size: var(--t-micro);
   opacity: 0;
   animation: p-lead-in 600ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -1689,7 +1726,17 @@ a:focus-visible {
   max-height: 14px;
   align-self: center;
 }
-.pl-act { padding: 0; }
+.pl-act {
+  padding: 0;
+  /* STRETCH, or the `height: 100%` below is a no-op. .pl-band centres its
+     items so the 14px checker strip sits on the row's midline — but that
+     also sizes THIS cell to its content, so the button resolved 100% against
+     its own 64px min-height and sat in a 124px band with 30px of black above
+     and below it. The comment underneath has said "as a filled cell" the
+     whole time; this is what makes it one, and it leaves the band's centring
+     intact for the strip that needs it. */
+  align-self: stretch;
+}
 
 /* the one loud action, as a filled cell */
 .pl-act .power {
@@ -1729,9 +1776,9 @@ a:focus-visible {
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
 }
-.pl-dials > div { padding: 10px 6px; text-align: center; font-size: var(--t-micro); }
+.pl-dials > div { padding: 8px; text-align: center; font-size: var(--t-micro); }
 .pl-dials > div + div { border-left: 1px solid var(--pl-line); }
-.pl-dials .cap { display: block; margin-top: 6px; }
+.pl-dials .cap { display: block; margin-top: var(--gap-tight); }
 .pl-peak { display: grid; grid-template-columns: 1fr; gap: var(--gap-tight); }
 .pl-peak-hd { display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: var(--track-caps-body); }
 
@@ -2191,7 +2238,7 @@ input[type='range'] { height: 32px; }
 .cn-brk.br { bottom: 11px; right: 11px; border-left: 0; border-top: 0; }
 
 .cn-ftr { background: rgba(10, 10, 10, calc(0.94 - var(--drop, 0) * 0.22)); }
-.cn-ftr .diag { display: flex; align-items: center; gap: 8px; }
+.cn-ftr .diag { display: flex; align-items: center; gap: var(--gap-related); }
 
 /* module header — the landing has no equivalent, so this is the one new
    primitive the console adds to the language */
@@ -2224,7 +2271,7 @@ input[type='range'] { height: 32px; }
   border: 0;
   /* the module header owns the row's padding, so this only takes back the
      tap height -- otherwise the same primitive as .cn-back above */
-  padding: 2px 0 2px 8px;
+  padding: 0 0 0 8px;
   min-height: 24px;
   cursor: pointer;
   transition: color 140ms var(--ease);
@@ -2252,7 +2299,7 @@ input[type='range'] { height: 32px; }
   transition: color 140ms var(--ease), background 140ms var(--ease);
 }
 .cn-back span { color: var(--ink); }
-.cn-back:hover { color: #0a0a0a; background: #eaeaea; }
+.cn-back:hover { color: #0a0a0a; background: var(--ink); }
 .cn-back:hover span { color: #0a0a0a; }
 /* a sub-module: the same header, indented under its parent and tied to it
    by the elbow the landing's signal chain already uses for .pl-prow.sub.
@@ -2519,7 +2566,7 @@ input[type='range'] { height: 32px; }
   margin: 0;
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
-  color: var(--dim);
+  color: var(--ink-dim);
   /* prose, not a micro-label: it gets a readable size, the way
      .pl-pathcap already does on the landing */
   font-size: var(--t-micro);
@@ -2575,7 +2622,7 @@ input[type='range'] { height: 32px; }
   content: '';
   display: inline-block;
   width: 6px; height: 6px;
-  margin-right: 6px;
+  margin-right: var(--gap-tight);
   background: var(--accent);
   animation: pill-breathe 5.4s ease-in-out infinite;
 }
@@ -2593,13 +2640,38 @@ input[type='range'] { height: 32px; }
   letter-spacing: var(--track-caps-body);
   text-transform: uppercase;
   text-align: left;
-  color: var(--dim);
+  color: var(--ink-dim);
   background: var(--bg);
   border: 0;
   border-bottom: 1px solid var(--pl-line);
   cursor: pointer;
 }
-.tube-list button i { font-style: normal; color: var(--ink-dim); font-size: var(--t-micro); }
+/* Titles have to truncate now that this list also carries search results.
+   The curated rows were short enough that nothing ever overflowed — "best of
+   t-series mixtape" against "BURIAL Vinyl Mix - Rooftop Lockdown DJ Set by
+   Maria..." — so the list only LOOKED like it handled long text.
+   Same treatment the header's .hlbl already uses: min-width:0 is the part
+   that matters, because a flex child will not shrink below its content
+   without it, whatever overflow says. */
+.tube-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The channel keeps its own width but never more than a third of the row:
+   it identifies the upload, and on a search result that is the difference
+   between the label and a reupload. */
+.tube-list button i {
+  font-style: normal;
+  color: var(--ink-dim);
+  font-size: var(--t-micro);
+  flex: 0 1 auto;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tube-list button:hover:not(.on) { color: var(--ink); background: var(--lift); }
 .tube-list button:active:not(.on) { background: var(--lift-press); }
 .tube-list button.on { color: var(--ink); }

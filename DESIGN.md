@@ -14,21 +14,46 @@ this file or changes this file first.
 
 | token | value | job |
 |---|---|---|
-| `--ink` | `#989fb3` (7.49:1) | primary content: values, titles, controls. Field DS `muted` |
-| `--ink-dim` | `#7d8499` (5.31:1) | chrome tier: module labels, decorative data, diagrams, borders. Interpolated between Field DS `muted` and `tertiary` — tertiary itself is 3.86:1, and this tier carries every `//LABEL_`, which is functional text |
+| `--ink` | `#c0c6d6` (11.59:1) | primary content: values, titles, controls |
+| `--ink-dim` | `#8a90a3` (6.22:1) | chrome tier: module labels, decorative data, diagrams, borders. Interpolated between Field DS `muted` and `tertiary` — tertiary itself is 3.86:1, and this tier carries every `//LABEL_`, which is functional text |
 | `--accent` | `#feee00` (16.45:1) | THE accent — noon's brand yellow. Armed states, the power moment, keylines, grab point |
+| `--ink-rgb` | `192, 198, 214` | `--ink` as a triple, so `--faint`, `--lift` and `--lift-press` are alphas OF the ink rather than a fourth colour that happens to look like it |
 | `--accent-rgb` | `254, 238, 0` | the same value as a triple, for alpha variants and the survey canvas, which draws with `fillStyle` and cannot say `var()` |
 | `--accent-dim` | `rgba(var(--accent-rgb), 0.78)` | accent keylines / frames |
 | `--accent-hot` | `#fff44d` | the one brightening, on POWER ON's hover and the rev |
 | ground | `#0a0a0a` | never flat: always textured (see §4) |
 
-**Why the inks are dim.** An accent recedes because the text is brighter
-than it. Vermillion measured 4.58:1 against an `--ink` of 16.46 — the text
-was 3.6× louder, so red read as a mark *on* the sheet. Yellow is 16.45:1,
-which is that old `--ink` to two decimal places: at equal weight nothing
-receded and the accent argued with the prose. Yellow cannot go up, it is
-already near this ground's ceiling, so the inks came down. The accent is now
-**2.2× the primary ink** where it was 1.0×.
+**Why the inks are where they are.** An accent recedes because the text is
+brighter than it. Vermillion measured 4.58:1 against an `--ink` of 16.46 —
+the text was 3.6× louder, so red read as a mark *on* the sheet. Yellow is
+16.45:1, which is that old `--ink` to two decimal places: at equal weight
+nothing receded and the accent argued with the prose. Yellow cannot go up,
+it is already near this ground's ceiling, so the inks came down.
+
+They came down too far, and the measured reason was not dimness. **A second
+grey family was still in the sheet** — `#eaeaea` and its alphas, thirty
+declarations of it, left over from before the accent change. `#eaeaea` is
+**16.46:1 and the accent is 16.45:1**: the brightest thing in the product
+was a grey that tied the accent exactly, so the accent had no luminance
+advantage at all, only hue. Meanwhile the lavender `--ink` sat at 7.49 and
+`--ink-dim` at 5.31, and a third token `--dim` sat at 5.10 — up to eight RGB
+points from `--ink-dim`, which is two names for one colour. Eight distinct
+inks rendered on the console against Law 6's two, in three hue families. It
+read grey because it *was* grey: everything that mattered was clustered in
+the same narrow band while the one bright value fought the accent.
+
+One hue now, three steps, each visibly apart, and every one measured against
+the surface it actually sits on rather than against the page ground:
+
+| | contrast | accent is | `--ink` is |
+|---|---|---|---|
+| `--accent` | 16.45:1 | — | — |
+| `--ink` | 11.59:1 | 1.42× it | — |
+| `--ink-dim` | 6.22:1 | 2.64× it | 1.86× it |
+
+The accent still leads, by a margin you can see rather than a margin that
+needed a chart. `--dim` is gone; `--faint`, `--lift` and `--lift-press` are
+alphas of `--ink-rgb`, so they follow the ink instead of drifting from it.
 
 Both ink values are Field DS tokens, and the sheet was most of the way there
 already — the old `--ink-dim` `#9a9db4` sat three values from Field DS
