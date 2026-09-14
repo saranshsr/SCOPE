@@ -11,7 +11,7 @@ import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
 import { clip } from './text'
-import { Tube, HINDI, parseVideoId, type TubeState } from './audio/tube'
+import { Tube, HINDI, parseVideoId, searchTube, type TubeState, type TubeHit } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 import { EnergyTracker } from './audio/energy'
 
@@ -102,6 +102,13 @@ export default function App() {
    *  tab audio" checkbox is missed, and nothing else on screen shows that. */
   const [signal, setSignal] = useState<'idle' | 'silent' | 'live'>('idle')
   const [tubePaste, setTubePaste] = useState('')
+  /** Search results, or null when the starting points are showing. An empty
+   *  array is a real state and not the same as null: it means "we looked and
+   *  there was nothing", which the rail has to be able to say. */
+  const [tubeHits, setTubeHits] = useState<TubeHit[] | null>(null)
+  const [tubeSeeking, setTubeSeeking] = useState(false)
+  /** Generation counter: a slow search must not overwrite a later fast one. */
+  const tubeSearchGen = useRef(0)
   /** read by the render loop, which must not close over tubeState */
   const tubePlayingRef = useRef(false)
 
@@ -1759,6 +1766,44 @@ export default function App() {
    *   playlist still swaps, so the NEXT track comes from the vibe.
    */
   /**
+   * One field, two jobs: a link plays, words search.
+   *
+   * The link path is checked FIRST and unchanged, so nothing anyone already
+   * does stops working — and it costs no request, because `parseVideoId`
+   * settles it locally. Anything that is not a link is treated as a query,
+   * which is the whole point: you should not have to leave scope to find
+   * something to play.
+   */
+  const tubeSubmit = async () => {
+    const q = tubePaste.trim()
+    if (!q) return
+    const id = parseVideoId(q)
+    if (id) {
+      tubeRef.current?.load(id)
+      setTubePaste('')
+      setTubeHits(null)
+      return
+    }
+    // A slow search must never overwrite a later fast one, and the spinner
+    // must belong to the search that is still running.
+    const gen = ++tubeSearchGen.current
+    setTubeSeeking(true)
+    try {
+      const hits = await searchTube(q)
+      if (tubeSearchGen.current !== gen) return
+      setTubeHits(hits)
+      // Nothing found is a real answer and the list says so. An error is a
+      // different thing and goes to the announce line, where faults live.
+    } catch (e) {
+      if (tubeSearchGen.current !== gen) return
+      setTubeHits(null)
+      engineRef.current?.announce('search failed', (e as Error).message)
+    } finally {
+      if (tubeSearchGen.current === gen) setTubeSeeking(false)
+    }
+  }
+
+  /**
    * Enter the jukebox. Playing and listening are deliberately two steps:
    * the catalogue works immediately, and the star's reaction is a separate,
    * explained opt-in. Asking for a screen share the instant someone clicks
@@ -2625,25 +2670,20 @@ export default function App() {
               <div className="vibe tube-paste">
                 <input
                   value={tubePaste}
-                  onChange={(e) => setTubePaste(e.target.value)}
-                  placeholder="paste a youtube link or id…"
-                  aria-label="play a youtube link"
+                  onChange={(e) => {
+                    setTubePaste(e.target.value)
+                    // Emptying the field puts the starting points back, which
+                    // is what the header above promises. Also retires any
+                    // search still in flight, so it cannot land afterwards.
+                    if (!e.target.value.trim()) { tubeSearchGen.current++; setTubeHits(null); setTubeSeeking(false) }
+                  }}
+                  placeholder="search youtube, or paste a link…"
+                  aria-label="search youtube, or paste a link"
                   autoComplete="off"
                   spellCheck={false}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter') return
-                    const id = parseVideoId(tubePaste)
-                    if (id) { tubeRef.current?.load(id); setTubePaste('') }
-                    else engineRef.current?.announce('not a youtube link', 'paste a watch url or an 11-character id')
-                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void tubeSubmit() }}
                 />
-                <button
-                  onClick={() => {
-                    const id = parseVideoId(tubePaste)
-                    if (id) { tubeRef.current?.load(id); setTubePaste('') }
-                    else engineRef.current?.announce('not a youtube link', 'paste a watch url or an 11-character id')
-                  }}
-                >go</button>
+                <button onClick={() => void tubeSubmit()}>go</button>
               </div>
 
               {/* Three, not six. The paste field is the entry; these are
@@ -2651,9 +2691,18 @@ export default function App() {
                   permanent furniture in a module already taking 60% of the
                   rail. The jukebox is a portal to a wider library, so what
                   it ships with should read as a door, not a catalogue. */}
-              <div className="cn-hint tube-or">or start here</div>
+              {/* Results and starting points are the SAME list, because they
+                  are the same thing: rows you can play. Reusing .tube-list
+                  rather than inventing a results component is what keeps the
+                  module one vocabulary (§2) and adds no new type or spacing. */}
+              <div className="cn-hint tube-or">
+                {tubeSeeking ? 'looking…'
+                  : tubeHits === null ? 'or start here'
+                  : tubeHits.length ? `${tubeHits.length} found · clear to go back`
+                  : 'nothing found · clear to go back'}
+              </div>
               <div className="tube-list">
-                {HINDI.slice(0, 3).map((t) => (
+                {(tubeHits ?? HINDI.slice(0, 3)).map((t) => (
                   <button
                     key={t.id}
                     className={tubeState?.videoId === t.id ? 'on' : ''}

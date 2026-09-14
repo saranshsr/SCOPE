@@ -51,6 +51,45 @@ export function parseVideoId(input: string): string | null {
   return m ? m[1] : null
 }
 
+/** One search result: exactly what a rail row needs and nothing else. */
+export interface TubeHit {
+  id: string
+  title: string
+  channel: string
+}
+
+/**
+ * Search YouTube by words instead of by link.
+ *
+ * The work happens in `/api/yt-search`, not here, because YouTube has no
+ * keyless CORS-enabled search endpoint and the alternative is shipping an API
+ * key inside a public bundle. That file explains the arrangement; this one
+ * only has to ask.
+ *
+ * Throws with something a person can read, because the caller puts it
+ * straight on the announce line.
+ */
+export async function searchTube(query: string, signal?: AbortSignal): Promise<TubeHit[]> {
+  const q = query.trim()
+  if (!q) return []
+  const url = `${import.meta.env.BASE_URL}api/yt-search?q=${encodeURIComponent(q)}`
+  let r: Response
+  try {
+    r = await fetch(url, { signal: signal ?? AbortSignal.timeout(12000) })
+  } catch {
+    throw new Error('search could not be reached')
+  }
+  if (!r.ok) {
+    // The route answers JSON on every path it controls. HTML here means the
+    // route is not deployed at all, which is a different fault and deserves
+    // to say so rather than "search failed".
+    const body = await r.json().catch(() => null)
+    throw new Error(body?.error ?? (r.status === 404 ? 'search is not deployed' : `search failed (${r.status})`))
+  }
+  const d = (await r.json()) as { items?: TubeHit[] }
+  return (d.items ?? []).filter((i) => /^[A-Za-z0-9_-]{11}$/.test(i.id))
+}
+
 /** What the IFrame API will actually tell us — and nothing more. */
 export interface TubeState {
   title: string | null

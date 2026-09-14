@@ -79,6 +79,43 @@ function localMedia(): Plugin {
   }
 }
 
+/**
+ * Serves `/api/yt-search` in DEV from the very same handler Vercel runs in
+ * production, so there is one implementation and dev cannot drift from it.
+ *
+ * The key is read from the server environment. `loadEnv` with an empty prefix
+ * is deliberate — it reads UNPREFIXED vars out of .env.local, which is the
+ * whole point: YT_API_KEY must not be VITE_ prefixed, because Vite embeds
+ * anything VITE_ verbatim into the client bundle and this repository is
+ * public. It is pushed onto process.env for the handler and never enters
+ * `define`, so it cannot reach the browser.
+ */
+function devApi(mode: string): Plugin {
+  return {
+    name: 'scope-dev-api',
+    apply: 'serve',
+    configureServer(server) {
+      const env = loadEnv(mode, process.cwd(), '')
+      if (env.YT_API_KEY && !process.env.YT_API_KEY) process.env.YT_API_KEY = env.YT_API_KEY
+      server.middlewares.use('/api/yt-search', async (req, res, next) => {
+        try {
+          const { default: handler } = await import('./api/yt-search.js')
+          await handler(req, res)
+        } catch (e) {
+          // A broken handler must read as a broken handler, not as a 404 that
+          // sends the client down a fallback path looking for a missing route.
+          server.config.logger.error(`scope-dev-api: ${(e as Error).message}`)
+          if (!res.headersSent) {
+            res.statusCode = 500
+            res.setHeader('content-type', 'application/json')
+            res.end(JSON.stringify({ error: 'the dev search handler threw' }))
+          } else next()
+        }
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), siteUrl(mode), localMedia()],
+  plugins: [react(), siteUrl(mode), localMedia(), devApi(mode)],
 }))
