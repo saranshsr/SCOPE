@@ -308,15 +308,22 @@ export class AudioEngine {
    *
    * @returns true if a live audio track was obtained.
    */
+  /**
+   * Why the last listen attempt failed, or null. The announce channel says it
+   * once and scrolls on, which is the wrong shape for this: the person is
+   * looking at the jukebox module, has just been sent to a system dialog, and
+   * comes back to a button that still says "let the star listen". A reason
+   * that persists next to the button is the difference between "nothing
+   * happened" and "you missed the checkbox".
+   */
+  lastListenError: string | null = null
+
   async useTabAudio(): Promise<boolean> {
     await this.unlock()
     this.pendingAnnounce = null
+    this.lastListenError = null
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      this.onTrackChange?.({
-        title: 'this browser cannot listen',
-        artist: 'tab audio capture needs chrome or edge',
-        src: '',
-      })
+      this.lastListenError = 'tab audio needs chrome or edge'
       return false
     }
     let stream: MediaStream
@@ -330,11 +337,7 @@ export class AudioEngine {
       } as DisplayMediaStreamOptions)
     } catch {
       // Declined. The jukebox keeps playing; only the reaction is missing.
-      this.onTrackChange?.({
-        title: 'not listening',
-        artist: 'the star needs tab audio to react',
-        src: '',
-      })
+      this.lastListenError = 'share cancelled'
       return false
     }
 
@@ -342,11 +345,8 @@ export class AudioEngine {
     if (!audio.length) {
       // Granted the share but not the audio — the checkbox everyone misses.
       stream.getTracks().forEach((t) => t.stop())
-      this.onTrackChange?.({
-        title: 'no audio shared',
-        artist: 'tick "also share tab audio" and try again',
-        src: '',
-      })
+      // The checkbox everyone misses, and the reason this field exists.
+      this.lastListenError = 'no audio in that share. tick also share tab audio'
       return false
     }
 

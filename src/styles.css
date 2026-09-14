@@ -271,7 +271,11 @@ body {
 .deck-wave {
   display: block;
   width: 220px;
-  height: 44px;
+  /* 24, not 44. It was sized to hold a drawn waveform; it now holds a rule
+     and a playhead, and the 20px it gives back is 20px the deck's actual
+     readings get to use. The coarse-pointer override below keeps Law 7's
+     44px target where a finger needs it. */
+  height: 24px;
   /* The strip is a scrubber — the one interactive element in the deck. */
   pointer-events: auto;
   cursor: crosshair;
@@ -703,6 +707,9 @@ body {
   /* These were reaching Law 7's 44px target by ADDING UP: 14 + content + 15,
      which is why the top and bottom differed by a pixel. State the target
      and let the padding be a value from the scale. */
+  /* the seek strip is a slider: a finger needs the whole 44 even though
+     the eye only needs the rule. */
+  .deck-wave, .cn-plate .deck-wave { height: 44px; }
   .rail-src button {
     padding: 12px 0;
     min-height: 44px;
@@ -1721,14 +1728,31 @@ a:focus-visible {
   color: var(--accent);
 }
 .pl-checks {
-  align-self: stretch;
-  margin: 0 12px;
-  background:
-    repeating-conic-gradient(var(--accent) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
-  opacity: 0.85;
-  min-height: 14px;
-  max-height: 14px;
+  /* HEIGHT IS ONE WHOLE TILE. The pattern is a 2x2 conic on a 16px tile, so
+     each square is 8px — and this was clamped to 14px, which cut the tile
+     two pixels into its second row: the top squares rendered 8px tall and
+     the bottom ones 6px, a checkerboard severed mid-pattern. 16px is one
+     complete tile, and unlike 14 it is a step on §1's scale.
+
+     `align-self` used to be declared twice in this block, `stretch` and then
+     `center`, so the first never applied — the exact defect `shadowed`'s own
+     header opens with, missed because align-self is not in its watch list.
+
+     --accent-dim rather than `opacity: 0.85`: §1 names that token for accent
+     keylines, and a rule drawn in checkers is a keyline. An undeclared 0.85
+     of the accent is the same fault the ink tiers were just cured of. */
   align-self: center;
+  margin: 0 12px;
+  height: 16px;
+  background:
+    repeating-conic-gradient(var(--accent-dim) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+  /* WHOLE TILES ACROSS, HOWEVER WIDE THE COLUMN IS. This strip is the band's
+     1fr, so its width is whatever the wordmark and the button leave — 417.8px
+     at 1440, which is 26.11 tiles. That last 0.11 rendered as a 1.8px shard of
+     yellow hanging off the end. `round` rescales the tile just enough that a
+     whole number fits (16 -> 16.07px here, squares 8.03), so the pattern ends
+     on a square at every viewport instead of on a splinter. */
+  background-repeat: round;
 }
 .pl-act {
   padding: 0;
@@ -1772,6 +1796,23 @@ a:focus-visible {
   padding: 8px 12px;
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
+}
+/* ONE LINE, WHATEVER THE VALUE IS. `.pl-row` is a label and a value on one
+   row, and every value it was built for is short: a bpm, a time, a source
+   name. YouTube titles are not, and "best of t-series mixtape - audio
+   jukebox | bollywood hindi songs" wrapped the jukebox's //track_ across
+   three rows, which is most of why that module read as overwhelming. The
+   label keeps its width, the value takes the rest and clips.
+   `min-width: 0` on the flex child is what actually permits the clip: without
+   it a flex item refuses to shrink below its content and the ellipsis never
+   appears. Same fix as `.pl-hdr .hlbl` two panels away. */
+.pl-row > .k { flex: 0 0 auto; }
+.pl-row > .v {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
 .pl-dials {
   text-transform: uppercase;
@@ -2409,7 +2450,7 @@ input[type='range'] { height: 32px; }
 .cn-plate .console-dials { margin: 0; border-left: 0; border-right: 0; }
 .cn-plate .deck-meta { margin: 0; border: 0; }
 .cn-plate .deck-meta > div:first-child { border-top: 0; }
-.cn-plate .deck-wave { width: 100%; height: 52px; display: block; }
+.cn-plate .deck-wave { width: 100%; height: 24px; display: block; }
 .cn-plate .deck-time { padding: 8px 12px; border-bottom: 1px solid var(--pl-line); }
 
 /* ══ THE CONSOLE PLATE ON A PHONE ══════════════════════════════════════

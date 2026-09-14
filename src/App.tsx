@@ -96,6 +96,8 @@ export default function App() {
    *  steps only teach something the first time; after that they are 250px
    *  of the rail explaining a thing you have already done. */
   const [hasListened, setHasListened] = useState(false)
+  /** Why the last listen attempt failed. Persistent, unlike the announce. */
+  const [listenErr, setListenErr] = useState<string | null>(null)
   /** What the captured stream is actually delivering — not what the browser
    *  said it granted. 'silent' is the common failure: chrome hands over a
    *  perfectly valid stream with no audio track content when the "also share
@@ -1855,14 +1857,17 @@ export default function App() {
 
   /** The star listens to this tab. Separate ask, plainly explained. */
   const startListening = async () => {
-    const ok = (await engineRef.current?.useTabAudio()) ?? false
+    const eng = engineRef.current
+    const ok = (await eng?.useTabAudio()) ?? false
     setListening(ok)
+    setListenErr(ok ? null : eng?.lastListenError ?? 'could not listen')
     if (ok) setHasListened(true)
   }
 
   const stopListening = () => {
     engineRef.current?.stopTabAudio()
     setListening(false)
+    setListenErr(null)
   }
 
   const setVibe = async (prompt: string, play = true) => {
@@ -2597,38 +2602,55 @@ export default function App() {
                 </button>
               </h2>
 
-              {/* only what the API actually reports */}
-              {tubeState?.title && (
-                <div className="pl-row"><span className="k">//track_</span><span className="v">{tubeState.title}</span></div>
-              )}
-              {tubeState?.channel && (
-                <div className="pl-row"><span className="k">//channel_</span><span className="v">{tubeState.channel}</span></div>
-              )}
-              {tubeState && tubeState.duration > 0 && (
-                <div className="pl-row">
-                  <span className="k">{fmtTime(tubeState.elapsed)}</span>
-                  <span className="v">{fmtTime(tubeState.duration)}</span>
-                </div>
-              )}
+              {/* SEARCH FIRST. This is the thing a person came to the
+                  jukebox to do, and it used to sit beneath the now-playing
+                  rows, three paragraphs of prose and the listen control:
+                  measured below the fold on a 900px viewport, and further
+                  below on anything shorter. Nothing above it was an action. */}
+              <div className="vibe tube-paste">
+                <input
+                  value={tubePaste}
+                  onChange={(e) => {
+                    setTubePaste(e.target.value)
+                    // Emptying the field puts the starting points back, which
+                    // is what the header above promises. Also retires any
+                    // search still in flight, so it cannot land afterwards.
+                    if (!e.target.value.trim()) { tubeSearchGen.current++; setTubeHits(null); setTubeSeeking(false) }
+                  }}
+                  placeholder="search youtube, or paste a link…"
+                  aria-label="search youtube, or paste a link"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void tubeSubmit() }}
+                />
+                <button onClick={() => void tubeSubmit()}>go</button>
+              </div>
 
-              {/* the consent moment: said before the dialog, not after */}
               <div className="tube-listen">
                 {!listening ? (
                   <>
+                    {/* ONE line, not three paragraphs. This module is already
+                        60% of the rail, and it used to open with a privacy
+                        statement, a walkthrough of chrome's dialog and a note
+                        about eq -- roughly six lines of prose before the
+                        visitor had done anything at all. The privacy claim and
+                        the one step people actually get wrong are worth
+                        saying; the rest is answered better by the failure
+                        message below, which appears exactly when it applies. */}
                     {!hasListened && (
                       <p className="cn-hint">
-                        the star can react to this tab. nothing is recorded and
-                        nothing leaves your machine. scope only reads the levels.
+                        reads this tab's levels, nothing else. tick{' '}
+                        <b>also share tab audio</b> in chrome's dialog.
                       </p>
                     )}
                     <div className="cells c1">
                       <button onClick={() => void startListening()}>let the star listen</button>
                     </div>
-                    {!hasListened && (
-                      <p className="cn-hint tube-step">
-                        chrome will ask what to share. pick <b>this tab</b>, then tick{' '}
-                        <b>also share tab audio</b>. that checkbox is the one that matters.
-                      </p>
+                    {/* The attempt failed and the button still says the same
+                        thing, so without this the room reads as "nothing
+                        happened". Said here, where the person is looking. */}
+                    {listenErr && (
+                      <p className="cn-hint tube-step sig-silent" role="status">{listenErr}</p>
                     )}
                   </>
                 ) : (
@@ -2657,34 +2679,21 @@ export default function App() {
                 )}
               </div>
 
-              {/* The mix gestures genuinely cannot reach youtube's output.
-                  Said once, in full, while it is news; after the first
-                  listen it is the module header's annotation instead. */}
-              {!hasListened && (
-                <p className="cn-hint">
-                  grabbing the star is off here. youtube owns the sound, so eq,
-                  filter and echo would move nothing. the visual dials still work.
-                </p>
+              {/* only what the API actually reports */}
+              {tubeState?.title && (
+                <div className="pl-row"><span className="k">//track_</span><span className="v">{tubeState.title}</span></div>
+              )}
+              {tubeState?.channel && (
+                <div className="pl-row"><span className="k">//channel_</span><span className="v">{tubeState.channel}</span></div>
+              )}
+              {tubeState && tubeState.duration > 0 && (
+                <div className="pl-row">
+                  <span className="k">{fmtTime(tubeState.elapsed)}</span>
+                  <span className="v">{fmtTime(tubeState.duration)}</span>
+                </div>
               )}
 
-              <div className="vibe tube-paste">
-                <input
-                  value={tubePaste}
-                  onChange={(e) => {
-                    setTubePaste(e.target.value)
-                    // Emptying the field puts the starting points back, which
-                    // is what the header above promises. Also retires any
-                    // search still in flight, so it cannot land afterwards.
-                    if (!e.target.value.trim()) { tubeSearchGen.current++; setTubeHits(null); setTubeSeeking(false) }
-                  }}
-                  placeholder="search youtube, or paste a link…"
-                  aria-label="search youtube, or paste a link"
-                  autoComplete="off"
-                  spellCheck={false}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void tubeSubmit() }}
-                />
-                <button onClick={() => void tubeSubmit()}>go</button>
-              </div>
+              {/* the consent moment: said before the dialog, not after */}
 
               {/* Three, not six. The paste field is the entry; these are
                   starting points, and six fixed rows of them was 264px of
@@ -3078,9 +3087,26 @@ function NoonMark() {
  * the accent changes at most once per page load, so it is read then.
  */
 let ACCENT_RGB = '225, 59, 42'
+/* The two inks, for the same reason and read the same way. The seek strip
+   used to paint `rgba(234,234,234, …)` — the neutral grey family the palette
+   pass retired from the whole stylesheet. A canvas takes a string, so no CSS
+   migration could reach it, and it kept drawing in a colour the product no
+   longer has. Read the tokens instead, and it cannot drift again. */
+let INK_ON = 'rgba(192, 198, 214, 0.92)'
+/* The unplayed run is the PLATE'S OWN HAIRLINE, read from --pl-line rather
+   than invented as another alpha of the ink. At 0.28 it measured 1.9:1 and
+   read as nothing at all — the strip looked like a playhead floating in an
+   empty row instead of a head on a track. --pl-line is the line every cell
+   in the plate is already drawn with, which is exactly what this is. */
+let INK_LINE = 'rgba(141, 144, 168, 0.68)'
 export function readAccent() {
-  const v = getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim()
+  const cs = getComputedStyle(document.documentElement)
+  const v = cs.getPropertyValue('--accent-rgb').trim()
   if (v) ACCENT_RGB = v
+  const ink = cs.getPropertyValue('--ink-rgb').trim()
+  if (ink) INK_ON = `rgba(${ink}, 0.92)`
+  const line = cs.getPropertyValue('--pl-line').trim()
+  if (line) INK_LINE = line
 }
 
 function Reg({ className }: { className: string }) {
@@ -3285,52 +3311,54 @@ function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head:
  * full ink, the future dimmed, a red playhead sweeping through — you can see
  * the drop coming. Without peaks (mic): the live rms history scroll.
  */
+/**
+ * The seek strip.
+ *
+ * It used to draw the track: a peaks overview when one had loaded, and a live
+ * rms trace when none had. Both are gone. The overview was a picture of a
+ * waveform nobody reads at 220px, the live trace was a squiggle that said
+ * only "sound is happening" — which the star two feet to the right says far
+ * better — and the readout underneath already gives the position in the one
+ * form anybody acts on: 0:17 of 3:48.
+ *
+ * WHAT STAYS IS THE CONTROL. This canvas is `role="slider"`, aria-label
+ * "seek", and carries the pointer and keyboard handlers; it is the only way
+ * to scrub with a hand. So it keeps its element, its gestures and its label,
+ * and simply stops drawing a picture: a hairline track, the played part in
+ * ink, the playhead in the accent. One row of instrument furniture, in the
+ * same vocabulary as the VOL and PITCH tracks three rows down.
+ *
+ * `wave` and `head` stay in the signature because the caller owns that ring
+ * buffer for the standby MOTION strip; this simply no longer reads them.
+ */
 function drawWave(
   cv: HTMLCanvasElement | null,
-  wave: Float32Array,
-  head: number,
-  peaks: TrackPeaks | null,
+  _wave: Float32Array,
+  _head: number,
+  _peaks: TrackPeaks | null,
   progress: number,
 ) {
   const g = cv?.getContext('2d')
   if (!cv || !g) return
   g.clearRect(0, 0, cv.width, cv.height)
 
-  if (peaks && peaks.amp.length > 0) {
-    const W = cv.width
-    const H = cv.height
-    const mid = H / 2
-    const n = peaks.amp.length
-    const px = Math.floor(progress * W)
-    for (let x = 0; x < W; x++) {
-      // Max over this column's slice of the overview.
-      const i0 = Math.floor((x / W) * n)
-      const i1 = Math.max(i0 + 1, Math.floor(((x + 1) / W) * n))
-      let a = 0
-      for (let i = i0; i < i1; i++) if (peaks.amp[i] > a) a = peaks.amp[i]
-      const hh = Math.max(0.75, a * (H / 2 - 2))
-      g.fillStyle = x <= px ? 'rgba(234,234,234,0.92)' : 'rgba(234,234,234,0.28)'
-      g.fillRect(x, mid - hh, 1, hh * 2)
-    }
-    // The playhead — the same red as the crosshair tags; one instrument.
-    // 2 buffer px = 1 CSS px on the retina buffer.
-    g.fillStyle = `rgba(${ACCENT_RGB},1)`
-    g.fillRect(px, 0, 2, H)
-    return
-  }
+  // The buffer is retina, so a 1px rule is 2 buffer px. Hairlines only (§1).
+  const W = cv.width
+  const H = cv.height
+  const rule = 2
+  const mid = Math.round((H - rule) / 2)
+  const px = Math.round(Math.max(0, Math.min(1, progress)) * W)
 
-  g.strokeStyle = 'rgba(234,234,234,0.85)'
-  g.lineWidth = 2
-  g.beginPath()
-  const n = wave.length
-  for (let i = 0; i < n; i++) {
-    const v = wave[(head + i) % n]
-    const x = (i / (n - 1)) * cv.width
-    const y = cv.height - 2 - v * (cv.height - 6)
-    if (i === 0) g.moveTo(x, y)
-    else g.lineTo(x, y)
-  }
-  g.stroke()
+  // Unplayed, then played over it: two inks, no third.
+  g.fillStyle = INK_LINE
+  g.fillRect(0, mid, W, rule)
+  g.fillStyle = INK_ON
+  g.fillRect(0, mid, px, rule)
+
+  // The playhead is the full height of the strip, so the hit area reads as
+  // a track rather than a line someone drew across a gap.
+  g.fillStyle = `rgba(${ACCENT_RGB},1)`
+  g.fillRect(Math.min(px, W - rule), 0, rule, H)
 }
 
 /**
