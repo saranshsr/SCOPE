@@ -886,3 +886,144 @@ the hole it leaves is recorded in the check itself rather than left implicit.
 `--ease` is also defined now, so the remedy the check prescribes names a real
 token. Its other arm was always grounded and always right: nothing eases in,
 and six declarations had crept back to the bare `ease` keyword.
+
+---
+
+## 10 · A readout that looked alive
+
+`readings` failed once in a suite run and passed on re-run, with nothing
+changed between them. The failure line was *"ring 5 is stuck full at 7.0/8
+and moved only 0 cells"*. The obvious reading is a flaky check on a
+random-radio track, and that reading is half right: the flake was real, and
+so was the fault it half-saw.
+
+Measured on a real GPU, 120 samples over 12s of a playing track — the six
+eight-cell ring meters read **7, 6, 6, 5, 5, 4 and four of them moved zero
+cells.** Not one. The values were also a perfect monotone staircase, which
+is the tell: that is not music, that is the spectrum's average tilt. The
+meters were showing each tier's **absolute** band energy, and music's
+long-term spectrum falls with frequency, so the six readings came out in the
+same order every time and stayed there for as long as you cared to watch. The
+survey labels beside the star, driven from the same band means through a
+*different* scaling, sat at `LVL 98` and `LVL 99`.
+
+Three things worth keeping from it.
+
+1. **The check was flaky on a fault that was permanent.** Every clause in
+   the tier arm fires only at a RAIL — pinned at 8/8, or flat at 0. Whether
+   the run went red therefore depended on whether the track happened to push
+   one ring high enough to touch one. A ring frozen at 5/8 for the whole
+   window passed. So the fault was present on every run and reported on
+   some, which is worse than never reporting it: an intermittent red gets
+   re-run until it is green, and this one obliged.
+
+2. **The same quantity was computed twice, in two places, through two
+   curves.** `* 1.6` for the drawing, `pow(x, 0.6)` for the list, both over
+   the same band means, thirty lines apart in the same frame. Neither was
+   wrong about the other because they were never compared. It is now one
+   `tierLevels`, computed once, read by both — and the check's own failure
+   text says so, because the next person to see this needs to be told where
+   the reading lives, not what the last fix was.
+
+3. **The replacement law took four attempts, and each one was found by
+   mutating — never by reading it.** Restoring the absolute formula and
+   re-running is the whole method here; every version below looked
+   correct on the page.
+
+   1. *"More than half the rings are still."* Mutated: travel
+      `2/3/3/1/1/0`, three rings of six, and `> rows / 2` is `3 > 3` —
+      false. It greenlit the exact fault it was written for, **by one
+      ring.** §4 is about a check that cannot fail; this is the narrower
+      and more embarrassing version, a check that fails on everything
+      except the case it was built from.
+   2. *Half the rings still, plus any ring frozen at zero.* This one
+      **failed the fixed product** — a brickwalled master whose sub ring
+      sat still for seven seconds. Looking at the band behind it, so did
+      the sub: a limited four-to-the-floor kick genuinely does not vary.
+      The check was right that the ring was still and wrong about what
+      that meant, because it was asking the whole mix's rms about one
+      band. A false failure, which is the cheaper mistake but still a
+      wrong answer.
+   3. *Each ring against its own band: still, while its band doubled.* The
+      right instinct, and vacuous. `features.ts` envelope-follows the
+      bands, so across a seven-second window they move about 1.2× to 1.5×
+      and essentially never double. The clause could not fire, and the
+      mutation walked through it untouched.
+   4. **The tilt itself.** Travel cannot separate the two laws at all —
+      the broken one measured `3/2/2/1/1/1` on one track and the fixed one
+      `0/1/1/1/1/1` on another, because how far a ring moves in seven
+      seconds is dominated by the track. What separates them is not any
+      single ring but the *shape across the six*: absolute readings come
+      out ordered by frequency and stay there. So the law is the
+      staircase — **rank correlation against frequency order ≥ 0.85, and
+      a spread of ≥ 2 cells.** Both, because one loud band is not
+      monotone and a monotone accident is not spread.
+
+   Strict monotonicity was tried at step 4 first and also failed: the
+   `pow(x, 0.6)` mutation scored means of `1.8/2.5/4.1/5.3/5.4/5.3`, a
+   3.6-cell staircase whose last three steps wobble by 0.1. Obviously a
+   tilt, not monotone. The rank correlation does not care about the
+   wobble — that set scores **0.90**, the shipped `* 1.6` scores **0.99**,
+   the original `7/6/6/5/5/4` scores **0.97**, and the fixed law scores
+   **0.26**.
+
+The pass line changed too. It used to read *"6 tier meters all moving"* —
+that phrase was printed on every run while four of them were not. It now
+prints the travel per ring: `ring travel 7/4/2/2/3/4 cells of 8`. **A pass
+has to show its numbers or it is just a word.**
+
+---
+
+## 11 · Thresholds go stale together, and silently
+
+The standby sheet does not scroll, so when the window is shorter than the
+data column, `styles.css` sheds cells on a ladder: margin first, then the
+`//stems_` echo, then the parked peak scale, then the footer's echoes. Four
+steps, each a measured height, each with a comment explaining what it costs.
+
+All four were derived when the sheet was set in JetBrains Mono. Re-basing the
+type ramp on Departure Mono at 11px/22px changed the height of **every row in
+the column** — and nothing re-derived the ladder. The column went from
+needing 668px to needing 697, so each step fired about 30px too late and the
+band it existed to protect overflowed instead:
+
+```
+  h 724..812   nothing shed yet          short by up to 25px
+  h 668..688   `peak` not yet shed       short by up to 21px
+  h 560..628   the ladder had no steps left
+```
+
+175px of the 560..900 range clipped. `.pl-r` is `overflow: hidden`, so it did
+not scroll and it did not spill — the pills row simply lost its bottom five
+pixels and the dither strip was cut off whole. **768 is in the first band**,
+which is 1366×768 and 1024×768.
+
+Why nothing caught it:
+
+- `layout`'s seven viewports include 1024×768 and 900×600, and it presses
+  Enter first. It measures the **console's** three bands. The landing plate
+  is a different sheet and it never sees it.
+- `offscreen` walks children against their own surfaces. The pills were
+  clipped by their own column, so they were never outside anything it
+  measured.
+- `flight` flew, and the flight was fine.
+
+Three checks over the same pixels, and the fault lived in the gap between
+their subjects. That is the recurring shape here: not a check that is wrong,
+but a region no check has claimed.
+
+**The lesson for thresholds specifically.** A derived constant that lives in
+a comment is a constant nobody re-derives. Five numbers, all functions of one
+thing — the height of a row — and when that thing moved, all five were wrong
+at once and none of them said so. `flight` now measures the column against
+its room at the **shortest height in each rung**, which is not a sample: the
+need is constant inside a rung and the room grows with the window, so the
+bottom of each band is the worst case and testing them is complete. If the
+ramp moves again, the numbers go red and `styles.css` carries the arithmetic
+for re-deriving them.
+
+The same failure, one breakpoint over, on the console's running footer:
+`/ grab the star to mix · [?] for the full legend` wrapped to two lines
+everywhere from 900px down to 821px, where the cell is hidden. The rule
+written to prevent exactly that — drop the spec line so the hint fits — was
+sitting at 820, one pixel below the whole band it needed to cover.

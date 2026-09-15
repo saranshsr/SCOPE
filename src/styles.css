@@ -420,7 +420,13 @@ body {
 .rail-brand,
 .rail-sec {
   animation: rail-in 600ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
-  animation-delay: calc(var(--i) * 110ms + 120ms);
+  /* The fallback is not decoration. `--i` is supplied per section in the
+     JSX, and a section that is missed makes the whole calc invalid, which
+     computes to 0s -- so the one section nobody indexed revealed FIRST,
+     ahead of every section above it. `.tube` was that section. A default
+     sends anything unindexed to the END of the cascade instead, which is
+     the harmless direction to fail in. */
+  animation-delay: calc(var(--i, 8) * 110ms + 120ms);
 }
 
 @keyframes rail-in {
@@ -913,7 +919,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   padding: 8px 12px;
   transition: border-color 140ms;
 }
-.layer-hot { border-color: var(--pl-line); }
+/* The star's hand, in the rail. Hovering a ring writes `hot` onto its row
+   -- and this rule set `border-color` on a block whose `border` is `0`,
+   three declarations above. Nothing rendered: measured, adding the class
+   moves computed borderColor and leaves borderWidth at 0px, so the one
+   link between the drawing and the list was a class name and no pixels.
+   `--lift` is the sheet's own hover ground (`.pl-prow:hover` uses it), and
+   a background cannot disturb the seam, which here is a 1px grid gap
+   showing the container through. */
+.layer-hot { background: var(--lift); }
 .layer-name {
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-body);
@@ -955,7 +969,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 }
 .layer-muted .layer-name { color: var(--accent); }
 .layer-muted .layer-meter b { background: var(--accent); }
-.layer-solo { border-color: var(--pl-line); }
+/* `.layer-solo` was here, and was the same no-op: border-color on
+   `border: 0`. It is not restored, it is removed. Solo already reads --
+   `.layer-btn.on` inverts the S to ink, which is what a desk does and the
+   only mark the state needs. A second row-level marker for a state the
+   row already shows is decoration, and the rule had shipped for long
+   enough to prove nobody missed it. */
 
 /* ── the tuner: the radio is a dial ─────────────────────────────────── */
 .tuner {
@@ -1180,6 +1199,15 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   text-shadow: none;
 }
 .plate-tour .driver-popover-footer-btn:hover { color: var(--ink); background: none; }
+/* BACK on step 1/6 is `disabled` with `pointer-events: none`, and driver's
+   own stylesheet fades it to 0.5 -- so it admits it is off. It also kept
+   `cursor: pointer`, which claims the opposite, on the first control a
+   visitor meets. readings.mjs states this rule for the layer faders in so
+   many words ("a control that cannot act must not look like it can"), and
+   its test is opacity AND cursor together, so a control that fails only
+   one of the two slips past it. Half-honest is the same defect, quieter. */
+.plate-tour .driver-popover-footer-btn:disabled,
+.plate-tour .driver-popover-footer-btn:disabled:hover { cursor: default; color: var(--ink-dim); }
 /* the forward action is the filled cell, the way POWER ON is */
 .plate-tour .driver-popover-navigation-btns button:last-child {
   color: #0a0a0a;
@@ -2115,7 +2143,15 @@ a:focus-visible {
   .pl-r .pl-row.opt { display: none; }
   .pl-band { grid-template-columns: 1fr; }
   .pl-band > * + * { border-left: 0; border-top: 1px solid var(--pl-line); }
-  .pl-checks { display: none; }
+  /* The checker strip STAYS, and becomes a row of its own. It was hidden
+     here with no reason recorded, and hiding it is what left the band
+     hollow: stacked, the wordmark cell runs the full width while `SCOPE®`
+     is clamped at its 52px floor and fills about 55% of it, so ~40% of the
+     band was unlit ground -- on the one sheet whose law is that a plate is
+     FULL. The strip is doing exactly this job one breakpoint up, between
+     the wordmark and POWER ON; rotated, it is the rule between them. It
+     costs 16px on a sheet that already scrolls at this width. */
+  .pl-checks { margin: 12px; }
   .pl-hdr { grid-template-columns: 1fr auto; }
   .pl-hdr > *:nth-child(3), .pl-hdr > *:nth-child(4) { display: none; }
   .pl-ftr { grid-template-columns: 1fr; }
@@ -2139,46 +2175,107 @@ a:focus-visible {
   .cn-hdr > .cn-rate { display: none; }
   .cn-ftr { grid-template-columns: 1fr auto; }
   .cn-ftr > *:nth-child(2) { display: none; }
-  /* The stamp outranks the spec line. With one chrome step at 11px,
-     `/ WEBGL · 108K PARTICLES` and `MADE BY NOON` no longer both fit the
-     1fr cell and the footer wrapped to two rows — inside its surface, so
-     `offscreen` passed it, and against §1's one row height, so the eye did
-     not. A DESCENDANT selector: the nth-child rules beside it keep counting
-     exactly what they counted before. */
-  .cn-ftr > *:first-child > .pl-meta { display: none; }
   .pl-act .power { width: 100%; min-height: 56px; }
+}
+
+/* The stamp outranks the spec line -- and so does the hint, which is why
+   this is 900 and not 820.
+
+   With one chrome step at 11px, `/ WEBGL · 108K PARTICLES` and `MADE BY
+   NOON` no longer both fit the first cell, and the footer wrapped. That
+   was fixed by dropping the spec line, but at 820 -- and the cell that
+   actually runs out of room first is the MIDDLE one. Measured, stepping
+   5px at a time: `/ grab the star to mix · [?] for the full legend` gets
+   405px at 900 and wraps to two lines, and it stays wrapped all the way
+   down to 821 where the whole cell is hidden. An 80px band, on the
+   console, where the running footer is two rows tall.
+
+   Dropping the spec line here instead gives the middle cell 609px at 900
+   and it holds one line to 825 -- past the point the cell is hidden
+   anyway, so the two rules hand over cleanly with no gap between them.
+   The order is the sheet's own: the stamp is identity, the hint teaches
+   the one gesture the product is about, and the spec line is an echo of
+   what the header already says.
+
+   A DESCENDANT selector, and scoped to .cn-ftr: the landing's middle cell
+   is `/ drop a track anywhere`, which is half the length and fits, so the
+   landing keeps its spec line down to its own 820. */
+@media (max-width: 900px) {
+  .cn-ftr > *:first-child > .pl-meta { display: none; }
 }
 
 /* ══ SHORT VIEWPORTS ═══════════════════════════════════════════════════
    The data column's cells are fixed by law -- one row height, 8px 12px --
-   so it always needs 668px while the sheet offers vh minus 107. Below a
-   774px viewport it began eating its own tail: at 1280x700 the stage
-   readout, the three pills and the dither strip were all behind
-   `overflow: hidden`, which is why hovering a signal-chain row did nothing
-   visible. 13-inch laptops live here.
+   so it needs a fixed height and the sheet offers only what the window
+   has. Below that it eats its own tail: the stage readout, the three
+   pills and the dither strip go behind `overflow: hidden`, which is why
+   hovering a signal-chain row did nothing visible. 13-inch laptops live
+   here.
 
    A plate is FULL or it is not a plate, so spend MARGIN before content,
    then shed in ascending order of value. The dials are never shed:
    controls beat diagrams, and an operable control outranks a readout.
-   Below 820px wide the sheet already scrolls and needs none of this. */
-@media (min-width: 821px) and (max-height: 780px) {
+   Below 820px wide the sheet already scrolls and needs none of this.
+
+   EVERY THRESHOLD HERE IS A MEASURED NUMBER, AND ALL FIVE MOVED ONCE.
+   The ladder was calibrated when the sheet was set in JetBrains Mono;
+   re-basing the type ramp on Departure Mono at 11px/22px changed the
+   height of every row in the column, and nobody re-derived the steps. The
+   column then needed 697px where the comment still said 668, so each step
+   fired about 30px too late and the band it was supposed to protect
+   overflowed instead:
+
+     h 724..812   nothing shed yet, short by up to 25px
+     h 668..688   `peak` not yet shed, short by up to 21px
+     h 560..628   the ladder had run out of steps entirely
+
+   768 is in the first band. That is 1366x768 and 1024x768 -- two of the
+   most common screens there are -- and on both of them the pills row lost
+   its bottom 5px and the dither strip was cut off whole. It shipped
+   because no check looked: layout.mjs's seven viewports measure the
+   CONSOLE's bands, and nothing measured the landing column against the
+   room it had.
+
+   The arithmetic, so the next person can redo it rather than guess. The
+   column's need with each configuration, and what the sheet gives it:
+
+     full            697px       available = vh - 112  (--edge 24)
+     less //stems_   666px       available = vh -  88  (--edge 12)
+     less //peak_    601px
+     less the echoes 539px
+     less the chain  269px
+
+   Each step therefore fires a few px BEFORE its band would fail, and
+   `scripts/flight.mjs` asserts the bottom of every band, which is the
+   only place the sum can go wrong. If the type scale moves again, that
+   check goes red and these five numbers are what to re-derive. */
+@media (min-width: 821px) and (max-height: 812px) {
   /* costs no reading at all: the sheet sits closer to the screen edge */
   .plate { --edge: 12px; }
 }
-@media (min-width: 821px) and (max-height: 750px) {
+@media (min-width: 821px) and (max-height: 788px) {
   /* //stems_ is implied by //split_ mdx-net, and was already the cell
      nominated as sacrificial by the narrow query above */
   .pl-r > .pl-row.opt { display: none; }
 }
-@media (min-width: 821px) and (max-height: 720px) {
+@media (min-width: 821px) and (max-height: 757px) {
   /* a drawn scale with a parked needle: honest under law 3, and the one
      cell in the column that reads nothing at all until power-on */
   .pl-r > .pl-row.pl-peak { display: none; }
 }
-@media (min-width: 821px) and (max-height: 664px) {
+@media (min-width: 821px) and (max-height: 692px) {
   /* the running footer already carries both, so these are echoes rather
      than readings: `/ webgl - 108k particles`, `/ audius - artist-owned` */
   .pl-r > .pl-row.dup { display: none; }
+}
+@media (min-width: 821px) and (max-height: 630px) {
+  /* The last rung, and the largest: the signal chain is the one pure
+     DIAGRAM left in the column -- eight rows that read nothing live and
+     change with nothing. It goes as one block, never row by row: half a
+     signal path is not a shorter diagram, it is a wrong one. `hover a
+     stage` is inside .pl-path and leaves with it, which is right, because
+     it is the chain's readout and has nothing to say without it. */
+  .pl-r > .pl-path { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

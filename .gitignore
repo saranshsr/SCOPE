@@ -18,3 +18,7 @@ PRODUCT.md
 .kb.mjs
 .prox2.mjs
 PORT-MAP.md
+
+# `node scripts/stills.mjs` writes here. Frames of the app, not source: they
+# go stale the moment anything moves, and a PNG of a thing is not the thing.
+stills/

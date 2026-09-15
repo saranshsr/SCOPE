@@ -129,6 +129,67 @@ if (fail.length) {
   if (process.env.FLIGHT_DUMP) console.error(JSON.stringify(f, null, 1))
   await b.close(); process.exit(1)
 }
+// ── THE DATA COLUMN AGAINST THE ROOM IT HAS ────────────────────────────
+// The standby sheet does not scroll, so when the window is shorter than
+// the column, styles.css sheds cells on a five-step ladder. Every
+// threshold in it is a MEASURED number, and all five were derived when
+// the sheet was set in JetBrains Mono. Re-basing the type ramp on
+// Departure Mono changed the height of every row in the column; each step
+// then fired about 30px too late, and 175px of the 560..900 range clipped
+// -- including 768, which is 1366x768 and 1024x768. `.pl-r` is
+// `overflow: hidden`, so the pills row simply lost its bottom 5px and the
+// dither strip was cut off whole, silently.
+//
+// Nothing measured it. layout.mjs's seven viewports walk the CONSOLE's
+// bands; offscreen walks children against their own surfaces and the
+// pills were still inside theirs. So it is measured here, where the
+// landing lives.
+//
+// SIX HEIGHTS, AND THEY ARE NOT A SAMPLE. Within one rung of the ladder
+// the column's need is constant and the room grows with the window, so
+// the worst case in each band is its SHORTEST height -- one pixel above
+// where the next rung fires. Testing those is not spot-checking, it is
+// complete. If the ramp moves again these are the numbers that go red,
+// and styles.css carries the arithmetic for re-deriving them.
+{
+  const q = await b.newPage()
+  await q.evaluateOnNewDocument(() => { try { localStorage.setItem('scope-onboard-v1', '1') } catch { /* private mode */ } })
+  await q.setViewport({ width: 1280, height: 900 })
+  await q.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await new Promise(r => setTimeout(r, 2500))
+  const HEIGHTS = [900, 813, 789, 758, 693, 631, 560]
+  const spill = []
+  const seen = []
+  for (const h of HEIGHTS) {
+    await q.setViewport({ width: 1280, height: h })
+    await new Promise(r => setTimeout(r, 260))
+    const d = await q.evaluate(() => {
+      const col = document.querySelector('.pl-r')
+      if (!col) return null
+      const cb = col.getBoundingClientRect()
+      const kids = [...col.children].filter(c => getComputedStyle(c).display !== 'none')
+      return {
+        kids: kids.length,
+        over: Math.round(Math.max(...kids.map(c => c.getBoundingClientRect().bottom)) - cb.bottom),
+        worst: kids.map(c => [c.className.split(' ')[0], Math.round(c.getBoundingClientRect().bottom - cb.bottom)])
+          .filter(x => x[1] > 0).map(x => `${x[0]}+${x[1]}px`),
+      }
+    })
+    // A height that found no column, or a column with no cells, is this
+    // check failing to reach its subject -- reported, never passed.
+    if (!d) { spill.push(`at 1280x${h} there is no .pl-r at all, so nothing was measured`); continue }
+    if (d.kids < 4) { spill.push(`at 1280x${h} the data column had only ${d.kids} visible cells, which is not the sheet -- this check is stale and is NOT passing`); continue }
+    seen.push(`${h}:${d.kids}cells${d.over > 0 ? ` OVER ${d.over}` : ''}`)
+    if (d.over > 0) spill.push(`at 1280x${h} the data column overflows its own cell by ${d.over}px (${d.worst.join(', ')}). .pl-r is overflow:hidden, so that content is CUT, not scrolled. The shedding ladder in styles.css fires too late for this band -- re-derive its five thresholds against the column's current need.`)
+  }
+  await q.close()
+  if (spill.length) {
+    console.error('flight FAILED\n' + spill.map(x => '  · ' + x).join('\n'))
+    await b.close(); process.exit(1)
+  }
+  console.log(`  column ok — no clipping at 1280x{${seen.join(' ')}}, the shortest height in each rung of the shedding ladder`)
+}
+
 if (process.env.FLIGHT_DUMP) console.log(JSON.stringify(f, null, 1))
 console.log(`flight ok — REV ran, DIVE peaked at ${peak.toFixed(2)}, camera travelled (x ${dx.toFixed(3)}, dolly ${dd.toFixed(2)}), landed live, ${span}ms end to end`)
 await b.close()

@@ -205,13 +205,22 @@ await new Promise(r => setTimeout(r, 1200))
 // genuinely dead row.
 const tiers = []
 const tierRms = []
+// THE BANDS RIDE ALONG TOO, and they are the witness that matters. The
+// global rms says whether there was sound; it says nothing about whether
+// THIS ring's band did anything. Judging a still ring against the whole
+// mix fails an honest meter on a track whose sub is a flat limited kick,
+// and it passes a dead one on a track whose sub happens to move. Each
+// ring is judged against its own input.
+const tierBands = []
 for (let i = 0; i < 60; i++) {
   const snap = await p.evaluate(() => ({
     rows: [...document.querySelectorAll('.layer')].map(r => r.querySelectorAll('.layer-meter b.on').length),
     rms: window.__eng?.analyser?.features?.rms ?? -1,
+    bands: Array.from(window.__eng?.analyser?.features?.bands ?? []),
   }))
   tiers.push(snap.rows)
   tierRms.push(snap.rms)
+  tierBands.push(snap.bands)
   await new Promise(r => setTimeout(r, 120))
 }
 const rmsAtTiers = tierRms.slice().sort((a, c) => a - c)[Math.floor(tierRms.length / 2)]
@@ -243,6 +252,12 @@ const dead = await p.evaluate(() => {
 await b.close()
 
 const fail = []
+// Notes that are not failures. A check that only ever prints "ok" hides the
+// runs where it could not judge -- and a run it could not judge is not the
+// same as a run that passed.
+const report = []
+let tierTravel = null
+let tierMeans = null
 // the disabled sweep ran before the browser closed; report it here, where
 // the failure list exists
 if (dead && dead.unreachable != null) {
@@ -292,7 +307,133 @@ else if (rmsAtTiers <= 0.02) {
   }
   if (lowRings.length > rows / 2)
     allPinned.push(`${lowRings.length} of ${rows} rings sit at the bottom and do not move (rings ${lowRings.join(', ')}) while the analyser reads rms ${rmsAtTiers.toFixed(3)} -- that is a dead readout, not dark music`)
-  if (allPinned.length) fail.push(`tier meters are not reporting: ${allPinned.join('; ')}. The analyser read rms ${rmsAtTiers.toFixed(3)} while they were sampled, so there was a signal to show. Check for a second scaling at the meter: each row's \`level\` arrives already clamped to 0..1 and the block count multiplies it again.`)
+  if (allPinned.length) fail.push(`tier meters are not reporting: ${allPinned.join('; ')}. The analyser read rms ${rmsAtTiers.toFixed(3)} while they were sampled, so there was a signal to show. The reading is built in App.tsx as one shared \`tierLevels\` -- check that both readouts still take it from there rather than re-deriving a second scaling of the same band means.`)
+
+  // ── STILLNESS IS THE FAULT, WHEREVER IT SITS ─────────────────────────
+  // Everything above only fires at a RAIL: pinned at 8/8, or flat at 0.
+  // A ring frozen at 5/8 for the whole window passed all of it, and that
+  // is precisely how the real fault shipped. Measured on a real GPU, 120
+  // samples over 12s of a playing track, the six meters read 7,6,6,5,5,4
+  // and FOUR OF THEM MOVED ZERO CELLS -- they were drawing the spectrum's
+  // fixed tilt, which is a property of recorded music and not of the
+  // track. This file's own failure line called it "stuck full at 7.0/8",
+  // and only because that track happened to push one ring high enough to
+  // reach a rail. The same dead readout on a brighter track said nothing
+  // at all, so the check was flaky on a fault that was always present.
+  //
+  // So: a ring is allowed to be steady, and one or two steady rings are
+  // music. MOST of them steady, while the signal behind them is moving,
+  // is a readout that is not reporting. The rms series is the witness on
+  // both counts -- loud enough to show something, and varying, so a drone
+  // is not failed for being a drone.
+  // EACH RING AGAINST ITS OWN BAND. Two earlier versions of this law were
+  // written and both were wrong, in opposite directions, which is why it
+  // is worth spelling out.
+  //
+  // The first said "more than half the rings are still". Mutated against
+  // the old absolute law it travelled 2/3/3/1/1/0 cells -- three rings of
+  // six -- and `> rows / 2` is `3 > 3`, false. It passed the exact fault
+  // it had been written for, by one ring.
+  //
+  // The second tightened that to `>=` and added "any ring that never
+  // moves at all is dead". That one FAILED THE FIXED PRODUCT, on a
+  // brickwalled master whose sub ring sat still for seven seconds -- and
+  // looking at the band behind it, so did the sub. A limited four-to-the-
+  // floor kick genuinely does not vary. The check was right that the ring
+  // was still and wrong about what that meant, because it was asking the
+  // whole mix's rms about one band.
+  //
+  // So the witness is the ring's OWN input. A ring must move when its
+  // band moves; a ring that holds still while its band holds still is
+  // telling the truth. `bandsFor` derives the grouping from what is on
+  // screen rather than restating it: rows render top-first, so row r is
+  // tier rows-1-r, and the tiers divide the analyser's bands evenly.
+  const STILL = 2   // cells of travel across the window, below which a ring is not moving
+  const MOVED = 2   // a band that DOUBLES has unarguably moved; no meter may sit through it
+  const per = tierBands[0].length / rows
+  const bandsFor = r => {
+    const t = rows - 1 - r
+    const a = Math.round(t * per), b2 = Math.round((t + 1) * per)
+    return tierBands.map(f => { let m = 0; for (let k = a; k < b2; k++) m += f[k]; return m / Math.max(1, b2 - a) })
+  }
+  const travel = []
+  const deaf = []          // still, while its own band moved
+  const honest = []        // still, and so was its band
+  for (let i = 0; i < rows; i++) {
+    const col = tiers.map(t => t[i]).filter(v => v != null)
+    travel.push(Math.max(...col) - Math.min(...col))
+    if (travel[i] >= STILL) continue
+    const band = bandsFor(i)
+    const lo = Math.max(1e-4, Math.min(...band))
+    const hi = Math.max(...band)
+    ;(hi / lo >= MOVED ? deaf : honest).push(`${i} (band x${(hi / lo).toFixed(1)})`)
+  }
+  const rmsLo = Math.min(...tierRms)
+  const rmsHi = Math.max(...tierRms)
+
+  // ── THE TILT, WHICH IS THE FAULT ITSELF ──────────────────────────────
+  // Travel alone cannot tell the two laws apart, and it was tried. The
+  // broken absolute law measured 3/2/2/1/1/1 cells on one track and the
+  // fixed law measured 0/1/1/1/1/1 on another: how far a ring moves in
+  // seven seconds is dominated by the track, not by the maths. Band
+  // doubling as a gate was tried too, and is vacuous -- features.ts
+  // envelope-follows the bands, so over a seven-second window they move
+  // about 1.2x to 1.5x and almost never double, so the clause never fired
+  // and the mutation walked straight through it.
+  //
+  // What actually distinguishes them is not any single ring, it is the
+  // SHAPE ACROSS the six. Reading absolute band energy, the rings come out
+  // ordered by frequency and stay there, because music's long-term
+  // spectrum falls with frequency: 7,6,6,5,5,4, a staircase. Read against
+  // each ring's own running mean, every ring centres on mid-scale and the
+  // order is whatever the music is doing this second: 4.0/4.3/4.2/4.0/
+  // 4.1/4.3, measured.
+  //
+  // So the law is the staircase. Monotone in frequency AND spread across
+  // the scale is the tilt and nothing else looks like it -- one loud band
+  // is not monotone, and a monotone accident is not spread. Either alone
+  // would be too eager; together they are the signature.
+  const means = travel.map((_, i) => {
+    const col = tiers.map(t => t[i]).filter(v => v != null)
+    return col.reduce((a, c) => a + c, 0) / col.length
+  })
+  // RANK CORRELATION, not strict monotonicity, and that distinction was
+  // measured too. Strict monotonicity was the first form of this and the
+  // `pow(x, 0.6)` mutation walked through it on means of
+  // 1.8/2.5/4.1/5.3/5.4/5.3 -- a 3.6-cell staircase whose last three
+  // steps wobble by 0.1, which is not monotone and is obviously a tilt.
+  // A rank correlation does not care about the wobble: that set scores
+  // 0.90 against frequency order, the shipped `* 1.6` scores 0.99, the
+  // original 7/6/6/5/5/4 scores 0.97, and the fixed law scores 0.26.
+  const rank = a => {
+    const idx = a.map((v, i) => [v, i]).sort((x, y) => x[0] - y[0])
+    const r = new Array(a.length)
+    for (let i = 0; i < idx.length;) {
+      let j = i
+      while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++
+      const avg = (i + j) / 2 + 1              // 1-based, ties share the mean rank
+      for (let k = i; k <= j; k++) r[idx[k][1]] = avg
+      i = j + 1
+    }
+    return r
+  }
+  const rm = rank(means)
+  const rx = means.map((_, i) => i + 1)
+  const d2 = rm.reduce((a, v, i) => a + (v - rx[i]) ** 2, 0)
+  const n = means.length
+  const rho = 1 - (6 * d2) / (n * (n * n - 1))
+  const span = Math.max(...means) - Math.min(...means)
+  if (Math.abs(rho) >= 0.85 && span >= 2)
+    fail.push(`the ring meters are drawing the spectrum, not the music. Their means across the sample were ${means.map(m => m.toFixed(1)).join('/')} of ${TIER_CELLS} -- ranked ${rho.toFixed(2)} against frequency order, ${span.toFixed(1)} cells apart, and they hold that order for as long as you watch. That is the long-term shape of recorded music, which every track has; it is not this track. Each tier is meant to be read against its OWN running mean (\`tierAvg\` in App.tsx) so that at its average it sits mid-scale and the six disagree moment to moment -- check that both readouts still take \`tierLevels\` from there rather than re-deriving an absolute scaling of the band means.`)
+  else if (span >= 2)
+    report.push(`ring means spread ${span.toFixed(1)} cells (${means.map(m => m.toFixed(1)).join('/')}) but rank only ${rho.toFixed(2)} against frequency order, so this is the music and not the tilt`)
+
+  if (deaf.length) report.push(`${deaf.length} ring(s) held still while their own band moved: ${deaf.join(', ')}`)
+  if (honest.length) report.push(`${honest.length} ring(s) held still and so did their band, which is the meter telling the truth: ${honest.join(', ')}`)
+  if (rmsAtTiers <= 0.05 || rmsHi - rmsLo <= 0.05)
+    report.push(`rms ${rmsLo.toFixed(3)}..${rmsHi.toFixed(3)} (median ${rmsAtTiers.toFixed(3)}) was quiet or steady through the ring sampling`)
+  tierTravel = travel
+  tierMeans = means
 }
 
 if (pairs.length < 50) fail.push(`only ${pairs.length} samples in ${SECONDS}s -- the meter is not updating, so this check is stale and is NOT passing.`)
@@ -358,7 +499,15 @@ else {
     else if (spread < 3 && rmsSpread > 0.1 && (median >= CELLS - 1 || median <= 1))
       fail.push(`the level meter is parked at ${median}/${CELLS} and moved only ${spread} cells across ${SECONDS}s, while ${witness}.`)
   }
-  if (fail.length === 0) console.log(`readings ok — ${rows} tier meters all moving · level spans ${lit[0]}..${lit[lit.length - 1]} of ${CELLS} cells (median ${median}), ${(ceiling * 100).toFixed(0)}% at ceiling across ${lit.length} samples · analyser rms ${rms[0].toFixed(3)}..${rms[rms.length - 1].toFixed(3)}`)
+  if (fail.length === 0) {
+    // The travel per ring is printed, not summarised as "all moving". That
+    // phrase was in this line while four of the six were moving nothing:
+    // a pass has to show its numbers or it is just a word.
+    const travel = tierTravel ? ` · ring travel ${tierTravel.join('/')} cells of ${TIER_CELLS}` : ''
+    const spread = tierMeans ? ` · means ${tierMeans.map(m => m.toFixed(1)).join('/')} (spread ${(Math.max(...tierMeans) - Math.min(...tierMeans)).toFixed(1)})` : ''
+    console.log(`readings ok — ${rows} tier meters${travel}${spread} · level spans ${lit[0]}..${lit[lit.length - 1]} of ${CELLS} cells (median ${median}), ${(ceiling * 100).toFixed(0)}% at ceiling across ${lit.length} samples · analyser rms ${rms[0].toFixed(3)}..${rms[rms.length - 1].toFixed(3)}`)
+    for (const r of report) console.log(`  note: ${r}`)
+  }
 }
 
 if (fail.length) { console.error('readings FAILED\n' + fail.map(f => '  · ' + f).join('\n')); process.exit(1) }

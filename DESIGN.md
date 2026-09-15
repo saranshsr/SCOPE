@@ -259,6 +259,21 @@ check would have called it a fix.
    carrying composed content. The references measure 31% lit *pixels*;
    round 1 shipped ~4% and read as decoration around emptiness. Sparse
    is not minimal here, it is unfinished.
+   The corollary, on a sheet that does not scroll: when the window is
+   shorter than the content, the plate **sheds, it does not clip**. Spend
+   margin first, then drop whole cells in ascending order of value —
+   echoes of what the footer already says, then a scale with a parked
+   needle, then the signal-chain diagram, never a control, and never half
+   of anything (half a signal path is a wrong diagram, not a shorter one).
+   **Every threshold in that ladder is a measured number and they go stale
+   together.** All five were calibrated in JetBrains Mono; re-basing the
+   type ramp on Departure Mono at 11px/22px changed the height of every
+   row in the data column, and each step then fired about 30px too late —
+   so the band it existed to protect overflowed instead. 175px of the
+   560–900 height range clipped, including 768, which is 1366×768 and
+   1024×768. It shipped because nothing measured the landing column
+   against the room it had. `scripts/flight.mjs` now asserts the bottom of
+   every band, which is the only place the sum can go wrong.
 9. **One vocabulary per sheet.** Everything is the same primitive: a
    bordered cell sharing edges with its neighbours. A floating diagram, a
    centered figure, boxes-and-arrows, or vertical type inside a page of
@@ -280,6 +295,27 @@ check would have called it a fix.
    ends are the ONLY curvature exception… **no** — corners stay square;
    pills are rendered as `( TEXT )` with literal parens, keeping law 0-radius.
 4. **Block meter** — `■■■■□□□□` filled/hollow squares for levels.
+   **A meter is judged by whether it MOVES, not by whether it is
+   plausible.** Two of them have now been caught reading nothing: the
+   level meter sat at 12/12 for 90% of samples because one 0..1 rms was
+   scaled twice, and the six ring meters read 7,6,6,5,5,4 with four of the
+   six moving zero cells across twelve seconds. The second is the subtler
+   fault and the one to watch for, because it looks alive: the rings were
+   showing each band's ABSOLUTE energy, and music's long-term spectrum
+   falls with frequency, so the six readings came out in the same order
+   every time and stayed there. A readout that draws a property of
+   recorded music in general, rather than of the track playing, is law 3's
+   fiction wearing a real label.
+   So a per-band meter is read against **its own running mean** — at its
+   average it sits mid-scale, and it moves when that band does — and the
+   scale is a RATIO law, `0.5 + 0.35·log2(m/mean)`, because a ±20% swing
+   is ±0.1 of a linear scale and vanishes into one cell. The absolute
+   spectrum is not lost: `05 · SPECTRUM`'s 24 bars are exactly that,
+   unnormalised, which is also the argument for the change — two readouts
+   should not say the same thing, and the rings were saying it worse.
+   `scripts/readings.mjs` asserts the travel per ring and prints it on a
+   pass, because "all moving" was in that line while four of them were
+   not.
 5. **Dial face** — circle + needle line at the value's angle, value
    printed beside. For the visuals knobs (rollout phase 2).
 6. **Leader line** — `label ●————` hairline with dot terminal connecting

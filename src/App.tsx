@@ -514,6 +514,45 @@ export default function App() {
     // are bottom-to-top, frequency-honest.
     let tiers: Tier[] = [] // set by applySpectralTiers() below, before first use
     const tierLevels = new Float32Array(6)
+    /**
+     * One slow mean per tier, and the reason the ring meters say anything.
+     *
+     * They used to show a tier's ABSOLUTE band energy, and music's
+     * long-term spectrum falls with frequency, so the six readings came out
+     * in the same order every time and stayed there. Measured on a real
+     * GPU, 120 samples over 12 seconds of a playing track: the eight-cell
+     * meters read 7,6,6,5,5,4 and FOUR OF THE SIX MOVED ZERO CELLS. The
+     * survey labels beside the star, on the same numbers through a
+     * different scaling, sat at LVL 98 and LVL 99. Six readouts drawing
+     * the pink-noise tilt, which is a property of recorded music in
+     * general and not of the track you are listening to.
+     *
+     * So each tier is now read against its OWN recent level: at its
+     * average it sits mid-scale, and it moves when that band does. The
+     * absolute spectrum is not lost -- `05 · SPECTRUM`'s 24 bars are
+     * exactly that, unnormalised, and they already read well. The rings
+     * were duplicating them badly; now they say the thing the bars cannot.
+     *
+     * TAU is 6s, longer than a couple of bars at any tempo, so the
+     * reference is stable under a beat rather than chasing it. FLOOR is
+     * the absolute mean below which a band is treated as silent: the mean
+     * stops integrating there and freezes, so a quiet passage reads quiet
+     * instead of renormalising its own silence up to mid-scale, and the
+     * reference is never seeded from the hush before the music starts.
+     *
+     * OCTAVE is the law of the scale, and it is a ratio law rather than a
+     * linear one because that is what a meter is. A band at twice its own
+     * average moves 0.35 of the scale, a band at half moves 0.35 down, so
+     * the eight cells span about +-1.4 octaves of deviation either side of
+     * normal -- roughly 17dB, a VU's worth. Linear normalisation was tried
+     * first and measured: it put four of the six rings inside a ONE cell
+     * range, because a +-20% swing in band energy is only +-0.1 of a
+     * linear scale. Ratios are how loudness moves; the scale has to agree.
+     */
+    const tierAvg = new Float32Array(6)
+    const TIER_TAU = 6
+    const TIER_FLOOR = 0.03
+    const TIER_OCTAVE = 0.35 // scale travelled per doubling against its own mean
     const sectMuted = new Set<number>() // latched tier kills
     let sectSolo = -1 // spectral tier solo (stem solo lives in the deck)
     // Latched row levels, 0..2 — the mixing desk the layer rows drive.
@@ -1258,24 +1297,53 @@ export default function App() {
         seamFlashUntil = now + 4500
         if (shouldOnboard()) setTimeout(() => setOnboard(true), 900)
       }
-      const seamWant = cur.axisHover || sect.axis || now < seamFlashUntil
-      if (scene.dissect > 0.004 || seamWant) {
-        surveyDirty = true
+      // THE SIX TIER READINGS. Computed here, every frame, and read by
+      // BOTH readouts -- the survey labels beside the star and the eight-
+      // cell meters in the rail. They used to be computed twice, in two
+      // places, from the same band means through two different scalings
+      // (`* 1.6` there, `pow(x, 0.6)` here), so the same tier could read
+      // LVL 98 on the drawing and 7/8 in the list and neither was wrong
+      // about the other. One quantity, one place.
+      //
+      // Every frame, NOT inside the dissect guard below: the running mean
+      // is the reference the reading is against, and a reference that only
+      // accumulates while you are looking would start from nothing each
+      // time the stack opens and slam all six meters to full for the first
+      // few seconds.
+      {
+        const per = 24 / tiers.length
         for (let i = 0; i < tiers.length; i++) {
           const tr = tiers[i]
           if (tr.role) {
+            // A stem carries its own dynamics -- a vocal is silent between
+            // lines -- so it is already the thing a meter wants to show and
+            // is not normalised.
             let lv = 0
             if (lastInfos) for (const s of lastInfos) if (s.role === tr.role) lv = Math.max(lv, s.level)
             tierLevels[i] = Math.min(1, lv * 3)
-          } else {
-            const per = 24 / tiers.length
-            const a = Math.round(i * per)
-            const b = Math.round((i + 1) * per)
-            let m = 0
-            for (let k = a; k < b; k++) m += f.bands[k]
-            tierLevels[i] = Math.min(1, (m / Math.max(1, b - a)) * 1.6)
+            continue
           }
+          const a = Math.round(i * per)
+          const b = Math.round((i + 1) * per)
+          let m = 0
+          for (let k = a; k < b; k++) m += f.bands[k]
+          m /= Math.max(1, b - a)
+          // Seeded on the first frame with real signal in the band, not
+          // on the first frame there is: power-on happens in silence, and
+          // an average seeded from that reads every band as enormous for
+          // the six seconds it takes to catch up -- which is exactly what
+          // the first version of this did, and it pinned the sub ring at
+          // the ceiling for 67% of a twelve-second sample.
+          if (m >= TIER_FLOOR)
+            tierAvg[i] = tierAvg[i] > 0 ? tierAvg[i] + (m - tierAvg[i]) * Math.min(1, dt / TIER_TAU) : m
+          const dev = Math.log2(Math.max(1e-4, m) / Math.max(TIER_FLOOR, tierAvg[i]))
+          tierLevels[i] = Math.max(0, Math.min(1, 0.5 + dev * TIER_OCTAVE))
         }
+      }
+
+      const seamWant = cur.axisHover || sect.axis || now < seamFlashUntil
+      if (scene.dissect > 0.004 || seamWant) {
+        surveyDirty = true
         // each ring's voice: stems ride their REAL post-gain rms (a muted
         // stem's tap reads silence, so its ring collapses dark); spectral
         // tiers ride their kill state. Smoothed here, read by the shader.
@@ -1430,36 +1498,30 @@ export default function App() {
           for (let i = tiers.length - 1; i >= 0; i--) {
             const tr = tiers[i]
             if (tr.role && infos) {
-              let lv = 0
+              // The deck still owns this row's FADER and its mute -- those
+              // are the stem's own state and live nowhere else. Its level
+              // does not: that is the shared reading, computed once above,
+              // so the drawing and the list cannot disagree. The `lv` local
+              // that used to be gathered here went with the third copy.
               let gn = 1
               let mu = false
               for (const s2 of infos)
                 if (s2.role === tr.role) {
-                  lv = Math.max(lv, s2.level)
                   gn = s2.gain
                   mu = mu || s2.muted
                 }
-              rows.push({ i, label: tr.label, level: lv, gain: gn, muted: mu, solo: stemDeckRef.current?.soloRole === tr.role, hot: hoverTierIdx === i })
+              rows.push({ i, label: tr.label, level: tierLevels[i], gain: gn, muted: mu, solo: stemDeckRef.current?.soloRole === tr.role, hot: hoverTierIdx === i })
             } else {
-              const per = 24 / tiers.length
-              const a = Math.round(i * per)
-              const b = Math.round((i + 1) * per)
-              let m = 0
-              for (let k = a; k < b; k++) m += f.bands[k]
               rows.push({
                 i,
                 label: tr.label,
-                // A perceptual curve, not a linear gain. `m / width` is
-                // already a 0..1 mean of bands that are themselves 0..1, so
-                // the old * 1.6 pinned the top tiers at full for 100% of
-                // samples -- six meters that always agreed, when the whole
-                // point of a per-ring meter is that they disagree. 0.6 is
-                // the exponent features.ts already uses for rms, so the
-                // rings and the level meter now share one law: the quiet
-                // end opens up and only a genuinely full tier fills.
-                // Display only; the star's tier voices come from
-                // setTierLevels on a separate path.
-                level: Math.pow(Math.min(1, m / Math.max(1, b - a)), 0.6),
+                // The one reading, computed once per frame above. This used
+                // to be its own `pow(mean, 0.6)` of the same band means the
+                // survey scaled by 1.6 -- two curves on one quantity, and
+                // both of them drawing the spectrum's fixed tilt rather
+                // than the music. Display only; the star's tier voices come
+                // from setTierLevels on a separate path.
+                level: tierLevels[i],
                 gain: rowGain[i],
                 muted: sectMuted.has(i),
                 solo: sectSolo === i,
@@ -2626,7 +2688,10 @@ export default function App() {
               the stage (.tube-host) and never renders. These rows are what
               answers "what am I listening to", read from that same player. */}
           <div className={`railfold${source === 'tube' ? ' open' : ''}`}>
-            <div className="tube rail-sec">
+            {/* --i 2, with .rail-src: the jukebox plate is the source
+                tabs' own fold and reveals with them. Unindexed it fell
+                back to the cascade's tail, which is safe but wrong. */}
+            <div className="tube rail-sec" style={{ '--i': 2 } as React.CSSProperties}>
               {/* The exit lives in the header, labelled with where it
                   goes. The way out already existed -- RADIO is one of four
                   buttons in 02 · FEED -- but this module is 60% of the
@@ -3598,7 +3663,15 @@ function drawSurvey(
   const cB = scene.projectLocal(0, yB, 0)
   g.font = '9px "JetBrains Mono", ui-monospace, monospace'
   g.fillStyle = ink(0.6)
-  g.fillText(`SUM ${String(Math.round(Math.min(1, rms * 2.4) * 99)).padStart(2, '0')}`, cB.x + 12, cB.y)
+  // ONE SCALE, and this readout is the third to learn it. features.ts
+  // already returns rms compressed and enveloped into 0..1; the level
+  // meter's `* 2.4` was removed for pinning at 12/12 for 90% of samples,
+  // and the comment recording that fix sits forty lines from here -- while
+  // the SAME 2.4 stayed on the master compass, where it clips everything
+  // above rms 0.417. Measured against the analyser on a loud track (rms
+  // 0.320..0.998), that is SUM 99 for almost the whole track. A fix
+  // applied to one readout is not applied to the quantity.
+  g.fillText(`SUM ${String(Math.round(Math.min(1, rms) * 99)).padStart(2, '0')}`, cB.x + 12, cB.y)
 }
 
 /** 24 log-band bars with hanging peak caps, like the reference analyzer.
