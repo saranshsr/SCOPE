@@ -36,9 +36,12 @@ const LEXICON: [RegExp, VibeSense][] = [
   [/drive|driving|highway|cruis/i, { moods: ['Cool', 'Defiant'], genres: ['Hip-Hop/Rap', 'Electronic', 'House'], bpm: [90, 125] }],
   [/sunset|rooftop|golden hour|beach|pool/i, { moods: ['Easygoing', 'Romantic', 'Upbeat'], genres: ['Deep House', 'Disco', 'House'], bpm: [110, 124] }],
   [/morning|sunrise|coffee/i, { moods: ['Peaceful', 'Easygoing', 'Tender'], genres: ['Lo-Fi', 'Downtempo', 'Jazz'], bpm: [70, 105] }],
-  [/rain|rainy|grey|gray|winter|cozy/i, { moods: ['Melancholy', 'Sentimental', 'Peaceful'], genres: ['Lo-Fi', 'Downtempo', 'Ambient', 'R&B/Soul'], bpm: [60, 100] }],
+  [/rain|rainy|grey|gray|winter|cozy|fireplace|campfire|bonfire|by the fire/i, { moods: ['Melancholy', 'Sentimental', 'Peaceful'], genres: ['Lo-Fi', 'Downtempo', 'Ambient', 'R&B/Soul'], bpm: [60, 100] }],
   // -- state of mind
-  [/study|focus|deep work|coding|concentrat/i, { moods: ['Peaceful', 'Easygoing'], genres: ['Lo-Fi', 'Ambient', 'Downtempo', 'Electronic'], bpm: [60, 110] }],
+  // "design time" is the canonical bug this lexicon exists to fix: it must
+  // resolve here (a vibe read) and never as a literal search for a track
+  // titled "Design Time" — see classifyIntent below.
+  [/study|focus|deep work|coding|concentrat|design ?time|designing|creative flow|working late/i, { moods: ['Peaceful', 'Easygoing'], genres: ['Lo-Fi', 'Ambient', 'Downtempo', 'Electronic'], bpm: [60, 110] }],
   [/chill|relax|calm|unwind|laid ?back/i, { moods: ['Easygoing', 'Peaceful', 'Cool'], genres: ['Lo-Fi', 'Deep House', 'Downtempo'], bpm: [80, 115] }],
   [/sad|heartbreak|cry|miss|lonely/i, { moods: ['Melancholy', 'Yearning', 'Sentimental'], genres: ['R&B/Soul', 'Lo-Fi', 'Downtempo'], bpm: [60, 100] }],
   [/angry|mad|fury|vent/i, { moods: ['Aggressive', 'Defiant', 'Fiery'], genres: ['Metal', 'Trap', 'Dubstep'], bpm: [130, 175] }],
@@ -99,6 +102,61 @@ export function readVibe(prompt: string): { sense: VibeSense; read: string } {
   if (sense.bpm) bits.push(`${sense.bpm[0]}-${sense.bpm[1]}bpm`)
   return { sense, read: bits.length ? `read as ${bits.join(' · ')}` : 'no read · searching the words themselves' }
 }
+
+/** THE INTENT CLASSIFIER — vibe vs named-thing, no LLM, no new deps.
+ *
+ *  The bug this exists to fix: typing "design time" played a track literally
+ *  TITLED "Design Time" — a text-search hit beat the vibe read just because
+ *  the words happened to appear in a title. A title that merely CONTAINS the
+ *  words a person typed is not evidence they typed a name; people describing
+ *  a mood also produce word salads that occasionally collide with a title.
+ *
+ *  So the decision is cheap and text-only, made BEFORE any network call:
+ *   - quotes around the whole phrase, or an explicit "X by Y" -> name, full
+ *     stop. Someone who quotes or writes "by" is naming a thing on purpose.
+ *   - otherwise, if the phrase lands in the vibe lexicon at all -> vibe.
+ *     Lexicon coverage is deliberately broad (see LEXICON above) so real
+ *     activity/mood phrasing almost always lands here first.
+ *   - otherwise (no lexicon hit) -> name. A phrase with no mood/genre/tempo
+ *     reading has nothing else useful to search FOR except itself, and this
+ *     is also where bare artist names like "Skrillex" or "Drake" fall.
+ *
+ *  fetchVibe adds exactly one live override on top of this: a search hit
+ *  whose ARTIST name is a near-exact match for what was typed, and who has
+ *  real popularity (not a stray upload sharing a word), flips a tentative
+ *  vibe read into a name search. That's the one case a popular exact match
+ *  is allowed to win — artist search is an existing feature and must keep
+ *  working even when an artist's name overlaps a mood word (e.g. "House").
+ *  The same exception is deliberately NOT extended to track titles: a title
+ *  match, however popular, never overrides a vibe read on its own — only
+ *  quotes or "by" get a title-flavoured name search. */
+interface Intent {
+  mode: 'vibe' | 'name'
+  query: string // text to hand the search endpoint (quotes stripped)
+  quoted: boolean
+  byArtist?: string // the "Y" in "X by Y", for the honest-read text
+  titlePart?: string // the "X" in "X by Y"
+}
+
+function classifyIntent(prompt: string, sense: VibeSense): Intent {
+  const trimmed = prompt.trim()
+
+  const quoteMatch = trimmed.match(/^["“'](.+?)["”']$/)
+  if (quoteMatch) return { mode: 'name', query: quoteMatch[1], quoted: true }
+
+  const hasVibeSense = !!(sense.moods || sense.genres || sense.bpm)
+
+  // word-boundary "by" only -- must not fire on "somebody" etc. And only when
+  // the phrase has no vibe reading: "music by the fire" and "songs to drive
+  // by" are scenes, and a scene that happens to contain "by" is still one.
+  const byMatch = hasVibeSense ? null : trimmed.match(/^(.+?)\s+by\s+(.+)$/i)
+  if (byMatch) return { mode: 'name', query: trimmed, quoted: false, titlePart: byMatch[1].trim(), byArtist: byMatch[2].trim() }
+
+  return { mode: hasVibeSense ? 'vibe' : 'name', query: trimmed, quoted: false }
+}
+
+/** Normalize for name comparison: case/punctuation-insensitive. */
+const normName = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
 
 /** Genres the 'club' preset sweeps. */
 const CLUB = ['House', 'Deep House', 'Tech House', 'Techno', 'Electronic', 'Dubstep', 'Drum & Bass']
@@ -196,29 +254,46 @@ export async function fetchAudiusRadio(genre: string | null = null, limit = 40):
   }
 }
 
-/** THE VIBE: prompt in, playlist out. Candidates come from trending in
- *  the read's genres plus a full-text search of the prompt itself; every
- *  candidate is scored against the read (mood match, genre match, bpm in
- *  range, plays, search hit) and the best 30 play. */
+/** How popular a search hit must be before it counts as a real name match
+ *  rather than a stray upload that happens to share a word. Audius is a
+ *  niche platform; these are already well above what a random title-word
+ *  collision tends to score. */
+const NAME_MATCH_PLAYS = 500
+const NAME_MATCH_FAVORITES = 100
+
+/** THE VIBE: prompt in, playlist out. classifyIntent (above) decides, from
+ *  the text alone, whether this reads as a vibe or a name; candidates come
+ *  from trending in the read's genres (skipped for a confidently-named
+ *  query) plus a full-text search, and every candidate is scored against
+ *  whichever read won — mood/genre/bpm for a vibe, popularity + exact-name
+ *  match for a name. The one live override: a search hit whose artist is a
+ *  near-exact, popular match for what was typed flips a tentative vibe read
+ *  into a name search (see the big comment on classifyIntent for why). */
 export async function fetchVibe(prompt: string): Promise<{ tracks: TrackInfo[]; read: string }> {
-  const { sense, read } = readVibe(prompt)
+  const { sense, read: vibeRead } = readVibe(prompt)
+  const intent = classifyIntent(prompt, sense)
   try {
     const host = await resolveHost()
     const genres = sense.genres ?? CLUB
     const pool = new Map<string, { t: AudiusTrack; fromSearch: boolean }>()
-    const jobs: Promise<void>[] = genres.slice(0, 5).map(async (g) => {
-      const r = await fetch(
-        `${host}/v1/tracks/trending?genre=${encodeURIComponent(g)}&app_name=${APP}&limit=30`,
-        { signal: AbortSignal.timeout(6000) },
-      )
-      if (!r.ok) return
-      const d = (await r.json()) as { data?: AudiusTrack[] }
-      for (const t of d.data ?? []) if (playable(t) && !pool.has(t.id)) pool.set(t.id, { t, fromSearch: false })
-    })
+    // a quoted phrase or an explicit "X by Y" is confidently a name — don't
+    // bother sweeping mood trending for it, the search alone should answer.
+    const skipTrending = intent.mode === 'name' && (intent.quoted || !!intent.byArtist)
+    const jobs: Promise<void>[] = skipTrending
+      ? []
+      : genres.slice(0, 5).map(async (g) => {
+          const r = await fetch(
+            `${host}/v1/tracks/trending?genre=${encodeURIComponent(g)}&app_name=${APP}&limit=30`,
+            { signal: AbortSignal.timeout(6000) },
+          )
+          if (!r.ok) return
+          const d = (await r.json()) as { data?: AudiusTrack[] }
+          for (const t of d.data ?? []) if (playable(t) && !pool.has(t.id)) pool.set(t.id, { t, fromSearch: false })
+        })
     jobs.push(
       (async () => {
         const r = await fetch(
-          `${host}/v1/tracks/search?query=${encodeURIComponent(prompt)}&app_name=${APP}&limit=40`,
+          `${host}/v1/tracks/search?query=${encodeURIComponent(intent.query)}&app_name=${APP}&limit=40`,
           { signal: AbortSignal.timeout(7000) },
         )
         if (!r.ok) return
@@ -233,24 +308,67 @@ export async function fetchVibe(prompt: string): Promise<{ tracks: TrackInfo[]; 
     )
     await Promise.allSettled(jobs)
 
+    // live override check: does a search hit's ARTIST match what was typed,
+    // for real (popular, near-exact) rather than in passing? Only artist
+    // identity gets to flip vibe->name here — see classifyIntent's comment
+    // for why a title match never does this on its own.
+    const promptNorm = normName(intent.byArtist ?? intent.query)
+    let matchedArtist: string | undefined
+    for (const { t, fromSearch } of pool.values()) {
+      if (!fromSearch) continue
+      const popular = (t.play_count ?? 0) >= NAME_MATCH_PLAYS || (t.favorite_count ?? 0) >= NAME_MATCH_FAVORITES
+      if (popular && normName(t.user.name) === promptNorm) { matchedArtist = t.user.name; break }
+    }
+    const mode: 'vibe' | 'name' = matchedArtist ? 'name' : intent.mode
+
     const scored = [...pool.values()].map(({ t, fromSearch }) => {
       let score = Math.log10(1 + (t.play_count ?? 0)) * 0.5
-      if (fromSearch) score += 1
-      if (sense.moods && t.mood && sense.moods.includes(t.mood)) score += 2
-      if (sense.genres && t.genre && sense.genres.includes(t.genre)) score += 1.5
-      if (sense.bpm && t.bpm && t.bpm >= sense.bpm[0] && t.bpm <= sense.bpm[1]) score += 1
+      if (mode === 'name') {
+        // a name search IS the search hit — weight it hard, and pin the
+        // matched artist's own tracks to the top.
+        if (fromSearch) score += 4
+        if (matchedArtist && normName(t.user.name) === promptNorm) score += 6
+      } else {
+        // a vibe search only nudges on text match — this is the fix for the
+        // literal-title bug: a stray title hit alone can't outscore a real
+        // mood/genre/bpm match against the read.
+        if (fromSearch) score += 0.3
+        if (sense.moods && t.mood && sense.moods.includes(t.mood)) score += 2
+        if (sense.genres && t.genre && sense.genres.includes(t.genre)) score += 1.5
+        if (sense.bpm && t.bpm && t.bpm >= sense.bpm[0] && t.bpm <= sense.bpm[1]) score += 1
+      }
       return { t, score }
     })
     scored.sort((a, b) => b.score - a.score)
     const top = scored.slice(0, 30).map((x) => x.t)
-    // light shuffle inside the top tier so replays differ
-    for (let i = Math.min(top.length, 12) - 1; i > 0; i--) {
+    // light shuffle inside the top tier so replays differ -- except over
+    // the matched artist's own tracks. The read says "the artist X", so the
+    // first thing that plays has to BE X, not a remix that outscored them
+    // and got shuffled forward.
+    const pinned = matchedArtist ? top.filter((t) => normName(t.user.name) === promptNorm).length : 0
+    for (let i = Math.min(top.length, pinned || 12) - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
       ;[top[i], top[j]] = [top[j], top[i]]
     }
+
+    // the honest read: say what the search actually did, not a fabricated
+    // vibe when it wasn't one (and vice versa).
+    const read =
+      mode === 'vibe'
+        ? vibeRead
+        : matchedArtist
+          ? `read as the artist ${matchedArtist}`
+          : intent.quoted
+            ? `read as a track title · "${intent.query}"`
+            : intent.byArtist
+              ? `read as "${intent.titlePart}" by ${intent.byArtist}`
+              : top.length
+                ? 'read as a name · searching for it directly'
+                : 'no read · searching the words themselves'
+
     return { tracks: top.map((t) => toTrack(t, host)), read }
   } catch {
-    return { tracks: [], read }
+    return { tracks: [], read: vibeRead }
   }
 }
 
