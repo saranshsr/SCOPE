@@ -79,3 +79,102 @@ export function energyAhead(p: TrackPeaks, progress: number, windowSec: number):
   for (let i = i0; i < i1; i++) sum += p.amp[i]
   return sum / Math.max(1, i1 - i0)
 }
+
+/**
+ * Drop detection — "only real readings": a drop is a place where energy
+ * rises sharply and stays up for a couple of seconds, right after a stretch
+ * that was genuinely quiet *for this track* (not just quieter than the very
+ * next beat). Three conditions all have to hold at once: the ~6s window
+ * before is a real breakdown (well below the track's typical level), the
+ * ~2s window after is genuinely loud (not just loud relative to near-silence),
+ * and the jump between them is sharp. Requiring the breakdown is what keeps
+ * a steady wall-to-wall track — which never dips — at zero or near-zero,
+ * rather than firing on every strong beat.
+ */
+export interface Drop {
+  /** Onset time, seconds. */
+  t: number
+  /** 0..1, how far the sustained jump cleared the detection threshold. */
+  strength: number
+}
+
+const DROP_SHORT_SEC = 0.75 /** gap left between the baseline window and the point under test, so the baseline can't bleed into the rise it's being compared against */
+const DROP_LONG_SEC = 6 /** baseline window: the build/breakdown right before it */
+const DROP_SUSTAIN_SEC = 2 /** the jump must average this high for this long, not just spike */
+const DROP_MIN_SPACING_SEC = 12 /** refuse a second drop this soon after one */
+/** An intro's first kick isn't a drop. 5s let four of 22 library tracks
+ *  report a "drop" at 6.7s -- the beat arriving after the intro, which the
+ *  6s baseline window read as a breakdown. Real drops land later. */
+const DROP_INTRO_SKIP_SEC = 12
+const DROP_MIN_RATIO = 2.0 /** sustained/baseline energy ratio required to call it a sharp rise */
+const DROP_BREAKDOWN_FRAC = 0.55 /** baseline must sit below this fraction of the track's typical (p60) energy — i.e. an actual quiet build, not just a normal bar */
+const DROP_SUSTAIN_LEVEL_FRAC = 0.75 /** the rise itself must reach this fraction of the track's typical energy — i.e. actually loud, not just "loud for a quiet spot" */
+
+/**
+ * Compute once per track (not per frame): O(n) via a running energy prefix
+ * sum, sorted once for per-track percentile normalisation (loudness varies
+ * per track, so both the "is this a breakdown" and "is this loud" checks are
+ * relative to that track's own energy distribution, not an absolute level).
+ * Results are sorted by t.
+ */
+export function findDrops(p: TrackPeaks): Drop[] {
+  const { amp, secondsPerPixel: s } = p
+  const n = amp.length
+  const drops: Drop[] = []
+  if (n === 0 || s <= 0) return drops
+
+  const shortWin = Math.max(1, Math.round(DROP_SHORT_SEC / s))
+  const longWin = Math.max(shortWin, Math.round(DROP_LONG_SEC / s))
+  const sustainWin = Math.max(1, Math.round(DROP_SUSTAIN_SEC / s))
+  const minSpacing = Math.max(1, Math.round(DROP_MIN_SPACING_SEC / s))
+  const introSkip = Math.round(DROP_INTRO_SKIP_SEC / s)
+  const start = Math.max(introSkip, longWin + shortWin)
+  if (start + sustainWin >= n) return drops
+
+  // Running energy (amplitude^2) as a prefix sum, so any window's mean is O(1).
+  const prefix = new Float64Array(n + 1)
+  for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + amp[i] * amp[i]
+  const windowMean = (a: number, b: number) => (prefix[b] - prefix[Math.max(a, 0)]) / (b - a)
+
+  // Per-track reference levels via a one-time sort of per-pixel energy:
+  // p60 stands in for "how loud this track normally runs", p95 for "about
+  // as loud as it gets" (used to scale strength 0..1).
+  const energies = new Float32Array(n)
+  for (let i = 0; i < n; i++) energies[i] = amp[i] * amp[i]
+  const sorted = Array.from(energies).sort((a, b) => a - b)
+  const pct = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0
+  const trackTypical = pct(0.6)
+  const trackPeak = pct(0.95)
+  const eps = 1e-9
+
+  let i = start
+  while (i < n - sustainWin) {
+    const longE = windowMean(i - shortWin - longWin, i - shortWin)
+    const sustainE = windowMean(i, i + sustainWin)
+
+    const isBreakdown = longE < DROP_BREAKDOWN_FRAC * trackTypical // quiet build before it
+    const isLoudEnough = sustainE > DROP_SUSTAIN_LEVEL_FRAC * trackTypical // genuinely loud after, not just relatively so
+    const isSharpRise = sustainE / (longE + eps) >= DROP_MIN_RATIO
+
+    if (isBreakdown && isLoudEnough && isSharpRise) {
+      const strength = Math.max(0, Math.min(1, (sustainE - longE) / Math.max(trackPeak - longE, eps)))
+      drops.push({ t: i * s, strength })
+      i += minSpacing
+      continue
+    }
+    i++
+  }
+  return drops
+}
+
+/** First drop after `nowSec`, or null. O(log n), no allocations. */
+export function nextDrop(drops: Drop[], nowSec: number): Drop | null {
+  let lo = 0
+  let hi = drops.length
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1
+    if (drops[mid].t > nowSec) hi = mid
+    else lo = mid + 1
+  }
+  return lo < drops.length ? drops[lo] : null
+}
