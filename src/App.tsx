@@ -5,11 +5,12 @@ import { BeatClock } from './audio/beat'
 import { Scene } from './scope/scene'
 import { Governor } from './scope/governor'
 import { playlist } from './data/tracks'
-import { loadPeaks, peaksFromFile, energyAhead, type TrackPeaks } from './scope/peaks'
+import { loadPeaks, peaksFromFile, energyAhead, findDrops, nextDrop, type Drop, type TrackPeaks } from './scope/peaks'
 import { fetchAudiusRadio, fetchVibe } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
+import { renderPoster } from './ui/poster'
 import { clip } from './text'
 import { Tube, HINDI, parseVideoId, searchTube, type TubeState, type TubeHit } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
@@ -40,6 +41,10 @@ type Tier = { label: string; role?: StemRole; band?: 'low' | 'mid' | 'high' }
  *  constant: long enough that reading a row never trips it, short enough
  *  that a second screen settles before you have looked away twice. */
 const WATCH_IDLE_MS = 6000
+/** Set once the star has listened to the jukebox. After that, entering the
+ *  jukebox starts listening in the same click: the consent was given, the
+ *  checkbox was learned, and asking twice every visit was the drop-off. */
+const LISTENED_KEY = 'scope-listened-v1'
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -100,7 +105,9 @@ export default function App() {
   /** Has the star EVER listened to a tab. The consent copy and the setup
    *  steps only teach something the first time; after that they are 250px
    *  of the rail explaining a thing you have already done. */
-  const [hasListened, setHasListened] = useState(false)
+  const [hasListened, setHasListened] = useState(() => {
+    try { return localStorage.getItem(LISTENED_KEY) === '1' } catch { return false }
+  })
   /** Why the last listen attempt failed. Persistent, unlike the announce. */
   const [listenErr, setListenErr] = useState<string | null>(null)
   /** What the captured stream is actually delivering — not what the browser
@@ -114,6 +121,8 @@ export default function App() {
    *  there was nothing", which the rail has to be able to say. */
   const [tubeHits, setTubeHits] = useState<TubeHit[] | null>(null)
   const [tubeSeeking, setTubeSeeking] = useState(false)
+  /** bumped by the Tube's onChange so queue/recents re-render */
+  const [, setTubeTick] = useState(0)
   /** Generation counter: a slow search must not overwrite a later fast one. */
   const tubeSearchGen = useRef(0)
   /** read by the render loop, which must not close over tubeState */
@@ -142,6 +151,28 @@ export default function App() {
   /** phone only: the console sheet is closed by default, so the star owns
    *  the screen and the rail is one tap away rather than always underneath */
   const [sheet, setSheet] = useState(false)
+  /** STAGE: for showing it to a room. The console goes, the track is set
+   *  at display size, the star owns the rest. Latched like ambient: a hand
+   *  moving does not end it, only s / esc / the exit cell. */
+  const [stage, setStage] = useState(false)
+  const [stageExit, setStageExit] = useState(false)
+  /** the announce title and the stage title breathe on the measured beat;
+   *  the loop writes their custom properties directly, never via React */
+  const beatTypeRef = useRef<HTMLElement[]>([])
+  /** the ground: ink (the dark sheet) or paper. main.tsx applies the saved
+   *  one before first paint; this mirrors it. */
+  const [theme, setThemeState] = useState<'ink' | 'paper'>(() =>
+    document.documentElement.dataset.theme === 'paper' ? 'paper' : 'ink')
+  /** what the session has measured, for the poster: sampled on the chrome
+   *  tick, only while there is something to measure */
+  const sessionRef = useRef({ tempo: [] as number[], level: [] as number[], peak: 0, bpm: null as number | null })
+  /** set by the poster button; the frame loop fulfils it right after a
+   *  render, the only moment the star's drawing buffer can be read */
+  const grabRef = useRef<((c: HTMLCanvasElement) => void) | null>(null)
+  /** the key handler lives in a mount-once effect; it flips the ground
+   *  through this so it always sees the current one */
+  const themeKeyRef = useRef<(() => void) | null>(null)
+  const [posterBusy, setPosterBusy] = useState(false)
   // THE VIBE: a prompt in, a playlist out — plus the instrument's honest
   // read of how it understood you.
   const [query, setQuery] = useState('')
@@ -173,6 +204,9 @@ export default function App() {
   const tuningRef = useRef(tuning)
   // signal/machine stats, written imperatively at chrome rate
   const bpmRef = useRef<HTMLElement>(null)
+  /** the drop forecast row, written on the chrome tick */
+  const dropRowRef = useRef<HTMLDivElement>(null)
+  const dropRef = useRef<HTMLElement>(null)
   /** the scrubber's announced position — written on the chrome tick */
   const [scrubPct, setScrubPct] = useState(0)
   const [scrubText, setScrubText] = useState('0:00')
@@ -207,7 +241,11 @@ export default function App() {
   // otherwise the ref is still null when enterTube() runs.
   useEffect(() => {
     if (source !== 'tube' || !tubeHostRef.current || !tubeRef.current) return
-    void tubeRef.current.mount(tubeHostRef.current)
+    // pick up where the visitor left off: same video, same second. A
+    // reload used to reset the jukebox to the first curated row.
+    const r = tubeRef.current.resume()
+    tubeRef.current.onChange = () => setTubeTick((n) => n + 1)
+    void tubeRef.current.mount(tubeHostRef.current, r?.id, r?.t)
   }, [source])
 
   // The one thing a scroll region owes you is to admit it is one. macOS
@@ -1221,6 +1259,10 @@ export default function App() {
     let raf = 0
     let prev = performance.now()
     let chromeAcc = 0
+    // drops are derived from the peaks, once per track, the first tick the
+    // loop sees a new peaks object -- wherever it was set from
+    let dropsSrc: TrackPeaks | null = null
+    let drops: Drop[] = []
     let silentFor = 0
     let sigNow: 'idle' | 'silent' | 'live' = 'idle'
 
@@ -1374,8 +1416,26 @@ export default function App() {
         hi = Math.max(hi, 0.03 * amt * (0.5 + 0.5 * Math.sin(b * 1.43)))
       }
       scene.render(dt, lo, mi, hi, beatPulse, ahead, snapEnv)
+      // THE TYPE HEARS IT TOO. The display type swells and thickens on the
+      // measured beat and opens its tracking with the level -- the same
+      // two readings the star is driven by, so type and matter move as one.
+      // Written straight onto the one or two elements that carry it: a
+      // property on .app would restyle the whole tree every frame.
+      for (const el2 of beatTypeRef.current) {
+        el2.style.setProperty('--beat', beatPulse.toFixed(3))
+        el2.style.setProperty('--lvl', Math.min(1, f.rms * 2.2).toFixed(3))
+      }
       // Same task as the render, or the drawing buffer is already cleared.
       if (pipRef.current) drawPip(pipRef.current, canvas, scene, w, h)
+      if (grabRef.current) {
+        const done = grabRef.current
+        grabRef.current = null
+        const cv = document.createElement('canvas')
+        cv.width = 1080
+        cv.height = 1080
+        drawPip({ win: window, cv }, canvas, scene, w, h, 1080, 1080)
+        done(cv)
+      }
 
       // The survey drawing rides every frame while the stack is open —
       // markers, drop-lines and labels are projected from the SAME cluster
@@ -1547,7 +1607,11 @@ export default function App() {
           sigNow = sig
           setSignal(sig)
         }
-        drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress)
+        if (peaksRef.current !== dropsSrc) {
+          dropsSrc = peaksRef.current
+          drops = dropsSrc ? findDrops(dropsSrc) : []
+        }
+        drawWave(waveRef.current, wave, waveHead, peaksRef.current, progress, drops)
         drawSpectrum(specRef.current, f.bands, mix.on ? mix.band : null, mixState.eq)
         const el = engine.el
         if (labelRef.current)
@@ -1560,6 +1624,19 @@ export default function App() {
           const dec = trackRef.current?.bpm
           bpmRef.current.textContent = dec ? `${measured} / ${dec}` : measured
           bpmRef.current.classList.toggle('locked', locked)
+        }
+        // the session's own record, for the poster: tempo only once locked,
+        // level only while live. Halved when full, so a long session keeps
+        // its whole shape at half the resolution rather than its last bit.
+        if (startedRef.current && engine.playing) {
+          const ss = sessionRef.current
+          if (fp.tempoConfidence > 0.12) { ss.tempo.push(fp.tempo); ss.bpm = Math.round(fp.tempo) }
+          ss.level.push(Math.min(1, f.rms * 2.2))
+          ss.peak = Math.max(ss.peak, Math.min(1, f.rms * 2.2))
+          for (const arr of [ss.tempo, ss.level]) if (arr.length > 900) {
+            for (let k = 0; k < arr.length / 2; k++) arr[k] = arr[k * 2]
+            arr.length = Math.floor(arr.length / 2)
+          }
         }
         if (levelRef.current) {
           // Block meter: light discrete cells, never stretch a bar.
@@ -1672,6 +1749,19 @@ export default function App() {
           const deckT = engine.kind === 'stems' && stemDeckRef.current
             ? { t: stemDeckRef.current.currentTime(), d: stemDeckRef.current.duration }
             : { t: el.currentTime, d: el.duration }
+          // THE DROP FORECAST. Read off the whole track's peaks before the
+          // moment arrives -- which is the one thing this instrument knows
+          // that a listener does not. Absent when there is nothing coming,
+          // never a dash: a row that says "no drop" is a guess about music.
+          const nd = drops.length && isFinite(deckT.t) ? nextDrop(drops, deckT.t) : null
+          if (dropRowRef.current && dropRef.current) {
+            const dtS = nd ? nd.t - deckT.t : Infinity
+            dropRowRef.current.hidden = !nd
+            if (nd) {
+              dropRef.current.textContent = dtS < 10 ? `in ${dtS.toFixed(1)}s` : `in ${fmtTime(dtS)}`
+              dropRef.current.classList.toggle('armed', dtS < 4)
+            }
+          }
           if (cElapsedRef.current) cElapsedRef.current.textContent = fmtTime(deckT.t)
           if (cTotalRef.current) cTotalRef.current.textContent = fmtTime(deckT.d)
           // the scrubber announces its own position. Rounded to whole
@@ -1806,6 +1896,8 @@ export default function App() {
         // shift on the three that are disruptive from a stray keystroke:
         // f opens a file picker, t opens the browser's share picker, and
         // h blanks the whole interface. Everything else stays bare.
+        case 'KeyS': if (!e.shiftKey) setStage((v) => !v); break
+        case 'KeyP': if (!e.shiftKey) themeKeyRef.current?.(); break
         // bare f is fullscreen, the key every video player taught
         case 'KeyF':
           if (e.shiftKey) fileRef.current?.click()
@@ -1998,6 +2090,9 @@ export default function App() {
     // Do NOT mount here: the host only exists once source === 'tube', and
     // that render has not happened yet. The effect below owns mounting.
     eng.enterTube()
+    // returning visitor: listen inside this same click, while the browser
+    // still counts it as the gesture the share picker requires
+    if (hasListened && !eng.capturing) void startListening()
   }
 
   /**
@@ -2058,7 +2153,10 @@ export default function App() {
     const ok = (await eng?.useTabAudio()) ?? false
     setListening(ok)
     setListenErr(ok ? null : eng?.lastListenError ?? 'could not listen')
-    if (ok) setHasListened(true)
+    if (ok) {
+      setHasListened(true)
+      try { localStorage.setItem(LISTENED_KEY, '1') } catch { /* private mode: asks again */ }
+    }
   }
 
   const stopListening = () => {
@@ -2320,6 +2418,76 @@ export default function App() {
     }
   }
 
+  // ── THE GROUND ────────────────────────────────────────────────────────
+  const applyTheme = (t: 'ink' | 'paper') => {
+    if (t === 'paper') document.documentElement.dataset.theme = 'paper'
+    else delete document.documentElement.dataset.theme
+    // the canvases cache the inks as strings; re-read them for the new ground
+    readAccent()
+    sceneRef.current?.setTheme(t)
+    const pw = pipRef.current?.win.document.documentElement
+    if (pw) {
+      if (t === 'paper') pw.dataset.theme = 'paper'
+      else delete pw.dataset.theme
+      pw.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent'))
+    }
+    try { localStorage.setItem('scope-theme-v1', t) } catch { /* private mode */ }
+    setThemeState(t)
+  }
+  themeKeyRef.current = () => applyTheme(theme === 'paper' ? 'ink' : 'paper')
+  // the scene is built after first render, so it learns the saved ground here
+  useEffect(() => { sceneRef.current?.setTheme(theme) }, [started, theme])
+
+  // ── THE POSTER ────────────────────────────────────────────────────────
+  // fig.02 · session: the star as it is right now, and only what this
+  // session actually measured beside it.
+  const savePoster = async () => {
+    if (posterBusy) return
+    setPosterBusy(true)
+    try {
+      const star = await new Promise<HTMLCanvasElement>((res) => { grabRef.current = res })
+      const ss = sessionRef.current
+      const tube = source === 'tube' ? tubeState : null
+      const blob = await renderPoster({
+        star,
+        title: tube ? tube.title : track?.title ?? null,
+        artist: tube ? tube.channel : track?.artist?.replace(' · audius', '') ?? null,
+        source: `${SOURCE_ID[source]} ${source === 'tube' ? 'jukebox' : source}`,
+        bpm: ss.bpm,
+        tempoCurve: ss.tempo.slice(),
+        levelCurve: ss.level.slice(),
+        peakLevel: ss.level.length ? ss.peak : null,
+        when: new Date(),
+        theme,
+        accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const slug = (tube?.title ?? track?.title ?? 'session').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
+      a.download = `scope-fig02-${slug || 'session'}.png`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+    } finally {
+      setPosterBusy(false)
+    }
+  }
+
+  /** ref callback: register/unregister an element the loop writes the beat
+   *  onto. Elements come and go with the announce and the stage plate. */
+  const bindBeatType = (el: HTMLElement | null) => {
+    beatTypeRef.current = beatTypeRef.current.filter((x) => x.isConnected && x !== el)
+    if (el) beatTypeRef.current.push(el)
+  }
+
+  // the jukebox's list: search results, else what you played last, else the
+  // curated starting points. Recents are topped up with the curated rows so
+  // the queue a recent row starts still has somewhere to go.
+  const tubeRecents = source === 'tube' ? tubeRef.current?.recents() ?? [] : []
+  const tubeRows: { id: string; title: string; channel: string }[] = tubeHits
+    ?? (tubeRecents.length
+      ? [...tubeRecents.slice(0, 3), ...HINDI.filter((h) => !tubeRecents.some((r) => r.id === h.id))]
+      : HINDI)
   // ── transport, shared by the rail and the phone's mini deck ──────────
   const togglePlay = () => {
     const e = engineRef.current
@@ -2409,9 +2577,9 @@ export default function App() {
 
   // the star glides between the stage cell and the centre of the glass
   useEffect(() => {
-    watchRef.current = (watching || ambient) && started
+    watchRef.current = (watching || ambient || stage) && started
     ;(window as unknown as { __focus?: (snap?: boolean) => void }).__focus?.(false)
-  }, [watching, ambient, started])
+  }, [watching, ambient, stage, started])
 
   // the phone's sheet changes the stage's size; aim once layout has moved
   useEffect(() => {
@@ -2420,6 +2588,28 @@ export default function App() {
     )
     return () => cancelAnimationFrame(id)
   }, [sheet])
+
+  // ── STAGE ─────────────────────────────────────────────────────────────
+  // The exit is the only chrome, and only while a hand is moving: a room
+  // watching the screen should not be looking at a button.
+  useEffect(() => {
+    if (!stage) { setStageExit(false); return }
+    let t = 0
+    const show = () => {
+      setStageExit(true)
+      clearTimeout(t)
+      t = window.setTimeout(() => setStageExit(false), 2500)
+    }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setStage(false) }
+    window.addEventListener('pointermove', show, { passive: true })
+    window.addEventListener('keydown', key)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('pointermove', show)
+      window.removeEventListener('keydown', key)
+    }
+  }, [stage])
+  useEffect(() => { if (!started) setStage(false) }, [started])
 
   // ── FULLSCREEN + WAKE LOCK ────────────────────────────────────────────
   // A second screen that dims itself after five minutes is not one. The
@@ -2438,7 +2628,7 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', on)
   }, [])
   useEffect(() => {
-    const want = started && (watching || ambient || isFull)
+    const want = started && (watching || ambient || stage || isFull)
     const wl = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock
     if (!want || !wl) return
     let lock: { release: () => Promise<void> } | null = null
@@ -2457,7 +2647,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', take)
       void lock?.release()
     }
-  }, [started, watching, ambient, isFull])
+  }, [started, watching, ambient, stage, isFull])
 
   // ── THE MINI STAR ─────────────────────────────────────────────────────
   // Document Picture-in-Picture, not a <video>: a video PiP is fed by the
@@ -2500,6 +2690,7 @@ export default function App() {
       }
     }
     doc.documentElement.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent'))
+    if (document.documentElement.dataset.theme === 'paper') doc.documentElement.dataset.theme = 'paper'
     doc.body.className = 'pip'
     const cv = doc.createElement('canvas')
     cv.className = 'pip-star'
@@ -2545,7 +2736,7 @@ export default function App() {
   }, [pipOpen, pipName, source])
 
   return (
-    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}${watching ? ' watching' : ''}`}>
+    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}${watching ? ' watching' : ''}${stage ? ' stage' : ''}`}>
       <canvas ref={canvasRef} className="stage" aria-hidden="true" />
       {/* The survey drawing — numbered markers, dashed drop-lines, tier
           labels — projected over the dissected stack. Exists only while
@@ -2779,6 +2970,14 @@ export default function App() {
               </button>
             )}
             <button
+              className={`cn-tool cn-stagebtn${stage ? ' on' : ''}`}
+              onClick={() => setStage((v) => !v)}
+              aria-pressed={stage}
+              title="stage: for showing it to a room (s)"
+            >
+              <span>stage</span>
+            </button>
+            <button
               className="rail-help"
               onClick={() => {
                 setTourMode('full')
@@ -2825,6 +3024,7 @@ export default function App() {
                  wrapped mid-value in a 272px rail ("BPM - /73"). */
               <dl className="deck-meta">
                 <div><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
+                <div ref={dropRowRef} className="deck-drop" hidden><dt>//drop_</dt><dd ref={dropRef} /></div>
                 {track.musicalKey && (
                   <div><dt>//key_</dt><dd>{track.musicalKey.toLowerCase()}</dd></div>
                 )}
@@ -3121,10 +3321,43 @@ export default function App() {
                 <div className="pl-row"><span className="k">//channel_</span><span className="v">{tubeState.channel}</span></div>
               )}
               {tubeState && tubeState.duration > 0 && (
-                <div className="pl-row">
-                  <span className="k">{fmtTime(tubeState.elapsed)}</span>
-                  <span className="v">{fmtTime(tubeState.duration)}</span>
-                </div>
+                <>
+                  {/* A SCRUBBER, where there used to be two numbers. The
+                      player reports elapsed and duration and accepts a seek,
+                      so the strip is as real as the radio's -- just without
+                      peaks, which YouTube never gives us, so it draws the
+                      position and nothing it would have to invent. */}
+                  <div
+                    className="tube-seek"
+                    role="slider"
+                    tabIndex={0}
+                    aria-label="seek"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.round(tubeState.duration)}
+                    aria-valuenow={Math.round(tubeState.elapsed)}
+                    aria-valuetext={`${fmtTime(tubeState.elapsed)} of ${fmtTime(tubeState.duration)}`}
+                    onPointerDown={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect()
+                      // the track runs inside the 12px gutters, so the hand
+                      // is measured against the line it can see
+                      const f = Math.max(0, Math.min(1, (e.clientX - r.left - 12) / (r.width - 24)))
+                      tubeRef.current?.seek(f * tubeState.duration)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+                      e.preventDefault()
+                      e.stopPropagation()
+                      const to = tubeState.elapsed + (e.key === 'ArrowRight' ? 5 : -5)
+                      tubeRef.current?.seek(Math.max(0, Math.min(tubeState.duration, to)))
+                    }}
+                  >
+                    <i style={{ width: `calc((100% - 24px) * ${(tubeState.elapsed / tubeState.duration).toFixed(4)})` }} />
+                  </div>
+                  <div className="pl-row">
+                    <span className="k">{fmtTime(tubeState.elapsed)}</span>
+                    <span className="v">{fmtTime(tubeState.duration)}</span>
+                  </div>
+                </>
               )}
 
               {/* the consent moment: said before the dialog, not after */}
@@ -3140,16 +3373,20 @@ export default function App() {
                   module one vocabulary (§2) and adds no new type or spacing. */}
               <div className="cn-hint tube-or">
                 {tubeSeeking ? 'looking…'
-                  : tubeHits === null ? 'or start here'
+                  : tubeHits === null ? (tubeRecents.length ? 'or pick up where you left' : 'or start here')
                   : tubeHits.length ? `${tubeHits.length} found · clear to go back`
                   : 'nothing found · clear to go back'}
               </div>
               <div className="tube-list">
-                {(tubeHits ?? HINDI.slice(0, 3)).map((t) => (
+                {/* A row is the start of a QUEUE, not a single play: skip and
+                    the end of a video walk the rest of this same list, so
+                    after a search, skip means the next result -- not a jump
+                    back to the curated rows. */}
+                {tubeRows.slice(0, tubeHits ? tubeRows.length : 3).map((t, i) => (
                   <button
                     key={t.id}
                     className={tubeState?.videoId === t.id ? 'on' : ''}
-                    onClick={() => tubeRef.current?.load(t.id)}
+                    onClick={() => tubeRef.current?.setQueue(tubeRows, i)}
                   >
                     <span>{t.title}</span><i>{t.channel}</i>
                   </button>
@@ -3309,6 +3546,17 @@ export default function App() {
                 />
               ))}
             </div>
+            {/* the ground, and the one thing you take away from a session */}
+            <div className="pl-row"><span className="k">//ground_</span><span className="v">{theme}</span></div>
+            <div className="cells c2" role="radiogroup" aria-label="ground">
+              <button role="radio" aria-checked={theme === 'ink'} className={theme === 'ink' ? 'on' : ''} onClick={() => applyTheme('ink')}>ink</button>
+              <button role="radio" aria-checked={theme === 'paper'} className={theme === 'paper' ? 'on' : ''} onClick={() => applyTheme('paper')}>paper</button>
+            </div>
+            <div className="cells c1">
+              <button onClick={() => void savePoster()} disabled={posterBusy}>
+                {posterBusy ? 'printing…' : 'save a poster · fig.02'}
+              </button>
+            </div>
           </div>
 
           {/* 5 · FOOT — states that only speak when armed, and the legend.
@@ -3422,11 +3670,33 @@ export default function App() {
           moment before the title settles into the rail. */}
       {started && announce && (
         <div key={announce.key} className="announce" aria-hidden="true">
-          <span className="announce-title">
+          <span className="announce-title beat-type" ref={bindBeatType}>
             {/* Filename-derived titles run long; the announcement is a
                 headline, not a paragraph. */}
             <Decode text={clip(announce.text, 28).toUpperCase()} duration={900} />
           </span>
+        </div>
+      )}
+
+      {/* THE STAGE PLATE — one display moment, set for a room. Only real
+          readings under it: the artist the source reported, the tempo the
+          machine locked. Absent rows are absent, not blank. */}
+      {started && stage && (
+        <div className="stage-plate" aria-live="polite">
+          <span className="stage-code">[scope-02] · {SOURCE_ID[source]}</span>
+          <h2 className="stage-title beat-type" ref={bindBeatType}>
+            <Decode text={source === 'tube' ? pipName : name} duration={900} />
+          </h2>
+          {source !== 'tube' && track?.artist && (
+            <span className="stage-meta">{track.artist.replace(' · audius', '')}</span>
+          )}
+          <button
+            className={`stage-exit${stageExit ? ' on' : ''}`}
+            onClick={() => setStage(false)}
+            tabIndex={stageExit ? 0 : -1}
+          >
+            ← <span>console</span> · esc
+          </button>
         </div>
       )}
 
@@ -3754,10 +4024,10 @@ function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head:
     const jag = 0.62 + 0.38 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
     const a = Math.max(0.5, v * jag * (h * 0.46))
     const lit = 0.28 + 0.72 * Math.pow(v, 0.6)
-    g.fillStyle = `rgba(234,234,239,${(lit * (0.4 + Math.random() * 0.6)).toFixed(3)})`
+    g.fillStyle = `rgba(${INK_RGB},${(lit * (0.4 + Math.random() * 0.6)).toFixed(3)})`
     g.fillRect(i, mid - a, 1, a * 2)
     if (Math.random() < v * 0.5) {
-      g.fillStyle = `rgba(234,234,239,${(lit * 0.5).toFixed(3)})`
+      g.fillStyle = `rgba(${INK_RGB},${(lit * 0.5).toFixed(3)})`
       g.fillRect(i, mid - a * 1.5, 1, a * 0.4)
     }
   }
@@ -3794,6 +4064,7 @@ function drawWave(
   _head: number,
   _peaks: TrackPeaks | null,
   progress: number,
+  drops: Drop[] = [],
 ) {
   const g = cv?.getContext('2d')
   if (!cv || !g) return
@@ -3829,6 +4100,21 @@ function drawWave(
   g.fillRect(0, mid, W, rule)
   g.fillStyle = `rgba(${INK_RGB}, 0.92)`
   g.fillRect(0, mid, px, rule)
+
+  // Drops, marked where they will land: a short tick above the rule, dim
+  // once passed and full ink ahead, so the strip shows what is coming.
+  // Ink, not accent -- the accent is the playhead's, and one accent per
+  // strip is the rule.
+  if (drops.length && _peaks) {
+    const dur = _peaks.amp.length * _peaks.secondsPerPixel
+    for (const d of drops) {
+      const x = Math.round((d.t / dur) * W)
+      const passed = x <= px
+      g.fillStyle = passed ? INK_LINE : `rgba(${INK_RGB}, 0.92)`
+      const tall = Math.round((mid - 2) * (0.45 + 0.55 * d.strength))
+      g.fillRect(Math.min(x, W - rule), mid - tall, rule, tall)
+    }
+  }
 
   // The playhead is the full height of the strip, so the hit area reads as
   // a track rather than a line someone drew across a gap.
@@ -4082,11 +4368,13 @@ function drawPip(
   scene: Scene,
   w: number,
   h: number,
+  fixedW?: number,
+  fixedH?: number,
 ) {
   const cv = pip.cv
   const pd = Math.min(2, pip.win.devicePixelRatio || 1)
-  const cw = Math.max(1, Math.round(cv.clientWidth * pd))
-  const ch = Math.max(1, Math.round(cv.clientHeight * pd))
+  const cw = fixedW ?? Math.max(1, Math.round(cv.clientWidth * pd))
+  const ch = fixedH ?? Math.max(1, Math.round(cv.clientHeight * pd))
   if (cv.width !== cw || cv.height !== ch) {
     cv.width = cw
     cv.height = ch
@@ -4105,7 +4393,8 @@ function drawPip(
   const sx = f.x * w - sw / 2
   const sy = f.y * h - sh / 2
   const dpr = src.width / w
-  ctx.fillStyle = '#0a0a0a'
+  // the ground the scene's final pass maps to, so the crop's margins match
+  ctx.fillStyle = scene.theme === 'paper' ? '#ecebe6' : '#0a0a0a'
   ctx.fillRect(0, 0, cw, ch)
   ctx.drawImage(src, sx * dpr, sy * dpr, sw * dpr, sh * dpr, 0, 0, cw, ch)
 }

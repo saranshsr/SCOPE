@@ -300,6 +300,11 @@ export class AudioEngine {
     // listening. Where CaptureController exists, the focus stays put.
     const Ctl = (window as unknown as { CaptureController?: new () => { setFocusBehavior?: (b: string) => void } }).CaptureController
     const controller = Ctl ? new Ctl() : undefined
+    // Declared up front as well as after: newer Chrome takes the decision
+    // before the share starts, and the post-resolution call has a window
+    // that a slow picker (or a loaded machine) can miss -- measured, the
+    // tab still switched away on some runs with only the late call.
+    try { controller?.setFocusBehavior?.('no-focus-change') } catch { /* too early here: set again below */ }
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({

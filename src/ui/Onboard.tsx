@@ -104,6 +104,8 @@ const LEGEND: { head: string; keys: [string, string][] }[] = [
       ['+ / - / 0', 'zoom'],
       ['shift+h', 'hide the chrome'],
       ['f', 'fullscreen'],
+      ['s', 'stage (esc leaves)'],
+      ['p', 'paper / ink'],
     ],
   },
 ]
