@@ -3,7 +3,8 @@
  *
  *   radio  — the curated set, shuffled, looping forever
  *   file   — a track the visitor dropped in
- *   mic    — live input
+ *   tab    — another browser tab, captured (their Spotify, Apple Music,
+ *            SoundCloud, anything that plays in a tab)
  *
  * All three land on the same analyser, so the visual language is identical
  * regardless of where the sound came from. That's deliberate: "drop your own
@@ -13,7 +14,7 @@
 
 import { Analyser } from './features'
 
-export type SourceKind = 'radio' | 'file' | 'mic' | 'stems' | 'tube'
+export type SourceKind = 'radio' | 'file' | 'tab' | 'stems' | 'tube'
 
 export interface TrackInfo {
   title: string
@@ -35,10 +36,14 @@ export class AudioEngine {
   readonly el: HTMLAudioElement
   private gain: GainNode
   private elSource: MediaElementAudioSourceNode | null = null
-  private micSource: MediaStreamAudioSourceNode | null = null
-  private micStream: MediaStream | null = null
-  /** Tab capture gets its OWN slot. Sharing micStream would mean a mic
-   *  request silently killed a live capture, and vice versa. */
+  /** ANOTHER tab's audio -- the visitor's own player. */
+  private extSource: MediaStreamAudioSourceNode | null = null
+  private extStream: MediaStream | null = null
+  /** The jukebox's capture of THIS tab gets its own slot. Sharing one
+   *  would mean picking another tab silently killed the jukebox's listen,
+   *  and vice versa -- and the two differ in the one way that matters:
+   *  capturing ourselves must silence our output, capturing another tab
+   *  must not touch it. */
   private tabSource: MediaStreamAudioSourceNode | null = null
   private tabStream: MediaStream | null = null
   private filter!: BiquadFilterNode
@@ -215,7 +220,7 @@ export class AudioEngine {
 
   async playRadio() {
     await this.unlock()
-    this.stopMic()
+    this.stopExt()
     this.stopTabAudio()
     // Drop a queued upload announce: whatever it was waiting for is no
     // longer what's playing.
@@ -243,7 +248,7 @@ export class AudioEngine {
 
   async playFile(file: File) {
     await this.unlock()
-    this.stopMic()
+    this.stopExt()
     this.stopTabAudio()
     this.kind = 'file'
     // Revoke the previous upload's object URL — each one pins the whole file
@@ -262,39 +267,95 @@ export class AudioEngine {
     await this.el.play().catch(() => {})
   }
 
-  async useMic() {
+  /**
+   * Listen to ANOTHER tab: the answer to "can I use my music?". Spotify,
+   * Apple Music, SoundCloud -- anything playing in a browser tab. Their
+   * player keeps playing and keeps its controls; the star only listens.
+   *
+   * This replaced the microphone. The mic heard the room -- speakers,
+   * keyboards, whoever was talking -- through a permission prompt strangers
+   * decline on sight, and it was the only way anything outside scope could
+   * drive the star. A captured tab is the same music, clean, from the
+   * picker the browser already knows how to explain.
+   *
+   * Unlike the jukebox's capture, our output is left alone: we are not
+   * capturing ourselves, so there is no loop to break. Our element pauses
+   * because two sources on one analyser would be one star reacting to a
+   * mix nobody chose.
+   *
+   * @returns true if a live audio track was obtained.
+   */
+  async useTab(): Promise<boolean> {
     await this.unlock()
     this.pendingAnnounce = null
+    this.lastListenError = null
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      this.lastListenError = 'tab audio needs chrome or edge on a computer'
+      this.onTrackChange?.({ title: 'no tab capture here', artist: this.lastListenError, src: '' })
+      return false
+    }
+    // STAY HERE. Chrome's default on sharing another tab is to switch to
+    // it -- so you picked Spotify and were sent to Spotify, and the tab you
+    // came to watch went hidden and the star froze the moment it started
+    // listening. Where CaptureController exists, the focus stays put.
+    const Ctl = (window as unknown as { CaptureController?: new () => { setFocusBehavior?: (b: string) => void } }).CaptureController
+    const controller = Ctl ? new Ctl() : undefined
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        // Every one of these would fight the visualiser for control of the
-        // dynamics. We want the raw room.
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        controller,
+        // Chrome requires a video track even when only audio is wanted.
+        video: { width: 1, height: 1 },
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      })
+        // Offer the OTHER tabs first. This tab is the one place the answer
+        // is always wrong: it is the radio the visitor is leaving.
+        selfBrowserSurface: 'exclude',
+        preferCurrentTab: false,
+        surfaceSwitching: 'include',
+        // desktop apps (the Spotify app) only reach us as system audio, and
+        // only where the OS lets Chrome share it
+        systemAudio: 'include',
+      } as DisplayMediaStreamOptions)
     } catch {
-      // Denied or unavailable: the current source keeps playing and the
-      // state speaks through the existing announce channel — a designed
-      // failure, not a dead click.
-      this.onTrackChange?.({
-        title: 'live input blocked',
-        artist: 'allow microphone access, then try again',
-        src: '',
-      })
-      return
+      this.lastListenError = 'share cancelled'
+      return false
     }
-    // Pause the running source only once the stream actually exists.
+    // must be called before the promise's task ends, or Chrome has already
+    // switched; throws on a screen or window share, where it does not apply
+    try { controller?.setFocusBehavior?.('no-focus-change') } catch { /* not a tab */ }
+    const audio = stream.getAudioTracks()
+    if (!audio.length) {
+      stream.getTracks().forEach((t) => t.stop())
+      this.lastListenError = 'no audio in that share. pick a tab and keep share tab audio on'
+      this.onTrackChange?.({ title: 'no audio in that share', artist: 'pick a tab and keep share tab audio on', src: '' })
+      return false
+    }
     this.el.pause()
-    // Retire any previous mic only once the new stream is actually granted —
-    // stopping at entry would kill a working mic when a re-request is denied.
-    this.stopMic()
+    this.stopExt()
     this.stopTabAudio()
-    this.micStream = stream
-    this.micSource = this.ctx.createMediaStreamSource(stream)
-    this.micSource.connect(this.eqLow)
-    this.kind = 'mic'
-    this.onTrackChange?.({ title: 'live input', artist: 'the room', src: '' })
+    this.extStream = stream
+    this.extSource = this.ctx.createMediaStreamSource(stream)
+    this.extSource.connect(this.eqLow)
+    this.kind = 'tab'
+    // what was shared, in the browser's own words: a tab, a window, a screen
+    const surf = (stream.getVideoTracks()[0]?.getSettings() as { displaySurface?: string } | undefined)?.displaySurface
+    this.onTrackChange?.({
+      title: surf === 'monitor' ? 'your screen' : surf === 'window' ? 'a window' : 'another tab',
+      artist: 'your music',
+      src: '',
+    })
+    // Ending the share from Chrome's own bar, or closing that tab, must not
+    // strand the star on a dead stream.
+    audio[0].addEventListener('ended', () => {
+      if (this.kind !== 'tab') return
+      this.stopExt()
+      this.onExtEnded?.()
+    })
+    return true
   }
+
+  /** Fired when the shared tab stops sharing on its own. */
+  onExtEnded: (() => void) | null = null
 
   /**
    * Listen to what this tab is already playing — the jukebox's audio lives
@@ -372,7 +433,7 @@ export class AudioEngine {
    */
   enterTube() {
     this.el.pause()
-    this.stopMic()
+    this.stopExt()
     this.pendingAnnounce = null
     this.kind = 'tube'
     this.onTrackChange?.({ title: 'jukebox', artist: 'youtube', src: '' })
@@ -397,11 +458,11 @@ export class AudioEngine {
     this.gain.gain.value = this._muted ? 0 : this._volume
   }
 
-  private stopMic() {
-    this.micSource?.disconnect()
-    this.micSource = null
-    this.micStream?.getTracks().forEach((t) => t.stop())
-    this.micStream = null
+  private stopExt() {
+    this.extSource?.disconnect()
+    this.extSource = null
+    this.extStream?.getTracks().forEach((t) => t.stop())
+    this.extStream = null
   }
 
   /** Playback rate, 0.5..1.5. Vinyl-style: pitch bends with speed. */
@@ -420,18 +481,18 @@ export class AudioEngine {
    *  The UI asks the engine rather than remembering, so "listening" can
    *  never drift from what is really connected. */
   get capturing(): boolean {
-    return !!this.tabSource
+    return !!this.tabSource || !!this.extSource
   }
 
   get busHead(): AudioNode {
     return this.eqLow
   }
 
-  /** Enter stem-deck mode: the element and mic stand down; the deck owns
+  /** Enter stem-deck mode: the element and any captured tab stand down; the deck owns
    *  playback and announces itself through the usual channel. */
   enterStems(title: string) {
     this.el.pause()
-    this.stopMic()
+    this.stopExt()
     this.stopTabAudio()
     this.pendingAnnounce = null
     this.kind = 'stems'
@@ -447,7 +508,7 @@ export class AudioEngine {
 
   /** Master mute: the gain node sits AFTER the analyser, so the star
    *  keeps dancing while muted — monitor silence, not instrument death.
-   *  Covers radio, files, stems and mic alike (all route through it). */
+   *  Covers radio, files, stems and captured tabs alike (all route through it). */
   setMuted(m: boolean) {
     this.gain.gain.setTargetAtTime(m ? 0 : 1, this.ctx.currentTime, 0.02)
   }
@@ -546,7 +607,7 @@ export class AudioEngine {
   }
 
   get playing() {
-    if (this.kind === 'mic') return !!this.micStream
+    if (this.kind === 'tab') return !!this.extStream
     // The jukebox's transport lives in the iframe, not in our element —
     // the app reports its state from the YT player instead.
     if (this.kind === 'tube') return !!this.tabStream
@@ -554,7 +615,7 @@ export class AudioEngine {
   }
 
   toggle() {
-    if (this.kind === 'mic' || this.kind === 'tube') return
+    if (this.kind === 'tab' || this.kind === 'tube') return
     if (this.el.paused) this.el.play().catch(() => {})
     else this.el.pause()
   }

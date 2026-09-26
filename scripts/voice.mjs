@@ -18,7 +18,7 @@
 // walks the text nodes that are actually PAINTED, and judges those.
 //
 // Reaching the copy is the work: four of the six dashes this check was written
-// for lived in source-specific branches (mic, stems, tube) that only exist once
+// for lived in source-specific branches (then mic, stems, tube) that only exist once
 // that source is chosen. A check that only read the landing would have called
 // the build clean.
 import puppeteer from 'puppeteer'
@@ -27,17 +27,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const URL = process.env.SCOPE_URL || 'http://localhost:5260/'
-// A synthetic capture device, so `mic` actually resolves and mounts its
-// branch. Without these, useMic() rejects on a machine with no microphone,
-// `source` never becomes 'mic', and the mic copy is never rendered -- the
-// check then reports clean over text it never saw.
+// A tab to share, so `tab` actually resolves and mounts its branch. The
+// source opens the browser's share picker, which headless Chrome cannot
+// answer -- so it is told which tab to pick, by title, and that tab plays a
+// tone so the branch renders its LIVE copy rather than its no-audio copy.
+// Without it `source` never becomes 'tab' and the check reports clean over
+// text it never saw.
 const b = await puppeteer.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--no-sandbox',
-  '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] })
+  '--autoplay-policy=no-user-gesture-required', '--auto-select-tab-capture-source-by-title=scope-voice-tone'] })
+const tone = await b.newPage()
+await tone.goto('data:text/html,<title>scope-voice-tone</title><script>const c=new AudioContext();const o=c.createOscillator();o.frequency.value=110;const g=c.createGain();g.gain.value=0.3;o.connect(g).connect(c.destination);o.start()</script>')
 const p = await b.newPage()
 await p.setViewport({ width: 1440, height: 900 })
-// mic would otherwise sit on a permission prompt and never render its branch
-await b.defaultBrowserContext().overridePermissions(new URL_(URL).origin, ['microphone']).catch(() => {})
-function URL_(u) { return new globalThis.URL(u) }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 // The `file` branch cannot be reached by clicking its own button: that button
@@ -198,7 +199,7 @@ const SRC = '.rail-src button'
 // `radio`. Indices do not scramble.
 const srcs = await p.evaluate(sel => [...document.querySelectorAll(sel)].map(b => b.textContent.trim()), SRC)
 if (srcs.length < 4) {
-  await die(`voice: found ${srcs.length} source buttons at \`${SRC}\`, and the console ships four (radio / file / mic / tube). The per-source copy was never rendered and this run proves nothing.`)
+  await die(`voice: found ${srcs.length} source buttons at \`${SRC}\`, and the console ships four (radio / file / tab / tube). The per-source copy was never rendered and this run proves nothing.`)
 }
 
 const selected = () => p.evaluate(sel => [...document.querySelectorAll(sel)].findIndex(b => b.getAttribute('aria-checked') === 'true'), SRC)
@@ -238,7 +239,7 @@ for (let i = 0; i < srcs.length; i++) {
   } else {
     await p.evaluate((sel, k) => document.querySelectorAll(sel)[k]?.click(), SRC, i)
   }
-  // A click is not a source change. mic can be refused, tube can fail to
+  // A click is not a source change. a share can be refused, tube can fail to
   // mount, an upload can bounce back to the radio -- and each of those leaves
   // the previous source's copy on screen under the new source's label, which
   // is a sweep reading the same room four times and calling it four rooms.

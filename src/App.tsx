@@ -25,7 +25,7 @@ import { EnergyTracker } from './audio/energy'
  * to the DOM from the frame loop — React state only handles mode changes.
  */
 
-const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', mic: '[03]', stems: '[04]', tube: '[05]' }
+const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', tab: '[03]', stems: '[04]', tube: '[05]' }
 
 /** Track time the way every player on earth writes it. */
 const fmtTime = (s: number) => {
@@ -435,6 +435,11 @@ export default function App() {
         })
         .catch(() => {})
     }
+    // the shared tab stopped sharing (Chrome's own bar, or it closed): back
+    // to the radio, and say why, rather than a star gone quiet for no reason
+    engine.onExtEnded = () => {
+      void engine.playRadio()
+    }
     engine.onTrackChange = (tr) => {
       energy.reset()
       if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
@@ -450,7 +455,7 @@ export default function App() {
         setAnnounce({ text: tr.title, key: Date.now() })
       }
       // Radio tracks ship with build-time peaks; files are decoded at drop
-      // time by their own handlers; mic has no future to read. The file
+      // time by their own handlers; a captured tab has no future to read. The file
       // case must NOT touch the generation counter — this announce fires
       // after the drop handler already started its decode, and bumping here
       // was discarding the legitimate result.
@@ -1529,7 +1534,7 @@ export default function App() {
       // liveness floor (instrument.ts). The fault being detected is a track
       // with NO audio content — exactly 0.0 — and real music never sustains
       // that, however quiet the passage.
-      if (engine.capturing && tubePlayingRef.current)
+      if (engine.capturing && (tubePlayingRef.current || engine.kind === 'tab'))
         silentFor = f.rms > 0.0015 ? 0 : silentFor + dt
       else silentFor = 0
 
@@ -1762,7 +1767,7 @@ export default function App() {
         case 'Space':
           e.preventDefault()
           if (deck) deck.playing ? deck.pause() : deck.play()
-          else if (eng.kind !== 'mic') (eng.el.paused ? void eng.el.play() : eng.el.pause())
+          else if (eng.kind !== 'tab') (eng.el.paused ? void eng.el.play() : eng.el.pause())
           break
         case 'KeyN':
           // without the tube case this left the jukebox for the radio
@@ -1799,7 +1804,7 @@ export default function App() {
         case 'Digit3': setTuning({ turb: 1.6, expo: 1.3, spin: 1.8 }); break
         case 'KeyR': void eng.playRadio(); break
         // shift on the three that are disruptive from a stray keystroke:
-        // f opens a file picker, m fires a browser permission prompt, and
+        // f opens a file picker, t opens the browser's share picker, and
         // h blanks the whole interface. Everything else stays bare.
         // bare f is fullscreen, the key every video player taught
         case 'KeyF':
@@ -1809,7 +1814,7 @@ export default function App() {
             else void document.documentElement.requestFullscreen?.().catch(() => {})
           }
           break
-        case 'KeyM': if (e.shiftKey) void eng.useMic(); break
+        case 'KeyT': if (e.shiftKey) void eng.useTab(); break
         case 'KeyH': if (e.shiftKey) setAmbient((a) => !a); break
         case 'KeyD':
           // keyboard dissect: full open / full shut
@@ -2015,8 +2020,9 @@ export default function App() {
     stopListening()
     const back = prevSource
     setPrevSource(null)
-    if (back === 'mic') void eng.useMic()
-    else if (back === 'file') fileRef.current?.click()
+    // a captured tab is not resumed: that would open the share picker as a
+    // side effect of leaving, which is not what "back" means
+    if (back === 'file') fileRef.current?.click()
     else void eng.playRadio()
   }
 
@@ -2317,7 +2323,8 @@ export default function App() {
   // ── transport, shared by the rail and the phone's mini deck ──────────
   const togglePlay = () => {
     const e = engineRef.current
-    if (!e) return
+    // another tab's player is theirs to drive; ours is paused on purpose
+    if (!e || e.kind === 'tab') return
     // in jukebox mode our element is silent by design; the transport must
     // drive the player that actually sounds
     if (e.kind === 'tube') {
@@ -2342,7 +2349,7 @@ export default function App() {
     else void e.playRadio()
   }
   const playLabel = source === 'tube' ? (tubeState?.playing ? 'pause' : 'play') : paused ? 'play' : 'pause'
-  const skipLabel = source === 'file' || source === 'stems' ? 'radio' : 'skip'
+  const skipLabel = source === 'file' || source === 'stems' || source === 'tab' ? 'radio' : 'skip'
 
   // ── WATCH ─────────────────────────────────────────────────────────────
   // Enters only while something is playing, nothing is held, nothing is
@@ -2736,7 +2743,7 @@ export default function App() {
               //src_ <span>{SOURCE_ID[source]}</span>
               <i className={`src-dot${playing ? ' live' : ''}`} />
             </div>
-            {source !== 'tube' && (
+            {source !== 'tube' && source !== 'tab' && (
               <div className={`k cn-rate${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
             )}
             {/* ONE EXIT PRIMITIVE, used at every level. This is the same
@@ -2847,7 +2854,7 @@ export default function App() {
                 )}
               </dl>
             )}
-            {source !== 'tube' && (
+            {source !== 'tube' && source !== 'tab' && (
             <canvas
               ref={waveRef}
               className="deck-wave"
@@ -2897,13 +2904,41 @@ export default function App() {
               }}
             />
             )}
-            {source !== 'tube' && (
+            {source !== 'tube' && source !== 'tab' && (
             <div className="deck-time">
               <data ref={cElapsedRef}>0:00</data>
               <data ref={cTotalRef}>0:00</data>
             </div>
             )}
-            <div className={`railfold${source !== 'mic' ? ' open' : ''}`}>
+            {/* ANOTHER TAB: their player owns play, skip and volume, so the
+                transport folds away and what is left is what we can
+                actually say -- whether sound is arriving, and the way out. */}
+            {source === 'tab' && (
+              <div className="tab-src">
+                <div className="pl-row">
+                  <span className="k">//listening_</span>
+                  {signal === 'silent' ? (
+                    <span className="v sig-silent">no audio</span>
+                  ) : (
+                    <span className="v listening-dot">{track?.title ?? 'another tab'}</span>
+                  )}
+                </div>
+                {signal === 'silent' ? (
+                  <p className="cn-hint tube-step" role="status">
+                    shared, but no sound is arriving. press play in that tab. if it is
+                    playing, share again and keep <b>also share tab audio</b> on.
+                  </p>
+                ) : (
+                  <p className="cn-hint">
+                    play, skip and volume live in that tab. the star only listens.
+                  </p>
+                )}
+                <div className="cells c1">
+                  <button onClick={() => void engineRef.current?.useTab()}>share a different tab</button>
+                </div>
+              </div>
+            )}
+            <div className={`railfold${source !== 'tab' ? ' open' : ''}`}>
               {/* no-pitch: YouTube exposes no rate control, so the dial is not
                   rendered at all in jukebox mode. vol then has to span the
                   full row — an unfilled cell in a gap:1px grid is a hole
@@ -3131,8 +3166,8 @@ export default function App() {
             <button role="radio" aria-checked={source === 'file'} className={source === 'file' ? 'on' : ''} onClick={() => fileRef.current?.click()}>
               <Decode text="file" duration={380} replayOnHover />
             </button>
-            <button role="radio" aria-checked={source === 'mic'} className={source === 'mic' ? 'on' : ''} onClick={() => void engineRef.current?.useMic()}>
-              <Decode text="mic" duration={380} replayOnHover />
+            <button role="radio" aria-checked={source === 'tab'} className={source === 'tab' ? 'on' : ''} onClick={() => void engineRef.current?.useTab()}>
+              <Decode text="tab" duration={380} replayOnHover />
             </button>
             <button
               role="radio"
@@ -3353,7 +3388,7 @@ export default function App() {
               Hidden above 720px, where the rail is always there. */}
           <div className="cn-mini">
             <div className="cn-mini-name" aria-hidden="true"><Decode text={source === 'tube' ? pipName : name} duration={700} /></div>
-            <button className="t-btn" onClick={togglePlay}>{playLabel}</button>
+            {source !== 'tab' && <button className="t-btn" onClick={togglePlay}>{playLabel}</button>}
             <button className="t-btn" onClick={skipTrack}>{skipLabel}</button>
             <button
               className={`t-btn cn-mini-sheet${sheet ? ' on' : ''}`}
@@ -3452,7 +3487,7 @@ const MORSE = (() => {
 
 /** scope's actual graph, in order (src/audio/graph.ts). */
 const PATH: { ix: string; n: string; d: string; i: string; sub?: boolean }[] = [
-  { ix: '01', n: 'src', d: 'radio · file · mic', i: 'the audio you feed it: radio, a file, or the mic' },
+  { ix: '01', n: 'src', d: 'radio · file · tab', i: 'the audio you feed it: radio, a file, or your own music playing in another tab' },
   { ix: '02', n: 'eq', d: '3 shelves', i: 'three shelves, the ones the orb bends when you grab it' },
   { ix: '03', n: 'tiers', d: '6 peaking', i: 'six peaking filters, one per dissection ring' },
   { ix: '04', n: 'filter', d: 'hp / lp', i: 'the colour sweep: high-pass left, low-pass right' },

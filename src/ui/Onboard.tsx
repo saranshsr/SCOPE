@@ -100,7 +100,7 @@ const LEGEND: { head: string; keys: [string, string][] }[] = [
       ['shift+e', 'echo down'],
       ['\\', 'flat'],
       ['1 / 2 / 3', 'visual preset'],
-      ['r / shift+f / shift+m', 'source'],
+      ['r / shift+f / shift+t', 'radio / file / tab'],
       ['+ / - / 0', 'zoom'],
       ['shift+h', 'hide the chrome'],
       ['f', 'fullscreen'],

@@ -3032,3 +3032,7 @@ body.pip {
   /* the footer's diag toggle is a desk tool; the phone's last row is the deck */
   .cn-plate:not(.sheet) .cn-ftr { display: none; }
 }
+
+/* another tab: its rows follow the deck meta, so the block opens on the
+   shared hairline rather than butting //listening_ against //artist_ */
+.tab-src { border-top: 1px solid var(--pl-line); }
