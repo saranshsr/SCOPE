@@ -2854,3 +2854,175 @@ input[type='range'] { height: 32px; }
    strength because they are real analyser readings. */
 .layer input:disabled,
 .layer-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* ══ WATCH ═════════════════════════════════════════════════════════════
+   The second screen's resting state. After a few seconds without a hand
+   the whole console plate recedes and the star, re-aimed at the centre of
+   the glass by the focus function, is the only thing in the room. The
+   announce stays: a track change on a screen nobody is touching should
+   still say its name.
+
+   Ambient (shift+H) is the same room, latched. Its old selectors named the
+   pre-plate chrome (.titleblock, a free-floating .rail and .spec) and never
+   reached the plate's header, footer or brackets, so "hide the chrome"
+   hid half of it. Both now hide the plate whole.
+
+   Going quiet is the room itself (900ms); coming back answers a hand
+   (140ms). A slow return would make the first move after a pause feel
+   ignored. visibility follows the fade so ~40 invisible controls leave
+   the tab order, and returns instantly. */
+.app .cn-plate,
+.app.live .reticle {
+  transition: opacity 140ms var(--ease), visibility 0s linear 0s;
+}
+.app.watching .cn-plate,
+.app.ambient .cn-plate,
+.app.watching .reticle,
+.app.ambient .reticle,
+.app.watching .x-v,
+.app.watching .x-h {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden;
+  transition: opacity 900ms var(--ease), visibility 0s linear 900ms;
+}
+.app.watching, .app.watching * { cursor: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  .app .cn-plate,
+  .app.watching .cn-plate,
+  .app.ambient .cn-plate { transition: none; }
+}
+
+/* ── the second-screen pair in the running header ──────────────────────
+   Shaped like the exit beside them: same cell, same tier at rest, same
+   inversion under the pointer. Pressed is the accent, the way a latched
+   state reads everywhere else on the sheet. */
+.cn-hdr {
+  /* the header's length varies (//rate_, mini and full are conditional),
+     so the columns are implicit: the title takes the slack, every other
+     cell sizes to itself. Counting tracks is how the header broke before. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+}
+.cn-tool {
+  font: inherit;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-caps-micro);
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  background: none;
+  border: 0;
+  padding: 8px 12px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: color 140ms var(--ease), background 140ms var(--ease);
+}
+.cn-tool:hover { color: #0a0a0a; background: var(--ink); }
+.cn-tool.on { color: #0a0a0a; background: var(--accent); }
+@media (max-width: 820px) {
+  .cn-hdr { grid-template-columns: minmax(0, 1fr); }
+}
+/* A phone has no floating windows to put a mini star over, and the header
+   has no room for a control that cannot help there. Under 480 the //src_
+   reading goes too: the mini deck is already saying what is playing. */
+@media (max-width: 720px) {
+  .cn-hdr > .cn-pip { display: none; }
+}
+@media (max-width: 480px) {
+  .cn-hdr > .k:not(.cn-rate) { display: none; }
+}
+
+/* ══ THE MINI STAR (Document Picture-in-Picture window) ════════════════
+   Its own document, styled by a copy of this sheet. The star canvas fills
+   the window; one caption row under it says which source and what it is
+   hearing, in the header's own voice. */
+body.pip {
+  margin: 0;
+  height: 100vh;
+  background: #0a0a0a;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  color: var(--ink);
+}
+.pip-star { display: block; width: 100%; height: 100%; min-height: 0; }
+.pip-cap {
+  display: flex;
+  gap: var(--gap-related);
+  align-items: center;
+  padding: 8px 12px;
+  border-top: 1px solid var(--pl-line);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-caps-body);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pip-cap b { font-weight: 400; color: var(--accent); flex: 0 0 auto; }
+.pip-cap span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* ══ THE PHONE: STAR FIRST ═════════════════════════════════════════════
+   The console used to open on a phone as a 44dvh stage over a scrolling
+   rail, with the star aimed at the centre of the VIEWPORT -- so it sat
+   half behind the rail and cropped at both sides of its own cell. Public
+   traffic arrives here from shared links, on phones, and the first thing
+   it met was a control panel.
+
+   Now the stage is the page. The mini deck under it carries what a player
+   owes you at a glance -- title, play, skip -- and `console` opens the
+   rail as the sheet it always was. The focus function measures the stage
+   cell, so the star is framed in whichever layout is showing. */
+.cn-mini { display: none; }
+@media (max-width: 720px) {
+  .cn-mini {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    gap: 1px;
+    background: var(--pl-line);
+    border-top: 1px solid var(--pl-line);
+  }
+  .cn-mini > * { background: #0a0a0a; }
+  .cn-mini-name {
+    display: block;
+    min-width: 0;
+    /* one line at leading-none, padded to the 44px floor of the buttons */
+    padding: 16px 12px;
+    line-height: var(--leading-none);
+    text-overflow: ellipsis;
+    font-size: var(--t-micro);
+    letter-spacing: var(--track-caps-body);
+    text-transform: uppercase;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .cn-mini .t-btn {
+    font: inherit;
+    font-size: var(--t-micro);
+    font-weight: 400;
+    letter-spacing: var(--track-caps-label);
+    text-transform: uppercase;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 12px;
+    color: var(--ink);
+    border: 0;
+    cursor: pointer;
+  }
+  .cn-mini .t-btn:active { color: #0a0a0a; background: var(--ink); }
+  .cn-mini .cn-mini-sheet { color: var(--accent); }
+  /* sheet open, the rail's own deck is on screen, so the mini deck says
+     nothing twice: it becomes the one control that closes the sheet */
+  .cn-plate.sheet .cn-mini { grid-template-columns: 1fr; }
+  .cn-plate.sheet .cn-mini > :not(.cn-mini-sheet) { display: none; }
+
+  /* sheet closed: the stage is the whole body, the rail is not rendered */
+  .cn-plate:not(.sheet) .cn-body { grid-template-rows: minmax(0, 1fr); }
+  .cn-plate:not(.sheet) .rail { display: none; }
+  /* sheet open: the old phone console, with the stage kept to a row */
+  .cn-plate.sheet .cn-body { grid-template-rows: 38dvh minmax(0, 1fr); }
+  /* the footer's diag toggle is a desk tool; the phone's last row is the deck */
+  .cn-plate:not(.sheet) .cn-ftr { display: none; }
+}

@@ -141,17 +141,21 @@ await harvest('room')
 //      the source sweep below cannot start until it is gone anyway.
 // Each `next` is a separate step whose body only exists while it is the
 // current step, so the walk has to be a walk.
+// Power-on shows the one-card HINT; the six lessons and the legend are the
+// walk behind [?]. Both are copy, so both are harvested: the hint first, as
+// it opened, then the full walk, opened the way a visitor opens it.
 let tourSteps = 0
-{
+const walkTour = async (tag, opened) => {
   const tourBy = Date.now() + 12000
   while (Date.now() < tourBy && !(await p.evaluate(() => !!document.querySelector('.driver-popover')))) await sleep(250)
   if (!(await p.evaluate(() => !!document.querySelector('.driver-popover')))) {
-    await die('voice: the tour never opened, so six lessons and the whole keyboard legend went unread. If the tour was retired, delete this block; if it did not open, this run proves nothing about the copy it holds.')
+    await die(`voice: the ${tag} never opened (${opened}), so its copy went unread. If it was retired, delete this block; if it did not open, this run proves nothing about the copy it holds.`)
   }
+  let steps = 0
   for (let i = 0; i < 12; i++) {
     await sleep(600) // driver repositions the popover after it mounts
-    await harvest(`tour:${i + 1}`)
-    tourSteps++
+    await harvest(`${tag}:${i + 1}`)
+    steps++
     const advanced = await p.evaluate(() => {
       const n = document.querySelector('.driver-popover-next-btn')
       if (!n) return false
@@ -169,9 +173,13 @@ let tourSteps = 0
   const goneBy = Date.now() + 6000
   while (Date.now() < goneBy && (await p.evaluate(() => !!document.querySelector('.driver-popover')))) await sleep(250)
   if (await p.evaluate(() => !!document.querySelector('.driver-popover'))) {
-    await die('voice: the tour would not close, so its overlay is still eating clicks and the source sweep below would sweep nothing.')
+    await die(`voice: the ${tag} would not close, so its overlay is still eating clicks and the source sweep below would sweep nothing.`)
   }
+  return steps
 }
+await walkTour('hint', 'on power-on')
+await p.evaluate(() => document.querySelector('.rail-help')?.click())
+tourSteps = await walkTour('tour', 'from [?]')
 if (tourSteps < 2) {
   await die(`voice: walked ${tourSteps} tour step(s). The tour is six lessons long; one step means the walk never advanced and five bodies were never painted.`)
 }

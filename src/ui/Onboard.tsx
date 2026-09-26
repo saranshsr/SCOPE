@@ -25,8 +25,17 @@ import 'driver.js/dist/driver.css'
  *   · focus is handed back to whatever had it
  *   · reduced motion gets no animation
  *
- * Shows on power-on every visit until the visitor actually reaches the
- * end; the header's [?] reopens it anytime.
+ * TWO LENGTHS. Power-on shows the HINT: one card, lit over the star,
+ * teaching the one gesture the product is about. Six cards was a lesson
+ * for a colleague sitting beside you; a stranger arriving from a shared
+ * link skims one and leaves at three. The full walk -- rings, faders,
+ * vibe, split, legend -- is what the header's [?] opens, and the footer
+ * has always said so.
+ *
+ * The hint is learned by dismissing it OR by doing it: grabbing the star
+ * while it is lit ends the card, because the visitor has just proven they
+ * read it. That is safe where the old "only the end counts" rule was not,
+ * since nothing is lost -- [?] still holds every card.
  */
 
 const KEY = 'scope-onboard-v1'
@@ -94,6 +103,7 @@ const LEGEND: { head: string; keys: [string, string][] }[] = [
       ['r / shift+f / shift+m', 'source'],
       ['+ / - / 0', 'zoom'],
       ['shift+h', 'hide the chrome'],
+      ['f', 'fullscreen'],
     ],
   },
 ]
@@ -117,6 +127,15 @@ interface Lesson {
   /** stack state this step needs */
   stack: 'open' | 'closed'
   html?: boolean
+}
+
+/** The power-on card. Same subject as the walk's first step, in fewer
+ *  words, and it points at where the rest lives. */
+const HINT: Lesson = {
+  title: 'grab the star',
+  body: 'the star is the mixer. pull outward to boost, push through the core to kill, drag across to filter. let go and it springs back. [?] has the rest.',
+  anchor: '.cn-stage',
+  stack: 'closed',
 }
 
 const STEPS: Lesson[] = [
@@ -257,15 +276,26 @@ function watchPopover(): () => void {
   }
 }
 
-export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => void }) {
+export function Onboard({
+  ops,
+  onDone,
+  mode = 'full',
+}: {
+  ops: TourOps | null
+  onDone: () => void
+  /** 'hint' is the single power-on card; 'full' is the [?] walk */
+  mode?: 'hint' | 'full'
+}) {
   useEffect(() => {
+    const hint = mode === 'hint'
+    const lessons = hint ? [HINT] : STEPS
     // whatever had focus when the tour opened, so it can be handed back
     const returnTo = document.activeElement as HTMLElement | null
     const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     // reaching the end is the only thing that counts as having learned it
     let learned = false
 
-    const steps: DriveStep[] = STEPS.map((s) => ({
+    const steps: DriveStep[] = lessons.map((s) => ({
       element: s.anchor,
       // an element-less step is a deliberate centred one, but a MISSING
       // element is a broken step -- give the rail's folds a moment to open
@@ -329,12 +359,12 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
       duration: calm ? 0 : 240,
       smoothScroll: !calm,
       allowClose: true,
-      showProgress: true,
+      showProgress: !hint,
       progressText: '{{current}}/{{total}}',
       nextBtnText: 'next',
       prevBtnText: 'back',
       doneBtnText: 'play',
-      showButtons: ['next', 'previous', 'close'],
+      showButtons: hint ? ['next', 'close'] : ['next', 'previous', 'close'],
       popoverClass: 'plate-tour',
       // The star is the one step whose subject you are meant to TOUCH while
       // it is lit. Everything else is being pointed at, not operated.
@@ -342,7 +372,7 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
       onDestroyStarted: () => {
         // "not now" rather than "skip": dismissing costs nothing, and the
         // tour returns next visit until it is actually finished
-        if (!d.hasNextStep()) learned = true
+        if (hint || !d.hasNextStep()) learned = true
         d.destroy()
       },
       onDestroyed: () => {
@@ -364,6 +394,16 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
     d.drive()
     const unwatch = watchPopover()
 
+    // doing it counts as reading it: a hand on the star ends the hint
+    const onGrab = (e: PointerEvent) => {
+      if (!hint || !d.isActive()) return
+      const t = e.target as Element | null
+      if (t?.closest?.('.driver-popover, .cn-hdr, .cn-mini, .rail, .cn-ftr')) return
+      learned = true
+      d.destroy()
+    }
+    window.addEventListener('pointerdown', onGrab, { capture: true })
+
     // Scroll does not bubble, so a listener on window never hears .rail-stack.
     // Capture phase hears every scroll in the document, including the rail's
     // -- whether driver moved it or the reader did. rAF-coalesced, because
@@ -380,6 +420,7 @@ export function Onboard({ ops, onDone }: { ops: TourOps | null; onDone: () => vo
     document.addEventListener('scroll', onAnyScroll, { capture: true, passive: true })
     return () => {
       unwatch()
+      window.removeEventListener('pointerdown', onGrab, { capture: true })
       document.removeEventListener('scroll', onAnyScroll, { capture: true })
       if (d.isActive()) d.destroy()
     }

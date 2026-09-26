@@ -36,6 +36,11 @@ const fmtTime = (s: number) => {
 /** A dissection tier — a stem (role) or an EQ band group, bottom-to-top. */
 type Tier = { label: string; role?: StemRole; band?: 'low' | 'mid' | 'high' }
 
+/** How long the hand has to be gone before the chrome recedes. A taste
+ *  constant: long enough that reading a row never trips it, short enough
+ *  that a second screen settles before you have looked away twice. */
+const WATCH_IDLE_MS = 6000
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const waveRef = useRef<HTMLCanvasElement>(null)
@@ -120,12 +125,31 @@ export default function App() {
   const bootRaf = useRef(0)
   const [rate, setRate] = useState(1)
   const [ambient, setAmbient] = useState(false)
+  /** WATCH: the chrome recedes on its own after WATCH_IDLE_MS without a
+   *  hand, and the star takes the whole glass. Ambient (shift+H) is the
+   *  latched version of the same room; watching is the automatic one, and
+   *  any input ends it. The focus function reads the ref, not the state. */
+  const [watching, setWatching] = useState(false)
+  const watchRef = useRef(false)
+  const [isFull, setIsFull] = useState(false)
+  /** the floating mini star: a Document Picture-in-Picture window holding a
+   *  2D canvas the frame loop copies the star into. */
+  const pipRef = useRef<{ win: Window; cv: HTMLCanvasElement; cap: HTMLElement } | null>(null)
+  const [pipOpen, setPipOpen] = useState(false)
+  /** restarts the frame loop on the main window when the PiP window, which
+   *  was driving it, goes away */
+  const kickLoopRef = useRef<(() => void) | null>(null)
+  /** phone only: the console sheet is closed by default, so the star owns
+   *  the screen and the rail is one tap away rather than always underneath */
+  const [sheet, setSheet] = useState(false)
   // THE VIBE: a prompt in, a playlist out — plus the instrument's honest
   // read of how it understood you.
   const [query, setQuery] = useState('')
   const [vibeRead, setVibeRead] = useState<string | null>(null)
   const [tuning2, setTuning2] = useState<'idle' | 'loading' | 'empty'>('idle')
   const [onboard, setOnboard] = useState(false)
+  /** which tour: the one-card hint on power-on, the full walk from [?] */
+  const [tourMode, setTourMode] = useState<'hint' | 'full'>('hint')
   // SPLIT: the playing track being separated into stems, in-browser.
   const [splitState, setSplitState] = useState<string | null>(null)
   const splitGen = useRef(0)
@@ -473,12 +497,41 @@ export default function App() {
      * DOM, so it stays right at every breakpoint); live returns it to the
      * space the rail leaves. Resizes snap, state changes glide.
      */
+    // Dolly that fits the body inside a cell of cw x ch. The body's diameter
+    // is ~0.88 of the viewport HEIGHT at dolly 1, so a portrait phone at
+    // dolly 1 draws a star wider than the glass; the width term catches it.
+    // On a desktop console both terms are under 1 and nothing changes.
+    // The width term is looser (0.85): on a portrait phone the star is
+    // allowed to touch the cell's sides, so it still crowds its frame the
+    // way it does on the desktop instead of floating small in a tall room.
+    const fit = (cw: number, ch: number) =>
+      Math.max(1, (h / ch) * 0.92, (h / cw) * 0.85)
     const focus = (snap = false) => {
       const live = startedRef.current && w > 720
       let fx = live ? (RAIL + (w - RAIL) / 2) / w : 0.5
       let fy = 0.5
       let dolly = 1
-      if (!startedRef.current) {
+      if (startedRef.current && watchRef.current) {
+        // watching: the chrome is gone, so the star centres on the glass
+        fx = 0.5
+        dolly = fit(w, h)
+      } else if (startedRef.current) {
+        // live: aim into the stage cell as measured, which is right on the
+        // desktop (right of the rail) AND on a phone, where the stage is a
+        // row above the sheet and the viewport centre sits behind the rail
+        const cell = document.querySelector('.cn-stage')
+        if (cell && h > 0) {
+          const r = cell.getBoundingClientRect()
+          if (r.height > 40 && r.width > 40) {
+            fx = (r.left + r.width / 2) / w
+            fy = (r.top + r.height / 2) / h
+            // the desktop console is tuned to dolly 1 -- the star is MEANT
+            // to crowd its cell (DESIGN.md: the subject dominates); only
+            // the phone's cells are small enough to need fitting
+            dolly = w > 720 ? 1 : fit(r.width, r.height)
+          }
+        }
+      } else {
         const cell = document.querySelector('.pl-fig')
         if (cell && h > 0) {
           const r = cell.getBoundingClientRect()
@@ -1166,8 +1219,38 @@ export default function App() {
     let silentFor = 0
     let sigNow: 'idle' | 'silent' | 'live' = 'idle'
 
+    // THE LOOP'S CLOCK. Normally this window's rAF. While the mini star is
+    // floating, the PiP window's: a hidden tab gets no animation frames at
+    // all, and "hidden" is exactly the state the mini star exists for --
+    // you are in Figma, and scope is behind it. The PiP window is on
+    // screen whenever it exists, so its frames keep the analyser, the
+    // simulation and the copy into the mini star running. The token stops
+    // a callback queued on a window that has since closed from starting a
+    // second chain if it fires anyway.
+    let rafWin: Window = window
+    let rafToken = 0
+    const schedule = () => {
+      const my = ++rafToken
+      rafWin = pipRef.current?.win ?? window
+      // Each window's frame timestamp is on its own document's clock, which
+      // starts at that document's birth -- so a raw PiP timestamp arrives
+      // minutes "earlier" than the last main frame, and fed that negative
+      // dt the sim integrated backwards and blew the stage out to white.
+      // The shift puts it on this window's clock. It stays a FRAME
+      // timestamp, not performance.now() read inside the callback: that
+      // measured when this callback happened to run, after the other frame
+      // callbacks, and the jitter cut the power-on flight short (flight.mjs,
+      // 3 of 3 runs, against 0 of 3 on the frame timestamp).
+      const win = rafWin
+      const shift = win === window ? 0 : win.performance.timeOrigin - performance.timeOrigin
+      raf = win.requestAnimationFrame((n) => {
+        if (my === rafToken) frame(n + shift)
+      })
+    }
+    kickLoopRef.current = schedule
+
     const frame = (now: number) => {
-      raf = requestAnimationFrame(frame)
+      schedule()
       // The raw gap, before the clamp. Simulation reads `dt`, which is
       // capped at 50ms so one long frame cannot fling the physics across the
       // room — but a readout fed the capped value says "50ms" for a 50ms
@@ -1286,6 +1369,8 @@ export default function App() {
         hi = Math.max(hi, 0.03 * amt * (0.5 + 0.5 * Math.sin(b * 1.43)))
       }
       scene.render(dt, lo, mi, hi, beatPulse, ahead, snapEnv)
+      // Same task as the render, or the drawing buffer is already cleared.
+      if (pipRef.current) drawPip(pipRef.current, canvas, scene, w, h)
 
       // The survey drawing rides every frame while the stack is open —
       // markers, drop-lines and labels are projected from the SAME cluster
@@ -1295,7 +1380,7 @@ export default function App() {
       if (startedRef.current && !wasStarted) {
         wasStarted = true
         seamFlashUntil = now + 4500
-        if (shouldOnboard()) setTimeout(() => setOnboard(true), 900)
+        if (shouldOnboard()) setTimeout(() => { setTourMode('hint'); setOnboard(true) }, 900)
       }
       // THE SIX TIER READINGS. Computed here, every frame, and read by
       // BOTH readouts -- the survey labels beside the star and the eight-
@@ -1597,7 +1682,7 @@ export default function App() {
         setPlaying(engine.playing)
       }
     }
-    raf = requestAnimationFrame(frame)
+    schedule()
 
     // Drop a track anywhere — the browser default would eat the session.
     const onDragOver = (e: DragEvent) => e.preventDefault()
@@ -1716,7 +1801,14 @@ export default function App() {
         // shift on the three that are disruptive from a stray keystroke:
         // f opens a file picker, m fires a browser permission prompt, and
         // h blanks the whole interface. Everything else stays bare.
-        case 'KeyF': if (e.shiftKey) fileRef.current?.click(); break
+        // bare f is fullscreen, the key every video player taught
+        case 'KeyF':
+          if (e.shiftKey) fileRef.current?.click()
+          else if (document.fullscreenEnabled) {
+            if (document.fullscreenElement) void document.exitFullscreen()
+            else void document.documentElement.requestFullscreen?.().catch(() => {})
+          }
+          break
         case 'KeyM': if (e.shiftKey) void eng.useMic(); break
         case 'KeyH': if (e.shiftKey) setAmbient((a) => !a); break
         case 'KeyD':
@@ -1807,7 +1899,9 @@ export default function App() {
     window.addEventListener('pointercancel', pinchUp)
 
     return () => {
-      cancelAnimationFrame(raf)
+      rafToken++
+      try { rafWin.cancelAnimationFrame(raf) } catch { /* window gone */ }
+      kickLoopRef.current = null
       window.removeEventListener('resize', measure)
       window.removeEventListener('dragover', onDragOver)
       window.removeEventListener('drop', onDrop)
@@ -2220,6 +2314,203 @@ export default function App() {
     }
   }
 
+  // ── transport, shared by the rail and the phone's mini deck ──────────
+  const togglePlay = () => {
+    const e = engineRef.current
+    if (!e) return
+    // in jukebox mode our element is silent by design; the transport must
+    // drive the player that actually sounds
+    if (e.kind === 'tube') {
+      if (tubeState?.playing) tubeRef.current?.pause()
+      else tubeRef.current?.play()
+      return
+    }
+    if (e.kind === 'stems') {
+      const d = stemDeckRef.current
+      if (d) d.playing ? d.pause() : d.play()
+      return
+    }
+    if (e.el.paused) void e.el.play()
+    else e.el.pause()
+  }
+  const skipTrack = () => {
+    const e = engineRef.current
+    if (!e) return
+    // without this, skip left the jukebox for the radio
+    if (e.kind === 'tube') { tubeRef.current?.next(); return }
+    if (e.kind === 'radio') void e.next()
+    else void e.playRadio()
+  }
+  const playLabel = source === 'tube' ? (tubeState?.playing ? 'pause' : 'play') : paused ? 'play' : 'pause'
+  const skipLabel = source === 'file' || source === 'stems' ? 'radio' : 'skip'
+
+  // ── WATCH ─────────────────────────────────────────────────────────────
+  // Enters only while something is playing, nothing is held, nothing is
+  // being typed and no tour is open -- the room goes quiet when the hand
+  // has left, not while it is mid-gesture. Leaving is any real input. A
+  // pointer that drifts under 6px is a desk being bumped, not a person.
+  const playingRef = useRef(false)
+  playingRef.current = playing || !!tubeState?.playing
+  useEffect(() => {
+    if (!started || onboard || boot) {
+      setWatching(false)
+      return
+    }
+    let t = 0
+    let lx = -1
+    let ly = -1
+    const arm = () => {
+      clearTimeout(t)
+      t = window.setTimeout(enter, WATCH_IDLE_MS)
+    }
+    const enter = () => {
+      const a = document.activeElement
+      const typing = !!a?.closest?.('input[type="text"], input[type="search"], input:not([type]), textarea')
+      const holding = appRef.current?.classList.contains('mixing')
+      if (!playingRef.current || typing || holding) return arm()
+      setWatching(true)
+    }
+    const wake = (e: Event) => {
+      if (e.type === 'pointermove') {
+        const p = e as PointerEvent
+        if (lx >= 0 && Math.hypot(p.clientX - lx, p.clientY - ly) < 6) return
+        lx = p.clientX
+        ly = p.clientY
+      }
+      // THE PRESS THAT WAKES THE ROOM ONLY WAKES IT. While the plate is
+      // hidden nothing shields the star, so a press where the header or the
+      // rail will reappear landed on the body and started a mix or a
+      // dissect -- the ui-guard sweep caught exactly that. A tap on a
+      // sleeping screen is a request to see the controls, the way it is on
+      // every video player; the class drops synchronously so the chrome is
+      // back under the finger before the next event.
+      if (e.type === 'pointerdown' && appRef.current?.classList.contains('watching')) {
+        e.stopPropagation()
+        appRef.current.classList.remove('watching')
+      }
+      setWatching(false)
+      arm()
+    }
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+    for (const ev of evs) window.addEventListener(ev, wake, { capture: true, passive: true })
+    arm()
+    return () => {
+      clearTimeout(t)
+      for (const ev of evs) window.removeEventListener(ev, wake, { capture: true })
+    }
+  }, [started, onboard, boot])
+
+  // the star glides between the stage cell and the centre of the glass
+  useEffect(() => {
+    watchRef.current = (watching || ambient) && started
+    ;(window as unknown as { __focus?: (snap?: boolean) => void }).__focus?.(false)
+  }, [watching, ambient, started])
+
+  // the phone's sheet changes the stage's size; aim once layout has moved
+  useEffect(() => {
+    const id = requestAnimationFrame(() =>
+      (window as unknown as { __focus?: (snap?: boolean) => void }).__focus?.(false),
+    )
+    return () => cancelAnimationFrame(id)
+  }, [sheet])
+
+  // ── FULLSCREEN + WAKE LOCK ────────────────────────────────────────────
+  // A second screen that dims itself after five minutes is not one. The
+  // lock is held while the room is quiet (watching, ambient) or the glass
+  // is fullscreen -- the moments nobody is touching the machine, which are
+  // exactly when the OS would put it to sleep. The browser drops the lock
+  // whenever the tab is hidden, so it is re-taken on return.
+  const canFull = typeof document !== 'undefined' && !!document.fullscreenEnabled
+  const toggleFull = () => {
+    if (document.fullscreenElement) void document.exitFullscreen()
+    else void document.documentElement.requestFullscreen?.().catch(() => {})
+  }
+  useEffect(() => {
+    const on = () => setIsFull(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', on)
+    return () => document.removeEventListener('fullscreenchange', on)
+  }, [])
+  useEffect(() => {
+    const want = started && (watching || ambient || isFull)
+    const wl = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock
+    if (!want || !wl) return
+    let lock: { release: () => Promise<void> } | null = null
+    let dead = false
+    const take = () => {
+      if (document.visibilityState !== 'visible') return
+      wl.request('screen').then((l) => {
+        if (dead) void l.release()
+        else lock = l
+      }).catch(() => { /* battery saver or policy: the screen may sleep */ })
+    }
+    take()
+    document.addEventListener('visibilitychange', take)
+    return () => {
+      dead = true
+      document.removeEventListener('visibilitychange', take)
+      void lock?.release()
+    }
+  }, [started, watching, ambient, isFull])
+
+  // ── THE MINI STAR ─────────────────────────────────────────────────────
+  // Document Picture-in-Picture, not a <video>: a video PiP is fed by the
+  // page's frames, and the page gets none once it is hidden behind Figma,
+  // so the star froze the moment you looked away from it. A document PiP
+  // window has its own frames, and the loop moves onto them (see
+  // schedule()). Chromium desktop only; elsewhere the control is absent,
+  // not disabled -- a button that can never work is not a feature.
+  const canPip = typeof window !== 'undefined' && 'documentPictureInPicture' in window
+  const togglePip = async () => {
+    if (pipRef.current) {
+      pipRef.current.win.close()
+      return
+    }
+    const dpip = (window as unknown as {
+      documentPictureInPicture: { requestWindow: (o: { width: number; height: number }) => Promise<Window> }
+    }).documentPictureInPicture
+    let win: Window
+    try {
+      win = await dpip.requestWindow({ width: 300, height: 340 })
+    } catch {
+      return
+    }
+    const doc = win.document
+    doc.title = 'scope'
+    // the sheet's own stylesheet, so the mini star speaks in its tokens and
+    // its typeface rather than a second, hand-copied style
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        const st = doc.createElement('style')
+        st.textContent = Array.from(sheet.cssRules).map((r) => r.cssText).join('\n')
+        doc.head.append(st)
+      } catch {
+        if (sheet.href) {
+          const ln = doc.createElement('link')
+          ln.rel = 'stylesheet'
+          ln.href = sheet.href
+          doc.head.append(ln)
+        }
+      }
+    }
+    doc.documentElement.style.setProperty('--accent', getComputedStyle(document.documentElement).getPropertyValue('--accent'))
+    doc.body.className = 'pip'
+    const cv = doc.createElement('canvas')
+    cv.className = 'pip-star'
+    cv.setAttribute('aria-hidden', 'true')
+    const cap = doc.createElement('div')
+    cap.className = 'pip-cap'
+    doc.body.append(cv, cap)
+    pipRef.current = { win, cv, cap }
+    setPipOpen(true)
+    win.addEventListener('pagehide', () => {
+      pipRef.current = null
+      setPipOpen(false)
+      // the loop was running on that window's clock; bring it home
+      kickLoopRef.current?.()
+    })
+  }
+  useEffect(() => () => pipRef.current?.win.close(), [])
+
   const name = splitState
     ? splitState.toUpperCase()
     : decoding
@@ -2233,8 +2524,21 @@ export default function App() {
       ? `${clip(track.title, 26).toUpperCase()}${source === 'file' ? '.MP3' : ''}`
       : 'NO CARRIER'
 
+  // the mini star's caption: which source, and what it is hearing
+  const pipName = source === 'tube' ? (tubeState?.title ? clip(tubeState.title, 26).toUpperCase() : 'JUKEBOX') : name
+  useEffect(() => {
+    const cap = pipRef.current?.cap
+    if (!cap) return
+    cap.innerHTML = ''
+    const id = document.createElement('b')
+    id.textContent = SOURCE_ID[source]
+    const t = document.createElement('span')
+    t.textContent = pipName
+    cap.append(id, t)
+  }, [pipOpen, pipName, source])
+
   return (
-    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}`}>
+    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}${watching ? ' watching' : ''}`}>
       <canvas ref={canvasRef} className="stage" aria-hidden="true" />
       {/* The survey drawing — numbered markers, dashed drop-lines, tier
           labels — projected over the dissected stack. Exists only while
@@ -2423,7 +2727,7 @@ export default function App() {
           column, the stage, running footer. The star canvas stays full-bleed
           BEHIND this frame; the plate is a frame over it, not a container. */}
       {started && (
-        <div className="cn-plate">
+        <div className={`cn-plate${sheet ? ' sheet' : ''}`}>
           {/* the brand and the src/pitch plate stop being rail children:
               both are running-header cells now (mockup, header row) */}
           <header className="pl-hdr cn-hdr">
@@ -2445,9 +2749,36 @@ export default function App() {
             <button className="cn-back" onClick={standby}>
               ← <span>standby</span>
             </button>
+            {/* The second-screen pair. Each is absent where the browser
+                cannot do it, rather than a control that silently fails. */}
+            {canPip && (
+              <button
+                className={`cn-tool cn-pip${pipOpen ? ' on' : ''}`}
+                onClick={() => void togglePip()}
+                aria-pressed={pipOpen}
+                title="float the star over other windows"
+              >
+                <span>mini</span>
+              </button>
+            )}
+            {canFull && (
+              <button
+                className={`cn-tool cn-full${isFull ? ' on' : ''}`}
+                onClick={toggleFull}
+                aria-pressed={isFull}
+                title="fullscreen (f)"
+              >
+                <span>full</span>
+              </button>
+            )}
             <button
               className="rail-help"
-              onClick={() => setOnboard(true)}
+              onClick={() => {
+                setTourMode('full')
+                // on a phone the walk points into the rail, so open the sheet
+                if (window.innerWidth <= 720) setSheet(true)
+                setOnboard(true)
+              }}
               aria-label="how to play"
               aria-haspopup="dialog"
             >
@@ -2578,42 +2909,8 @@ export default function App() {
                   full row — an unfilled cell in a gap:1px grid is a hole
                   showing the line colour, not empty space. */}
               <div className={`transport${source === 'tube' ? ' no-pitch' : ''}`}>
-                <button
-                  className="t-btn"
-                  onClick={() => {
-                    const e = engineRef.current
-                    if (!e) return
-                    // in jukebox mode our element is silent by design; the
-                    // transport must drive the player that actually sounds
-                    if (e.kind === 'tube') {
-                      if (tubeState?.playing) tubeRef.current?.pause()
-                      else tubeRef.current?.play()
-                      return
-                    }
-                    if (e.kind === 'stems') {
-                      const d = stemDeckRef.current
-                      if (d) d.playing ? d.pause() : d.play()
-                      return
-                    }
-                    if (e.el.paused) void e.el.play()
-                    else e.el.pause()
-                  }}
-                >
-                  {source === 'tube' ? (tubeState?.playing ? 'pause' : 'play') : paused ? 'play' : 'pause'}
-                </button>
-                <button
-                  className="t-btn"
-                  onClick={() => {
-                    const e = engineRef.current
-                    if (!e) return
-                    // without this, skip left the jukebox for the radio
-                    if (e.kind === 'tube') { tubeRef.current?.next(); return }
-                    if (e.kind === 'radio') void e.next()
-                    else void e.playRadio()
-                  }}
-                >
-                  {source === 'file' || source === 'stems' ? 'radio' : 'skip'}
-                </button>
+                <button className="t-btn" onClick={togglePlay}>{playLabel}</button>
+                <button className="t-btn" onClick={skipTrack}>{skipLabel}</button>
                 <button
                   className={`t-btn t-mute${muted ? ' on' : ''}`}
                   aria-pressed={muted}
@@ -3050,6 +3347,24 @@ export default function App() {
             </div>
           </div>
 
+          {/* THE PHONE'S MINI DECK. On a phone the star is the page and the
+              console is a sheet you open. What stays in reach without it is
+              what a player owes you at a glance: the title, play and skip.
+              Hidden above 720px, where the rail is always there. */}
+          <div className="cn-mini">
+            <div className="cn-mini-name" aria-hidden="true"><Decode text={source === 'tube' ? pipName : name} duration={700} /></div>
+            <button className="t-btn" onClick={togglePlay}>{playLabel}</button>
+            <button className="t-btn" onClick={skipTrack}>{skipLabel}</button>
+            <button
+              className={`t-btn cn-mini-sheet${sheet ? ' on' : ''}`}
+              onClick={() => setSheet((v) => !v)}
+              aria-expanded={sheet}
+              aria-label={sheet ? 'close the console' : 'open the console'}
+            >
+              {sheet ? 'star' : 'console'}
+            </button>
+          </div>
+
           <footer className="pl-ftr cn-ftr">
             <span>
               <span className="pl-meta">/ webgl · 108k particles</span>
@@ -3110,7 +3425,7 @@ export default function App() {
         }}
       />
 
-      {started && onboard && <Onboard ops={tourOpsRef.current} onDone={() => setOnboard(false)} />}
+      {started && onboard && <Onboard key={tourMode} mode={tourMode} ops={tourOpsRef.current} onDone={() => setOnboard(false)} />}
 
       <div className="scanlines" />
       <div className="grain" />
@@ -3710,4 +4025,52 @@ function drawSpectrum(
     g.fillStyle = `rgba(${INK_RGB},0.35)`
     g.fillRect(i * bw + 1, py - 2, bw - 2, 2)
   }
+}
+
+/**
+ * The mini star. Crops the star out of the full-bleed stage canvas and
+ * copies it into the PiP window's canvas, every frame.
+ *
+ * The crop is derived from the camera, not guessed: the body's radius is
+ * 0.88 of the half-height at dolly 1 (scene.ts R_BASE), divided by the
+ * dolly, multiplied by the zoom, and pushed back by the dissection's own
+ * dolly. The square is 1.3x the body so drops and ejecta have room, and it
+ * follows the focus, so the copy is the same star wherever the stage has
+ * put it -- the console's cell, the watching centre, or the standby plate.
+ *
+ * A copy of the star, not a second render: two cameras would be two stars,
+ * and the one in the corner of your screen would not be the one you mixed.
+ */
+function drawPip(
+  pip: { win: Window; cv: HTMLCanvasElement },
+  src: HTMLCanvasElement,
+  scene: Scene,
+  w: number,
+  h: number,
+) {
+  const cv = pip.cv
+  const pd = Math.min(2, pip.win.devicePixelRatio || 1)
+  const cw = Math.max(1, Math.round(cv.clientWidth * pd))
+  const ch = Math.max(1, Math.round(cv.clientHeight * pd))
+  if (cv.width !== cw || cv.height !== ch) {
+    cv.width = cw
+    cv.height = ch
+  }
+  const ctx = cv.getContext('2d')
+  if (!ctx || w <= 0 || h <= 0) return
+  const f = scene.focusNow
+  const k = scene.zoomLevel / (f.d * (1 + scene.dissect * 0.62))
+  const r = 0.88 * (h / 2) * k
+  // the crop takes the PiP window's aspect, so a resized window never
+  // stretches the star; its short side is the one that holds the body
+  const aspect = cw / ch
+  const side = Math.min(2 * r * 1.3, h, w)
+  const sh = aspect >= 1 ? side : side / aspect
+  const sw = aspect >= 1 ? side * aspect : side
+  const sx = f.x * w - sw / 2
+  const sy = f.y * h - sh / 2
+  const dpr = src.width / w
+  ctx.fillStyle = '#0a0a0a'
+  ctx.fillRect(0, 0, cw, ch)
+  ctx.drawImage(src, sx * dpr, sy * dpr, sw * dpr, sh * dpr, 0, 0, cw, ch)
 }

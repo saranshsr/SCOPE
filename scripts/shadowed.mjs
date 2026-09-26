@@ -62,9 +62,25 @@ while (Date.now() < by) {
   if (await p.evaluate(() => !!document.querySelector('.app.live'))) break
   await new Promise(r => setTimeout(r, 250))
 }
-await new Promise(r => setTimeout(r, 2200))
-await p.evaluate(() => { const x = [...document.querySelectorAll('button')].find(e => /not now/i.test(e.textContent)); x?.click() })
-await new Promise(r => setTimeout(r, 600))
+// THE TOUR HAS TO BE GONE BEFORE THE ROOMS ARE SCANNED. This used to click
+// a button reading "not now", which the driver.js tour has never had, so
+// the click matched nothing and the run passed on timing alone: the power-on
+// card opens 900ms after the first live frame -- several seconds late under
+// swiftshader -- and opening it closes the stack, so whenever it landed after
+// the `d` press below it undid the dissection and the scan saw one room
+// twice. Wait for it, close it, and assert it went.
+{
+  const popBy = Date.now() + 8000
+  while (Date.now() < popBy && !(await p.evaluate(() => !!document.querySelector('.driver-popover')))) await new Promise(r => setTimeout(r, 250))
+  await new Promise(r => setTimeout(r, 600)) // driver settles the step before it will destroy cleanly
+  await p.evaluate(() => document.querySelector('.driver-popover-close-btn')?.click())
+  const goneBy = Date.now() + 4000
+  while (Date.now() < goneBy && (await p.evaluate(() => !!document.querySelector('.driver-popover')))) await new Promise(r => setTimeout(r, 250))
+  if (await p.evaluate(() => !!document.querySelector('.driver-popover'))) {
+    console.error('shadowed: the tour would not close, so its overlay would sit over both scans. This is the harness, NOT the product.')
+    await b.close(); process.exit(1)
+  }
+}
 await p.evaluate(() => { document.activeElement?.blur?.(); document.body.focus() })
 // ASSERT THE STATE, do not assume it. This scans two rooms and reports a
 // rule inert only if it never applied in EITHER -- so if a transition
@@ -89,7 +105,22 @@ const dissectTo = async (want, label) => {
     let moved = false
     while (Date.now() < by2) {
       const d = await read()
-      if (arrived(d)) return
+      if (arrived(d)) {
+        // The room is not reached until the CHROME says so. The ( sect )
+        // chip is written on the loop's chrome tick, every 0.16s of SIM
+        // time. Measured under swiftshader on a loaded box: 29 frames in 12s,
+        // with dt clamped at 0.05 -- so a tick lands every fourth frame,
+        // about every 1.6s of wall time, and a scan taken the instant
+        // uDissect crossed 0.6 saw `.chips` still empty and reported its
+        // display rule dead.
+        const chipBy = Date.now() + 10000
+        while (Date.now() < chipBy) {
+          const on = await p.evaluate(() => !!document.querySelector('.chips .chip.on'))
+          if (on === want) break
+          await new Promise(r => setTimeout(r, 150))
+        }
+        return
+      }
       if (Math.abs(d - before) > 0.02) moved = true
       await new Promise(r => setTimeout(r, 200))
     }
