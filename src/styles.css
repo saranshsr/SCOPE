@@ -2607,12 +2607,18 @@ input[type='range'] { height: 32px; }
   /* the running header cannot hold four cells at phone width. The shared
      .pl-hdr rule hides children 3 AND 4 — child 4 here is [?], the only
      route to the tour and the full legend, so it is explicitly restored. */
-  /* the announcement lives over the stage row, not over the panel */
+  /* the announcement lives over the stage row, not over the panel -- and
+     INSIDE the stage cell, the way the desktop's sits 15px inboard of it.
+     At `left: var(--edge)` its box started on the plate's own 1px outer
+     stroke (x=14 at 375px), so the line ran through the first letter and
+     read as the title being clipped, and the first line sat on the stage's
+     top-left bracket. 24px clears the bracket (11px inset + 13px arm) on
+     both axes; 44px is the running header above the stage. */
   .announce {
-    left: var(--edge);
-    right: var(--edge);
+    left: calc(var(--edge) + 24px);
+    right: calc(var(--edge) + 24px);
     bottom: auto;
-    top: calc(var(--edge) + 44px);
+    top: calc(var(--edge) + 44px + 24px);
   }
 }
 
