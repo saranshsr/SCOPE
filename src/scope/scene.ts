@@ -18,6 +18,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { ParticleSim } from './sim'
 
 // The shell carries a RESERVE: at zoom 1 only ~55% of it renders (same
@@ -694,6 +695,48 @@ const GROUND_FRAG = /* glsl */ `
   }
 `
 
+/** The 'paper' theme: a final full-screen remap of the finished (additive,
+ *  bloomed, after-imaged) dark-ground frame onto ink-on-paper. Additive
+ *  particle light can't be relit onto a bright ground directly — so
+ *  instead this reads the frame's own luminance L (0 = the #0a0a0a clear,
+ *  1 = a saturated particle) and repaints PAPER..INK along that curve.
+ *  Runs LAST in the composer chain, after bloom/afterimage, so the halo
+ *  it maps is the real bloom halo, not a re-derived one. */
+const PAPER_SHADER = {
+  uniforms: {
+    tDiffuse: { value: null },
+    uPaper: { value: new THREE.Color(0xecebe6) },
+    uInk: { value: new THREE.Color(0x0c0c0c) },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform vec3 uPaper;
+    uniform vec3 uInk;
+    varying vec2 vUv;
+    void main() {
+      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      // Measured against the real frame (not guessed): the additive shell's
+      // dim boil sits around L=0.10-0.15, the visible individual particles
+      // and streaks land in the 0.2-0.35 range, and only the densest core
+      // clusters push past that. A single smoothstep across that measured
+      // band is enough — it leaves the wide, dim boil barely tinting the
+      // paper (soft grey, not a wash) while the real particles commit fast
+      // to full ink, which is what keeps them crisp dots/strokes instead of
+      // fuzzy smudges.
+      float t = smoothstep(0.04, 0.38, L);
+      gl_FragColor = vec4(mix(uPaper, uInk, t), 1.0);
+    }
+  `,
+}
+
 /** Critically-damped smoother — fast attack, settle without overshoot. */
 class Env {
   v = 0
@@ -715,6 +758,8 @@ export class Scene {
   private composer: EffectComposer
   private bloom: UnrealBloomPass
   private after!: AfterimagePass
+  private paper!: ShaderPass
+  private _theme: 'ink' | 'paper' = 'ink'
   /** Owner dial, 0.25..2: scales the drift/spin rate. */
   spinDial = 1
   private uniforms: Record<string, THREE.IUniform>
@@ -1074,6 +1119,14 @@ export class Scene {
     // Tight bloom: crisp particles first, halo second.
     this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.4, 0.25, 0.55)
     this.composer.addPass(this.bloom)
+    // The paper remap: last in the chain, so it repaints whatever bloom and
+    // afterimage actually produced. Disabled by default — `enabled = false`
+    // makes EffectComposer skip it outright (see EffectComposer.render()),
+    // so the 'ink' theme is not just visually unchanged but literally the
+    // same draw calls as before this pass existed.
+    this.paper = new ShaderPass(PAPER_SHADER)
+    this.paper.enabled = false
+    this.composer.addPass(this.paper)
     // Without this the uniform keeps its initial 1 and the whole reserve
     // renders at zoom 1 — double the intended cost, zero headroom left.
     this.applyDensity()
@@ -1093,6 +1146,19 @@ export class Scene {
   /** A real transient happened — re-deal the armed constellations. */
   onset() {
     this.uniforms.uOnsetN.value = (this.uniforms.uOnsetN.value + 1) % 4096
+  }
+
+  /** Ink-black particles on an off-white ground, same grain — a final
+   *  remap of the finished frame, not a relit particle material (additive
+   *  light on white can't work). 'ink' is today's look, exactly, at zero
+   *  extra cost: the pass is disabled outright. */
+  setTheme(t: 'ink' | 'paper') {
+    this._theme = t
+    this.paper.enabled = t === 'paper'
+  }
+
+  get theme() {
+    return this._theme
   }
 
   /** Owner tuning: turbulence / exposure / spin, each 0.25..2. */
