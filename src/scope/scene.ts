@@ -20,6 +20,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { ParticleSim } from './sim'
+import type { Features } from '../audio/features'
 
 // The shell carries a RESERVE: at zoom 1 only ~55% of it renders (same
 // cost as before), and zooming in spends the rest, so magnification adds
@@ -54,6 +55,12 @@ const SIM_AMT = 0.5
 /** the body's resting radius scale, before any burst */
 const R_BASE = 0.88
 const SIM_TEX = 512
+/** Seconds for the star <-> aj glide. */
+const VARIANT_GLIDE = 1.2
+/** A new cymatic mode must be heard this long before it re-deals the
+ *  sphere, and then morphs over PATTERN_MORPH. */
+const PATTERN_HOLD = 0.25
+const PATTERN_MORPH = 1.6
 /** Bound until a real sim is attached. NearestFilter throughout: bilinear
  *  sampling here would silently blend one particle's offset with its
  *  neighbour's. */
@@ -117,6 +124,82 @@ const SNOISE = /* glsl */ `
   }
 `
 
+/**
+ * CYMATICS -- the AJ variant's pattern, a real spherical harmonic.
+ *
+ * Sand on a Chladni plate gathers where the plate does NOT move: the nodal
+ * lines. On a sphere the standing waves are the spherical harmonics Y_l^m,
+ * and their nodal set is l - m circles of latitude plus m meridians. So the
+ * particles are moved onto the zero set of Y, which is exactly where sand
+ * would settle, and nothing is invented: the mode comes from the measured
+ * dominant frequency (Scene.setVoices), and how firmly the sand settles from
+ * the measured level.
+ *
+ * shY: fully normalised associated Legendre recurrence (the geodesy form,
+ * bounded, stable to high order) times cos(m phi), divided by sqrt(2l + 1)
+ * so two modes of different order blend at comparable amplitude -- the
+ * morph between patterns is a blend of the two FIELDS, whose nodal set
+ * moves continuously from one pattern to the other.
+ *
+ * cymaProject: two Newton steps along the tangent-plane gradient onto Y = 0,
+ * each clamped to a fraction of the node spacing so a particle settles on
+ * its NEAREST line rather than leaping across a lobe. Stateless -- no sim
+ * texture, no readback -- so it costs only vertex ALU and only while uAj is
+ * above zero.
+ */
+const CYMA = /* glsl */ `
+  float shY(vec3 d, vec2 lm) {
+    float x = clamp(d.y, -1.0, 1.0);
+    float s = sqrt(max(0.0, 1.0 - x * x));
+    float phi = atan(d.z, d.x);
+    int l = int(lm.x + 0.5);
+    int m = int(lm.y + 0.5);
+    float fm = float(m);
+    float pmm = 1.0;
+    for (int i = 1; i <= 16; i++) {
+      if (i > m) break;
+      float fi = float(i);
+      pmm *= sqrt((2.0 * fi + 1.0) / (2.0 * fi)) * s;
+    }
+    float res = pmm;
+    if (l > m) {
+      float pa = pmm;
+      float pb = sqrt(2.0 * fm + 3.0) * x * pmm;
+      for (int j = 2; j <= 16; j++) {
+        int ll = m + j;
+        if (ll > l) break;
+        float fl = float(ll);
+        float a = sqrt((4.0 * fl * fl - 1.0) / (fl * fl - fm * fm));
+        float b = sqrt(((fl - 1.0) * (fl - 1.0) - fm * fm) / (4.0 * (fl - 1.0) * (fl - 1.0) - 1.0));
+        float pc = a * (x * pb - b * pa);
+        pa = pb;
+        pb = pc;
+      }
+      res = pb;
+    }
+    return res * cos(fm * phi) / sqrt(2.0 * float(l) + 1.0);
+  }
+  float cymaF(vec3 d) {
+    return mix(shY(d, uYa), shY(d, uYb), uMorph);
+  }
+  vec3 cymaProject(vec3 d) {
+    float maxStep = 1.1 / (max(uYa.x, uYb.x) + 1.0);
+    for (int it = 0; it < 2; it++) {
+      vec3 ref = abs(d.y) < 0.95 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+      vec3 t1 = normalize(cross(d, ref));
+      vec3 t2 = cross(d, t1);
+      float f0 = cymaF(d);
+      float g1 = (cymaF(normalize(d + t1 * 0.01)) - f0) * 100.0;
+      float g2 = (cymaF(normalize(d + t2 * 0.01)) - f0) * 100.0;
+      vec2 st = -f0 * vec2(g1, g2) / (g1 * g1 + g2 * g2 + 1e-6);
+      float sl = length(st);
+      if (sl > maxStep) st *= maxStep / sl;
+      d = normalize(d + t1 * st.x + t2 * st.y);
+    }
+    return d;
+  }
+`
+
 const SHELL_VERT = /* glsl */ `
   uniform float uTime;
   uniform float uLow;
@@ -153,11 +236,30 @@ const SHELL_VERT = /* glsl */ `
   uniform float uDrop;
   uniform float uStrong;
   uniform float uWave;
+  // the typed reflexes (features.ts voices), unsprung
+  uniform float uKick;
+  uniform float uSnare;
+  uniform float uHat;
+  uniform float uSnareSeed;
+  uniform float uHatN;
+  // slow reads, sprung on the CPU
+  uniform float uSustain;
+  uniform float uCentroid;
+  uniform float uTension;
+  // the AJ variant
+  uniform float uAj;
+  uniform vec2 uYa;
+  uniform vec2 uYb;
+  uniform float uMorph;
+  uniform float uAjAmp;
+  uniform float uAjPeak;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
   varying float vHash;
+  varying float vAccent;
   __SNOISE__
+  __CYMA__
 
   void main() {
     // Three octaves of drifting 3D noise: swell, boil, grain. Non-repeating
@@ -205,9 +307,22 @@ const SHELL_VERT = /* glsl */ `
       // points scatters the density clusters that read as detail, so the
       // one thing meant to add fine detail was sanding it off. n3 does its
       // half of the brief as scintillation further down instead.
-      n2 * (uMid * 0.24 + uCalm * 0.030) +
+      // SUSTAIN SHAPES, TRANSIENTS STRIKE. uMid is the absolute mid level
+      // and measured pinned (std 0.01..0.05 across the radio), so on its own
+      // it boiled a drum loop exactly as hard as a held chord. Its share of
+      // the shape octave is now split by how much of the mids PERSISTS
+      // between hits: 0.16 under dry drums (their energy has its own reflexes
+      // now), 0.28 under a pad. 0.24 was the old fixed weight, inside that
+      // span, so ordinary programme sits where it always did.
+      n2 * (uMid * (0.16 + 0.12 * uSustain) + uCalm * 0.030) +
       n3 * (uHigh * 0.13) +
       n2 * bandE * 0.20) * uTurb;
+    // THE BUILD TIGHTENS THE SURFACE. Tension (energy.ts) is measured:
+    // loudness, brightness and onset density climbing with the sub held
+    // back. The boil draws in under it, and lets go on the drop, which is
+    // the half of a drop the star never had: a release needs something to
+    // release.
+    disp *= (1.0 - 0.35 * uTension) * (1.0 - 0.85 * uAj);
 
     // THE BOIL YIELDS TO THE HAND.
     //
@@ -238,10 +353,47 @@ const SHELL_VERT = /* glsl */ `
     // solid mass like the reference, and tilting reveals real volume.
     float h2 = fract(aHash * 57.719);
     float depth = mix(0.42, 1.0, pow(h2, 0.38));
+
+    // THE KICK: a radial swell of the core. Measured before this existed, a
+    // kick moved the radius under 1% (the sprung absolute bass is pinned and
+    // lags 10 frames), so a kick was only ever a flash. uKick is the low
+    // region's own onset, unsprung; the interior leads the surface (1.35x at
+    // the centre, 0.8x at the skin), so the hit reads as pressure from the
+    // middle rather than as the whole ball being scaled.
+    float kickSwell = uKick * 0.07 * mix(1.35, 0.8, depth) * (1.0 - uAj);
+    // THE SNARE: the shell cracks. A thin zero set of one noise field, re-
+    // dealt on every snare, flashes and lifts for the length of the hit --
+    // angular veins across the surface, where the kick was radial and whole.
+    float vein = 0.0;
+    if (uSnare > 0.004) {
+      float nc = snoise(aDir * 3.3 + vec3(uSnareSeed * 17.0, uSnareSeed * 5.0, uSnareSeed * 11.0));
+      vein = (1.0 - smoothstep(0.0, 0.075, abs(nc))) * uSnare * (1.0 - uAj);
+    }
+    // THE HAT: glints. 7% of the skin, re-dealt on every hat, flares for the
+    // hat's 60ms. Only at the surface: a hat is air, it has no depth.
+    float glint = step(0.93, fract(aHash * 91.7 + uHatN * 0.618)) * uHat * smoothstep(0.75, 1.0, depth) * (1.0 - uAj);
+
     // The photosphere: base radius breathes with the bass; anticipation
     // (the peaks feed) raises the surface tension before a drop lands.
-    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth * eqBody;
+    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * depth * eqBody
+      * (1.0 + kickSwell + vein * 0.04) * (1.0 - uTension * 0.05);
     vec3 p = aDir * r;
+
+    // THE AJ VARIANT. The same particles, settled onto the nodal lines of
+    // the measured tone's standing wave. SETTLE is the level: loud and the
+    // sand lies on the lines, quiet and it lifts off and drifts. A third of
+    // the grains settle less firmly than the rest, so the lines read as
+    // lines of sand, with sand between them, not as wire.
+    float ajLine = 0.0;
+    if (uAj > 0.001) {
+      float sh = fract(aHash * 23.17);
+      float settle = uAjAmp * mix(0.45, 1.0, sh * sh);
+      vec3 cd = cymaProject(aDir);
+      vec3 ad = normalize(mix(aDir, cd, settle) + vec3(n2, n3, n1) * (1.0 - settle) * 0.035);
+      float ra = uR * 0.60 * (0.96 + 0.04 * depth);
+      p = mix(p, ad * ra, uAj);
+      ajLine = settle;
+    }
 
     // THE DISSECTION. Pulled apart, the star shears into stacked survey
     // rings — one per tier, frequency-honest (this particle's band decides
@@ -407,7 +559,7 @@ const SHELL_VERT = /* glsl */ `
       // gaussian-ish ring, and it fades as it travels so the wave spends
       // itself rather than stopping dead at the edge of the body
       float ring = exp(-pow((rNow - front) / 0.22, 2.0)) * (1.0 - uWave / 0.95);
-      wavePush = ring * uDrop;
+      wavePush = ring * uDrop * (1.0 - uAj);
       p += normalize(p + vec3(1e-5)) * wavePush * 0.42;
     }
 
@@ -422,8 +574,21 @@ const SHELL_VERT = /* glsl */ `
     // the dissect branch. Without this the radius stopped favouring bass and
     // the brightness carried on doing it.
     float glowE = mix(bandE, min(tl, 1.4) * 0.45, uStems * dl);
-    float scint = uCalm * n3;
-    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.22 + glowE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) * (1.0 + scint * 0.22) + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10;
+    // the fine-grain scintillation also answers the spectrum's brightness:
+    // an airy mix reads finer-grained than a dark one. Zero-mean like the
+    // calm term, so brightness redistributes light and never adds it.
+    float scint = (uCalm + uCentroid * 0.35 * (1.0 - uAj)) * n3;
+    // The generic onset flash (uSnap) is down from 0.22 to 0.10: it was the
+    // ONLY thing that visibly answered a hit, identically for a kick, a snare
+    // and a hat. The typed reflexes carry the hit now and the snap stays as
+    // the floor under onsets none of them claim (a stab, a vocal entry).
+    vGlow = (0.10 + 0.40 * k + uPulse * 0.13 + uSnap * 0.10 + uKick * 0.10 * (1.0 - uAj) + glowE * 0.18) * tw * (0.55 + 0.45 * depth) * uExpo * (0.55 + 0.45 * eqV) * (1.0 + dl * 0.35) * mix(1.0, (0.28 + 0.62 * min(tl, 1.15)) * (1.0 - dustG * 0.4) * hiB, dl) * (1.0 + scint * 0.22) * (1.0 + uTension * 0.2) + (vein * 0.55 + glint * 0.9) * uExpo + pullHeat + hoverHeat + wavePush * 1.1 + uDrop * 0.10 * (1.0 - uAj);
+    // AJ: settled sand is lit, drifting sand is dim; the lines read by light.
+    // The accent is sparse on purpose -- one grain in six on a settled line,
+    // and only while the level swells above its own slow mean (uAjPeak): the
+    // pattern glints noon yellow at its peaks and is ink the rest of the time.
+    vGlow = mix(vGlow, (0.10 + 0.55 * ajLine) * tw * uExpo + pullHeat + hoverHeat, uAj);
+    vAccent = uAj * uAjPeak * step(0.83, fract(aHash * 13.7)) * ajLine;
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -444,7 +609,9 @@ const SHELL_VERT = /* glsl */ `
     // and n3 in -1..1 leaves the average point exactly where it was while
     // pulling its neighbours apart. Law 3 survives: nothing here invents
     // energy, it only redistributes what the passage already has.
-    gl_PointSize = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.9 + dl * 0.7 + scint * 0.45) * on
+    float ps = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.4 + uKick * 0.25 + vein * 0.6 + glint * 1.3 + dl * 0.7 + scint * 0.45) * (1.0 - uTension * 0.12);
+    ps = mix(ps, 0.9 + 0.5 * ajLine, uAj);
+    gl_PointSize = ps * on
       * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
@@ -453,6 +620,7 @@ const SHELL_FRAG = /* glsl */ `
   precision mediump float;
   varying float vGlow;
   varying float vHash;
+  varying float vAccent;
   void main() {
     // A real luminous profile: tight gaussian core plus a faint halo. Flat
     // discs read as blobs the moment you zoom in; this holds up magnified.
@@ -461,7 +629,8 @@ const SHELL_FRAG = /* glsl */ `
     if (d > 1.0) discard;
     float core = exp(-d * d * 5.0);
     float halo = smoothstep(1.0, 0.2, d) * (0.22 + vHash * 0.1);
-    gl_FragColor = vec4(vec3(0.93) * vGlow * (core + halo), 1.0);
+    // noon yellow (#feee00), the one accent; zero everywhere but AJ peaks
+    gl_FragColor = vec4(mix(vec3(0.93), vec3(1.0, 0.933, 0.0), clamp(vAccent, 0.0, 1.0)) * vGlow * (core + halo), 1.0);
   }
 `
 
@@ -530,6 +699,10 @@ const LINK_VERT = /* glsl */ `
   uniform float uSnap;
   uniform float uOnsetN;
   uniform float uDissect;
+  uniform float uKick;
+  uniform float uSnare;
+  uniform float uTension;
+  uniform float uAj;
   attribute vec2 aSimUV;
   uniform sampler2D uSim;
   uniform float uSimAmt;
@@ -542,7 +715,9 @@ const LINK_VERT = /* glsl */ `
     float n1 = snoise(aDir * 2.1 + vec3(0.0, uTime * 0.11, uTime * 0.07));
     float n2 = snoise(aDir * 5.3 + vec3(uTime * 0.26, 0.0, -uTime * 0.19));
     float disp = (n1 * (0.05 + uLow * 0.30) + n2 * (uMid * 0.24 + uPulse * 0.10)) * uTurb;
-    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp);
+    // the shell's kick swell at the skin (0.07 * 0.8) and its build squeeze,
+    // or the lattice lets go of the matter it is drawn between on every kick
+    float r = uR * (0.60 + uLow * 0.16 + uAhead * 0.05) * (1.0 + disp) * (1.0 + uKick * 0.056 * (1.0 - uAj)) * (1.0 - uTension * 0.05);
     vec3 p = aDir * r;
 
     // Onset-driven: every real transient (snare, hat, stab) re-deals which
@@ -551,7 +726,11 @@ const LINK_VERT = /* glsl */ `
     float gate = step(0.8, fract(aHash * 17.31 + uOnsetN * 0.618));
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     // A chord between two tiers is a lie once the tiers separate.
-    vA = (0.028 + gate * max(uPulse * 0.3, uSnap * 0.5)) * on * (1.0 - uDissect);
+    // The snare owns the lattice now: a crack is a structural event, and the
+    // chords are the star's structure. The generic snap still arms it, at
+    // less than before. Tension lights the whole lattice a little as a build
+    // gathers. Gone in AJ, where the structure is the standing wave.
+    vA = (0.028 + uTension * 0.03 + gate * max(max(uPulse * 0.3, uSnap * 0.3), uSnare * 0.6)) * on * (1.0 - uDissect) * (1.0 - uAj);
     // the lattice borrows each endpoint's shell slot, or the wireframe
     // detaches from the matter it is drawn between
     vec3 simOff = texture2D(uSim, aSimUV).rgb * uSimAmt;
@@ -580,12 +759,15 @@ const CORE_VERT = /* glsl */ `
   uniform float uDensity;
   uniform float uZoom;
   uniform float uDissect;
+  uniform float uKick;
+  uniform float uAj;
   attribute float aHash;
   attribute vec3 aSeed;
   varying float vHeat;
 
   void main() {
-    float coreR = uR * (0.16 + uLow * 0.14 + uPulse * 0.03);
+    // the kick lands in the furnace first: it swells and flares
+    float coreR = uR * (0.16 + uLow * 0.14 + uPulse * 0.03 + uKick * 0.05 * (1.0 - uAj));
     float t = uTime * (0.4 + aHash * 1.2);
     vec3 wob = vec3(
       sin(t * 3.1 + aHash * 40.0),
@@ -596,7 +778,7 @@ const CORE_VERT = /* glsl */ `
     float dist = length(p) / max(coreR * 2.2, 1e-4);
     float clump = 0.45 + 0.55 * sin(aHash * 43.7 + uTime * 0.9);
     // Dissected, there is no centre for a furnace to live in.
-    vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18) * (0.5 + clump)) * (1.0 - uDissect * 0.9);
+    vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18 + uKick * 0.35) * (0.5 + clump)) * (1.0 - uDissect * 0.9) * (1.0 - uAj * 0.7);
     float on = step(fract(aHash * 613.0), uReveal) * step(fract(aHash * 331.7), uDensity);
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
@@ -767,6 +949,31 @@ export class Scene {
   private midE = new Env()
   private highE = new Env()
   private pulseE = new Env()
+  private sustainE = new Env()
+  private centroidE = new Env()
+  private tensionE = new Env()
+  private ajAmpE = new Env()
+  /** raw targets from setVoices, sprung in render() */
+  private sustainT = 0
+  private centroidT = 0
+  private tensionT = 0
+  private kickPrev = 0
+  private snarePrev = 0
+  private hatPrev = 0
+  /** the variant glide: linear 0..1 progress, eased on the way out */
+  private ajT = 0
+  private ajGo = 0
+  /** cymatic mode bookkeeping. The shown pattern morphs A -> B; a new
+   *  target has to hold for PATTERN_HOLD before it is allowed to start a
+   *  morph, or a bell's attack would re-deal the whole sphere. */
+  private modeA = { l: 6, m: 3 }
+  private modeB = { l: 6, m: 3 }
+  private modeCand = { l: 6, m: 3 }
+  private modeCandFor = 0
+  private morphT = 1
+  private ajLevel = 0
+  private ajSlow = 0
+  private ajHz = 0
   private aheadE = new Env()
   private dissectE = new Env()
   private dissectTarget = 0
@@ -784,8 +991,6 @@ export class Scene {
   private simAxis = new THREE.Vector3()
   /** how hard the hand is working, from its own speed, decaying */
   private handHeat = 0
-  /** last frame's snap, so the impulse can be taken on the rising edge */
-  private snapPrev = 0
   /** Live multiplier on SIM_AMT, so the throw can be judged on real
    *  hardware rather than guessed at: `__sc.setSimDial(0)` is today's
    *  star exactly, 3 is the ceiling. */
@@ -878,6 +1083,33 @@ export class Scene {
       uDrop: { value: 0 },
       uStrong: { value: 0 },
       uWave: { value: -1 },
+      /* THE TYPED REFLEXES. Each is a 0..1 envelope from its own region's
+       * onset detector in features.ts -- kick, snare, hat -- and each moves
+       * the body its own way: the kick swells the core radially, the snare
+       * cracks the shell into veins and owns the lattice, the hat glints
+       * the skin. Unsprung, like uSnap: a spring would put the reflex
+       * frames behind the sound it answers. The seeds re-deal WHICH veins
+       * and glints on each hit, so no two hits draw the same figure. */
+      uKick: { value: 0 },
+      uSnare: { value: 0 },
+      uHat: { value: 0 },
+      uSnareSeed: { value: 0 },
+      uHatN: { value: 0 },
+      // slow reads, sprung here: sustain (pads turn the boil and the spin),
+      // spectral centroid (grain), and the build's tension (energy.ts)
+      uSustain: { value: 0 },
+      uCentroid: { value: 0 },
+      uTension: { value: 0 },
+      /* THE AJ VARIANT: 0 = the star, 1 = cymatics. uYa/uYb are two
+       * spherical-harmonic modes (l, m) and uMorph blends their fields;
+       * uAjAmp is how firmly the sand settles (the measured level), uAjPeak
+       * the swell that lets the lines glint yellow. */
+      uAj: { value: 0 },
+      uYa: { value: new THREE.Vector2(6, 3) },
+      uYb: { value: new THREE.Vector2(6, 3) },
+      uMorph: { value: 0 },
+      uAjAmp: { value: 0 },
+      uAjPeak: { value: 0 },
       // The vocal voice: 0 = no corona; rises with vocal-stem presence.
       uVocal: { value: 0 },
       // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
@@ -942,7 +1174,7 @@ export class Scene {
       if (this.sim.active) this.uniforms.uSim.value = this.sim.offsetTexture
       const mat = new THREE.ShaderMaterial({
         uniforms: this.uniforms,
-        vertexShader: SHELL_VERT.replace('__SNOISE__', SNOISE),
+        vertexShader: SHELL_VERT.replace('__SNOISE__', SNOISE).replace('__CYMA__', CYMA),
         fragmentShader: SHELL_FRAG,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
@@ -1209,6 +1441,53 @@ export class Scene {
     this.uniforms.uVocal.value = Math.max(0, Math.min(1.4, v))
   }
 
+  /**
+   * The typed reflexes and the slow reads, once per frame, straight off the
+   * analyser's features (the object is reused, so nothing here keeps it).
+   * `tension` is energy.ts's build reading.
+   *
+   * The seeds re-deal on each detected hit so every snare cracks along new
+   * veins and every hat lights new glints; Math.random here is a CHOICE of
+   * figure, never a quantity -- how bright and how far always come from the
+   * measured envelopes.
+   */
+  setVoices(f: Features, tension: number) {
+    const u = this.uniforms
+    u.uKick.value = f.kick
+    u.uSnare.value = f.snare
+    u.uHat.value = f.hat
+    if (f.snareHit) u.uSnareSeed.value = Math.random()
+    if (f.hatHit) u.uHatN.value = (u.uHatN.value + 1) % 4096
+    this.sustainT = f.sustain
+    this.centroidT = f.centroid
+    this.tensionT = tension
+    // AJ reads: level for the settle, and the tone for the mode
+    this.ajLevel = f.rms
+    this.ajHz = f.pitchConf > 0.3 ? f.pitchHz : 0
+  }
+
+  /**
+   * 'star' is the instrument as it has always been. 'aj' is cymatics: the
+   * particles settle into the standing-wave pattern of the measured tone.
+   * The change glides over VARIANT_GLIDE seconds (instant under reduced
+   * motion), and every burst, shockwave and scale break stands down while
+   * the variant is in, because a Chladni figure is read by being still.
+   */
+  setVariant(v: 'star' | 'aj') {
+    this.ajGo = v === 'aj' ? 1 : 0
+    if (this.calm) this.ajT = this.ajGo
+  }
+
+  /** where the glide is right now, 0 = star, 1 = aj */
+  get variant(): number {
+    return this.uniforms.uAj.value as number
+  }
+
+  /** The mode the cymatic pattern is settling into, for a readout. */
+  get cymaticMode(): { l: number; m: number } {
+    return this.modeB
+  }
+
   /** Target for the pull-apart, 0..1. The spring does the rest. */
   /**
    * The energy classifier's four-tier state, in one call.
@@ -1229,7 +1508,8 @@ export class Scene {
     // far this passage sits below the track's own long-run loudness, so
     // tier 0 stops being the tier where nothing happens.
     this.uniforms.uCalm.value = Math.max(0, Math.min(1, calm))
-    if (wave) this.uniforms.uWave.value = 0
+    // no shockwave into a Chladni figure
+    if (wave && (this.uniforms.uAj.value as number) < 0.5) this.uniforms.uWave.value = 0
     // the ground dips so a star that has outgrown its frame is actually
     // visible through the chrome rather than glowing faintly behind it
     if (this.dropCssEl) this.dropCssEl.style.setProperty('--drop', this.uniforms.uDrop.value.toFixed(3))
@@ -1439,6 +1719,9 @@ export class Scene {
    *  instead of the photosphere — dissected, the drums erupt from the
    *  drums' own tier, not from the empty centre the star vacated. */
   burst(strength: number, tier: number | null = null) {
+    // AJ has no ejecta: tones do not throw matter, and a burst over a
+    // settling pattern is exactly the spam the variant exists to be free of
+    if ((this.uniforms.uAj.value as number) > 0.3) return
     const n = Math.round(90 + strength * 240)
     const e = this.ejecta
     const fromRing = tier != null && (this.uniforms.uDissect.value as number) > 0.35
@@ -1530,6 +1813,73 @@ export class Scene {
     this.camera.updateProjectionMatrix()
   }
 
+  /**
+   * The variant glide and the cymatic mode.
+   *
+   * FREQUENCY -> MODE. The octave sets the order l -- more nodal lines for a
+   * higher tone, as on a real plate, where a higher drive frequency excites
+   * a higher mode -- and the note within the octave sets m, how those lines
+   * divide between meridians and latitudes:
+   *
+   *   l = round(2 + 12 * log2(f / 60) / log2(2000 / 60)), clamped 2..14
+   *   m = round(chroma * l), chroma = fract(log2(f / 261.63))  (C = 0)
+   *
+   * so 432Hz is Y(9,7), 528Hz Y(9,0) (all latitudes: 528 sits a hair above
+   * C5), 396Hz Y(8,5). A tone held gives a held figure; a new tone morphs.
+   * No clear tone (pitchConf < 0.3) holds the last figure and lets the sand
+   * drift -- the pattern is never invented to fill a gap.
+   */
+  private stepVariant(dt: number) {
+    const u = this.uniforms
+    // glide: linear progress, smoothstep out, VARIANT_GLIDE seconds
+    const step = dt / VARIANT_GLIDE
+    this.ajT = this.ajGo > this.ajT ? Math.min(this.ajGo, this.ajT + step) : Math.max(this.ajGo, this.ajT - step)
+    const e = this.ajT * this.ajT * (3 - 2 * this.ajT)
+    u.uAj.value = e
+    if (e <= 0 && this.ajGo === 0) return
+
+    // settle: the level, sprung slow, over the range tones actually occupy
+    const lvl = Math.max(0, Math.min(1, (this.ajLevel - 0.04) / 0.5))
+    u.uAjAmp.value = Math.max(0, Math.min(1, this.ajAmpE.update(this.ajHz > 0 ? lvl : lvl * 0.35, dt, 2.2)))
+    // peaks: the level swelling above its own 4s mean
+    this.ajSlow += (this.ajLevel - this.ajSlow) * (1 - Math.exp(-dt / 4))
+    const peak = Math.max(0, Math.min(1, (this.ajLevel - this.ajSlow) / 0.06))
+    u.uAjPeak.value += (peak - u.uAjPeak.value) * (1 - Math.exp(-dt / 0.25))
+
+    if (this.ajHz > 0) {
+      const f = this.ajHz
+      const l = Math.max(2, Math.min(14, Math.round(2 + (12 * Math.log2(f / 60)) / Math.log2(2000 / 60))))
+      const lg = Math.log2(f / 261.63)
+      const chroma = lg - Math.floor(lg)
+      const m = Math.max(0, Math.min(l, Math.round(chroma * l)))
+      if (l !== this.modeCand.l || m !== this.modeCand.m) {
+        this.modeCand.l = l
+        this.modeCand.m = m
+        this.modeCandFor = 0
+      } else this.modeCandFor += dt
+      const settledOnB = this.modeB.l === l && this.modeB.m === m
+      if (!settledOnB && this.modeCandFor >= PATTERN_HOLD) {
+        if (this.morphT >= 1) {
+          // start a morph from what is showing now
+          this.modeA.l = this.modeB.l
+          this.modeA.m = this.modeB.m
+          this.modeB.l = l
+          this.modeB.m = m
+          this.morphT = 0
+        } else if (this.morphT < 0.5) {
+          // early in a morph: retarget rather than queue
+          this.modeB.l = l
+          this.modeB.m = m
+        }
+      }
+    }
+    if (this.morphT < 1) this.morphT = Math.min(1, this.morphT + dt / PATTERN_MORPH)
+    const mt = this.morphT * this.morphT * (3 - 2 * this.morphT)
+    ;(u.uYa.value as THREE.Vector2).set(this.modeA.l, this.modeA.m)
+    ;(u.uYb.value as THREE.Vector2).set(this.modeB.l, this.modeB.m)
+    u.uMorph.value = mt
+  }
+
   render(dt: number, low: number, mid: number, high: number, pulse: number, ahead = 0, snap = 0) {
     // The velocity edit: simulation time itself lurches on hits and eases
     // back between them — motion CUTS on the beat instead of drifting
@@ -1543,6 +1893,10 @@ export class Scene {
     this.uniforms.uHigh.value = this.highE.update(high, dt, 13)
     this.uniforms.uPulse.value = this.pulseE.update(pulse, dt, 16)
     this.uniforms.uAhead.value = this.aheadE.update(ahead, dt, 1.6)
+    this.uniforms.uSustain.value = this.sustainE.update(this.sustainT, dt, 3)
+    this.uniforms.uCentroid.value = this.centroidE.update(this.centroidT, dt, 4)
+    this.uniforms.uTension.value = Math.max(0, this.tensionE.update(this.tensionT, dt, 5))
+    this.stepVariant(dt)
     this.uniforms.uReveal.value = Math.min(1, (performance.now() - this.born) / 1700)
 
     // The shear itself is sprung: release your grip mid-pull and the stack
@@ -1586,7 +1940,13 @@ export class Scene {
     // arriving is instant and leaving is a settle rather than a pop.
     this.uniforms.uHoverStr.value += (this.hoverT - this.uniforms.uHoverStr.value) * Math.min(1, dt * 7)
     this.uniforms.uHoverLag.value.lerp(this.uniforms.uHover.value, Math.min(1, dt * 9))
-    if (!this.calm) this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05) * this.spinDial * (0.75 + warp * 0.25) * (1 + this.bootRev * 5)
+    // Sustain turns the body slowly (a held chord is a slow thing, and the
+    // one audible quantity that should read as rotation rather than as a
+    // hit), a build winds it up, and AJ turns at 40% so a figure can be read.
+    const aj = this.uniforms.uAj.value as number
+    if (!this.calm)
+      this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05 * (1 - aj) + (this.uniforms.uSustain.value as number) * 0.03 + (this.uniforms.uTension.value as number) * 0.06) *
+        this.spinDial * (0.75 + warp * 0.25) * (1 + this.bootRev * 5) * (1 - aj * 0.6)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     // Dissected, the view settles into the surveyor's tilt — looking
     // slightly down the axis so the rings read as the drawing's ellipses.
@@ -1598,7 +1958,9 @@ export class Scene {
     // the whole sustained range, which is what makes it read as a flash
     // rather than as the music simply getting louder.
     this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value * (1 - dis * 0.28)
-      + this.uniforms.uDrop.value * 0.55 + this.uniforms.uStrong.value * 0.16
+      // the kick is light pressure too; the drop's flash stands down in AJ
+      + this.uniforms.uKick.value * 0.12 * (1 - aj)
+      + (this.uniforms.uDrop.value * 0.55 + this.uniforms.uStrong.value * 0.16) * (1 - aj)
     // Persistence leans with the bass: quiet = crisp, heavy = long
     // exposure. A drop adds motion blur on top, so the burst smears and
     // the calm state stays crisp.
@@ -1620,7 +1982,7 @@ export class Scene {
     // purpose -- moving the camera would take the survey chrome and
     // projectLocal's registration with it.
     this.uniforms.uR.value =
-      R_BASE * (1 + this.uniforms.uDrop.value * 0.34 + this.uniforms.uStrong.value * 0.06)
+      R_BASE * (1 + (this.uniforms.uDrop.value * 0.34 + this.uniforms.uStrong.value * 0.06) * (1 - aj))
 
     // the shockwave's clock. Runs from the frame the drop landed and
     // stops once the front is past every particle.
@@ -1672,9 +2034,26 @@ export class Scene {
       // non-zero and the whole sphere inflated onto the clamp instead of
       // ringing. The positive delta is non-zero only on the frame a
       // transient actually arrives, which is what an impulse is.
-      const snapNow = this.uniforms.uSnap.value
-      this.sim.setAudio(this.uniforms.uBands.value as Float32Array, Math.max(0, snapNow - this.snapPrev))
-      this.snapPrev = snapNow
+      //
+      // TYPED since the voices: the rising edge of the KICK throws the low
+      // sectors, the snare's the mids, the hat's the highs (at half weight,
+      // a hat is air). It used to be the generic snap for all 24, which
+      // measured as a hat throwing the bass sectors exactly as hard as a
+      // kick did (0.60 against 0.60) -- the anatomy this was written for
+      // was never there. Silent in AJ: tones do not throw matter.
+      const kNow = this.uniforms.uKick.value as number
+      const sNow = this.uniforms.uSnare.value as number
+      const hNow = this.uniforms.uHat.value as number
+      const quiet = 1 - aj
+      this.sim.setAudio(
+        this.uniforms.uBands.value as Float32Array,
+        Math.max(0, kNow - this.kickPrev) * quiet,
+        Math.max(0, sNow - this.snarePrev) * quiet,
+        Math.max(0, hNow - this.hatPrev) * 0.5 * quiet,
+      )
+      this.kickPrev = kNow
+      this.snarePrev = sNow
+      this.hatPrev = hNow
       this.sim.step(dt)
       // REBIND EVERY FRAME. The sim ping-pongs between two targets, so
       // offsetTexture is a different object after every step. Binding it

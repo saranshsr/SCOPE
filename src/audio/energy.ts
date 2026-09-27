@@ -94,6 +94,46 @@ const TIER3_AT = 0.3 // drop holds tier 3 for ~1.0s
 const TIER2_AT = 0.25 // strong holds tier 2 for ~0.24s
 const TIER1_SINCE = 1.2 // still "playing" this long after the last onset
 
+// --- tension ------------------------------------------------------------
+// the build before a drop, measured: loudness climbing faster than its own
+// slow average, the spectrum brightening (risers, a filter opening), onsets
+// crowding (a snare roll), and the sub leaving -- the classic build high-
+// passes the low end and holds it back for the landing. rising energy with
+// the bass ARRIVING is not tension, it is the landing itself, so a sub
+// step cancels it.
+//
+// a build is a RAMP, and a ramp is the one shape a step cannot fake: it rises
+// through both halves of a three-second window. a chorus arriving is a step --
+// one half climbs, the other is flat -- and it is a landing, not a build. the
+// first version compared a fast mean to a slow one, which calls every step
+// "tension" for the five seconds the slow mean takes to catch up, and on the
+// synthetic set read 0.3..0.6 of tension under a steady drum loop and a pad.
+// so each reading here is the SMALLER of its two half-window climbs.
+const TENSE_FAST = 0.6
+const TENSE_HALF = 90 // frames: 1.5s at 60fps, each half of the window
+const TENSE_RISE = 0.05 // rms climb per half that reads as full tension
+const TENSE_RISE_DEAD = 0.015 // under this per half is programme wandering
+const TENSE_BRIGHT = 0.04 // centroid climb per half
+const TENSE_DENSE = 1.5 // onsets/s climb per half
+const TENSE_ATTACK = 1.2 // a build is seconds long; tension gathers, it does not flash
+const TENSE_RELEASE = 2.5 // and lingers through a build's plateaus; only the drop spends it at once
+
+// --- the drop wants its bass --------------------------------------------
+// measured on a synthetic build-and-drop: an accelerating snare roll over a
+// riser climbs 0.29 -> 0.58 rms in its last three seconds, clears the step
+// bar and the edge test, and fired DROP at 10.80s -- 1.2s before the drop,
+// which then landed inside the refractory and got nothing. a real drop brings
+// the sub back; a build takes it away. so while the tracker reads tension,
+// arming also needs the sub to step up against its own baseline. outside a
+// build the old rule stands untouched.
+const DROP_SUB_STEP = 0.06
+const TENSE_GATE = 0.25
+// out of a build this tense, a sub-backed step is the landing itself (fire)
+const TENSE_LAND = 0.5
+// 0.62 on the byte scale is -40dB in the analyser's range: a sub at a level
+// that is bass, not leakage
+const SUB_REAL = 0.62
+
 const TRACK_TAU = 12 // long-run loudness, for calm
 const CALM_DEV_MIN = 0.04 // a compressed master has near-zero deviation
 
@@ -107,6 +147,9 @@ export interface Energy {
   calm: number
   /** false until the rolling windows have enough history to mean anything */
   ready: boolean
+  /** 0..1, the build: loudness, brightness and onset density climbing with
+   *  the sub held back. released to zero on the drop. */
+  tension: number
 }
 
 /**
@@ -165,6 +208,16 @@ export class EnergyTracker {
   private fluxRing = new Ring(FLUX_WIN)
   private rmsLong = new Ring(RMS_WIN)
   private rmsGuard = new Ring(RMS_GUARD)
+  private subLong = new Ring(RMS_WIN)
+  private subGuard = new Ring(RMS_GUARD)
+  private rmsFast = 0
+  private cenFast = 0
+  private rateFast = 0
+  private subFast = 0
+  private subSlow = 0
+  private rmsHist = new Ring(TENSE_HALF * 2 + 1)
+  private cenHist = new Ring(TENSE_HALF * 2 + 1)
+  private rateHist = new Ring(TENSE_HALF * 2 + 1)
 
   private onsetZ = new Float64Array(ONSET_MEM)
   private sortBuf = new Float64Array(ONSET_MEM)
@@ -188,6 +241,7 @@ export class EnergyTracker {
     beat: 0,
     calm: 1,
     ready: false,
+    tension: 0,
   }
 
   /** call once per frame with the live features. the returned object is
@@ -198,9 +252,13 @@ export class EnergyTracker {
     // a new track's loudness has nothing to do with the last one's, and the
     // EMAs start at zero, so seed them from the first real frame instead of
     // reporting "much louder than the track" for the first ten seconds.
+    const sub = (f.bands[0] + f.bands[1] + f.bands[2] + f.bands[3] + f.bands[4]) / 5
     if (!this.seeded) {
       this.trackMean = f.rms
       this.trackDev = CALM_DEV_MIN
+      this.rmsFast = f.rms
+      this.cenFast = f.centroid
+      this.subFast = this.subSlow = sub
       this.seeded = true
     }
     this.elapsed += dt
@@ -251,6 +309,11 @@ export class EnergyTracker {
     // --- drop: a sustained step in rms ------------------------------------
     this.rmsLong.push(f.rms)
     this.rmsGuard.push(f.rms)
+    this.subLong.push(sub)
+    this.subGuard.push(sub)
+    const sn = this.subLong.count - this.subGuard.count
+    const subBase = sn > 0 ? (this.subLong.sum - this.subGuard.sum) / sn : sub
+    const subOk = v.tension < TENSE_GATE || (sub - subBase >= DROP_SUB_STEP && sub >= SUB_REAL)
     // the baseline excludes the most recent second on purpose. include it and
     // the step contributes to the bar it has to clear, which is how a step
     // large enough to matter ends up looking normal.
@@ -273,18 +336,22 @@ export class EnergyTracker {
       // fires a drop somewhere in the middle of the build, before the drop.
       const agoFrames = Math.max(1, Math.round(EDGE_S / Math.max(dt, 1e-4)))
       const edge = f.rms - this.rmsLong.at(agoFrames)
-      if (above && edge >= Math.max(DROP_EDGE_MIN, DROP_EDGE_K * bStd)) {
-        this.armed = true
-        this.sustain = 0
+      if (above && subOk && edge >= Math.max(DROP_EDGE_MIN, DROP_EDGE_K * bStd)) {
+        if (v.tension >= TENSE_LAND) {
+          // A LANDING, not a candidate. The sustain test exists to tell a
+          // section change from one loud kick; out of a measured build, with
+          // the sub arriving on the same edge as the level, that question is
+          // already answered, and waiting 0.45s to confirm it put the whole
+          // drop response half a second behind the downbeat it belongs to.
+          this.fire(now)
+        } else {
+          this.armed = true
+          this.sustain = 0
+        }
       }
     } else if (above) {
       this.sustain += dt
-      if (this.sustain >= DROP_SUSTAIN_S) {
-        v.drop = 1
-        this.lastDrop = now
-        this.armed = false
-        this.sustain = 0
-      }
+      if (this.sustain >= DROP_SUSTAIN_S) this.fire(now)
     } else {
       // a single loud kick clears the bar for about a tenth of a second. one
       // frame below burns three frames of credit so a kick can never limp its
@@ -295,6 +362,29 @@ export class EnergyTracker {
         this.sustain = 0
       }
     }
+
+    // --- tension ----------------------------------------------------------
+    const kf = 1 - Math.exp(-dt / TENSE_FAST)
+    this.rmsFast += (f.rms - this.rmsFast) * kf
+    this.cenFast += (f.centroid - this.cenFast) * kf
+    // onset rate in onsets/s: an impulse of 1/dt on the onset frame, so the
+    // EMA's mean is the rate
+    const imp = onset ? 1 / Math.max(dt, 1e-3) : 0
+    this.rateFast += (imp - this.rateFast) * (1 - Math.exp(-dt / 1.0))
+    this.subFast += (sub - this.subFast) * kf
+    this.subSlow += (sub - this.subSlow) * (1 - Math.exp(-dt / 5))
+    this.rmsHist.push(this.rmsFast)
+    this.cenHist.push(this.cenFast)
+    this.rateHist.push(this.rateFast)
+    const rise = clamp01((ramp(this.rmsHist) - TENSE_RISE_DEAD) / TENSE_RISE)
+    const bright = clamp01(ramp(this.cenHist) / TENSE_BRIGHT)
+    const dense = clamp01(ramp(this.rateHist) / TENSE_DENSE)
+    // the sub has to arrive at a level that is actually bass. in the byte
+    // domain a snare roll's sidelobes lift a silent sub from -90 to -60dB,
+    // which is a big step on the scale and nothing at all to the ear.
+    const subUp = clamp01((this.subFast - this.subSlow) / 0.08) * smoothstep(SUB_REAL - 0.1, SUB_REAL + 0.05, this.subFast)
+    const rawTense = v.ready && live && now - this.lastDrop > 1.5 ? Math.max(rise, 0.7 * bright, 0.7 * dense) * (1 - subUp) : 0
+    v.tension += (rawTense - v.tension) * (1 - Math.exp(-dt / (rawTense > v.tension ? TENSE_ATTACK : TENSE_RELEASE)))
 
     // --- calm -------------------------------------------------------------
     const kTrack = 1 - Math.exp(-dt / TRACK_TAU)
@@ -318,6 +408,16 @@ export class EnergyTracker {
     return v
   }
 
+  private fire(now: number) {
+    this.value.drop = 1
+    // the release. whatever the build had gathered is spent on the landing,
+    // which is what makes the landing read as one.
+    this.value.tension = 0
+    this.lastDrop = now
+    this.armed = false
+    this.sustain = 0
+  }
+
   /** new track. nothing measured about the last one transfers. */
   reset() {
     this.fluxRing.clear()
@@ -337,8 +437,14 @@ export class EnergyTracker {
     this.seeded = false
     this.trackMean = 0
     this.trackDev = CALM_DEV_MIN
+    this.subLong.clear()
+    this.subGuard.clear()
+    this.rmsHist.clear()
+    this.cenHist.clear()
+    this.rateHist.clear()
 
     const v = this.value
+    v.tension = 0
     v.tier = 0
     v.drop = 0
     v.strong = 0
@@ -367,6 +473,13 @@ export class EnergyTracker {
     }
     return s[Math.min(n - 1, Math.floor(p * (n - 1)))]
   }
+}
+
+/** the smaller of a history's two half-window climbs: a ramp rises through
+ *  both, a step through only one (see TENSE_HALF). module-level so the frame
+ *  loop allocates no closure. */
+function ramp(h: Ring) {
+  return h.full ? Math.min(h.at(0) - h.at(TENSE_HALF), h.at(TENSE_HALF) - h.at(TENSE_HALF * 2)) : 0
 }
 
 function stdOf(sum: number, sumSq: number, n: number) {

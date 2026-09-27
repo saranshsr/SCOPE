@@ -13,8 +13,9 @@
  */
 
 import { Analyser } from './features'
+import { AJTones, type AJState } from './aj'
 
-export type SourceKind = 'radio' | 'file' | 'tab' | 'stems' | 'tube'
+export type SourceKind = 'radio' | 'file' | 'tab' | 'stems' | 'tube' | 'aj'
 
 export interface TrackInfo {
   title: string
@@ -463,7 +464,28 @@ export class AudioEngine {
     this.gain.gain.value = this._muted ? 0 : this._volume
   }
 
+  /** AJ: pure frequencies, generated live (src/audio/aj.ts) and fed into the
+   *  bus head like the stem deck, so the analyser hears real tones. */
+  private aj: AJTones | null = null
+  async useAJ() {
+    await this.unlock()
+    this.el.pause()
+    this.stopExt()
+    this.stopTabAudio()
+    this.pendingAnnounce = null
+    this.aj = new AJTones(this.ctx)
+    this.aj.onChange = (st) => { if (this.kind === 'aj' && st.freq) this.onAJChange?.(st) }
+    this.aj.start(this.busHead)
+    this.kind = 'aj'
+    this.onTrackChange?.({ title: 'AJ · pure frequencies', artist: 'generated live', src: '' })
+  }
+  ajNext() { this.aj?.next() }
+  get ajState(): AJState | null { return this.aj ? this.aj.read() : null }
+  onAJChange: ((s: AJState) => void) | null = null
+
   private stopExt() {
+    // every other source calls this on the way in, so AJ stands down here
+    if (this.aj) { this.aj.stop(); this.aj = null }
     this.extSource?.disconnect()
     this.extSource = null
     this.extStream?.getTracks().forEach((t) => t.stop())
@@ -612,6 +634,7 @@ export class AudioEngine {
   }
 
   get playing() {
+    if (this.kind === 'aj') return !!this.aj?.playing
     if (this.kind === 'tab') return !!this.extStream
     // The jukebox's transport lives in the iframe, not in our element —
     // the app reports its state from the YT player instead.
@@ -620,7 +643,7 @@ export class AudioEngine {
   }
 
   toggle() {
-    if (this.kind === 'tab' || this.kind === 'tube') return
+    if (this.kind === 'tab' || this.kind === 'tube' || this.kind === 'aj') return
     if (this.el.paused) this.el.play().catch(() => {})
     else this.el.pause()
   }

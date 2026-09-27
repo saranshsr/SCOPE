@@ -114,6 +114,8 @@ const SIM_HEAD = /* glsl */ `
   uniform vec3 uViewAxis;
   uniform float uBands[24];
   uniform float uKick;
+  uniform float uKickMid;
+  uniform float uKickHigh;
   uniform float uMusic;
   uniform float uMaxOff;
   uniform float uMaxVel;
@@ -237,10 +239,14 @@ const VEL_FRAG = /* glsl */ `
     // Per sector, from the particle's own azimuth, the same 24-band map
     // the render shader uses: a kick throws the low sectors and a hat
     // throws the high ones, instead of the sphere pumping as one.
-    if (uKick > 0.0001) {
+    if (uKick + uKickMid + uKickHigh > 0.0001) {
       float az = atan(b.z, b.x);
       int si = int(mod(floor((az + 3.14159265) / 6.2831853 * 24.0), 24.0));
-      v += normalize(b.xyz + vec3(1e-5)) * (uBands[si] * uKick * uMusic * invMass);
+      // uKick is the low third's impulse (the kick voice's rising edge),
+      // uKickMid the mids' (the snare's), uKickHigh the highs' (the hat's):
+      // a sector is thrown by the voice that lives in its band.
+      float imp = si < 8 ? uKick : si < 16 ? uKickMid : uKickHigh;
+      v += normalize(b.xyz + vec3(1e-5)) * (uBands[si] * imp * uMusic * invMass);
     }
     float s = length(v);
     if (s > uMaxVel) v *= uMaxVel / s;
@@ -341,6 +347,10 @@ const MAX_VEL = 14
  *  after a stall, reports a velocity of tens of units per second. Fed to
  *  the drag term that is an impulse nothing recovers from gracefully. */
 const MAX_HAND_VEL = 6
+
+function clampKick(x: number) {
+  return Number.isFinite(x) ? Math.max(0, Math.min(4, x)) : 0
+}
 
 export class ParticleSim {
   private renderer: THREE.WebGLRenderer
@@ -453,6 +463,8 @@ export class ParticleSim {
       uViewAxis: { value: new THREE.Vector3(0, 0, 1) },
       uBands: { value: new Float32Array(24) },
       uKick: { value: 0 },
+      uKickMid: { value: 0 },
+      uKickHigh: { value: 0 },
       uMusic: { value: DEFAULTS.music },
       uMaxOff: { value: MAX_OFF },
       uMaxVel: { value: MAX_VEL },
@@ -537,12 +549,16 @@ export class ParticleSim {
     ;(this.uniforms.uViewAxis.value as THREE.Vector3).copy(axis).normalize()
   }
 
-  /** The 24 band energies and this frame's transient. The transient is
-   *  passed unsmoothed: it is the frame the sound lands. */
-  setAudio(bands: Float32Array, kick: number) {
+  /** The 24 band energies and this frame's transients, one per third of
+   *  the spectrum (low / mid / high sectors). Passed unsmoothed: each is the
+   *  frame its sound lands. `mid` and `high` default to `kick`, which is the
+   *  old one-impulse-for-everything behaviour. */
+  setAudio(bands: Float32Array, kick: number, mid = kick, high = kick) {
     const u = this.uniforms.uBands.value as Float32Array
     for (let i = 0; i < 24; i++) u[i] = bands[i]
-    this.uniforms.uKick.value = Number.isFinite(kick) ? Math.max(0, Math.min(4, kick)) : 0
+    this.uniforms.uKick.value = clampKick(kick)
+    this.uniforms.uKickMid.value = clampKick(mid)
+    this.uniforms.uKickHigh.value = clampKick(high)
   }
 
   setHand(localPos: THREE.Vector3, vel: THREE.Vector3, strength: number) {

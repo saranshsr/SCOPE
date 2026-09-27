@@ -15,6 +15,7 @@ import { clip } from './text'
 import { Tube, HINDI, parseVideoId, searchTube, type TubeState, type TubeHit } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 import { EnergyTracker } from './audio/energy'
+import type { AJState } from './audio/aj'
 
 /**
  * scope — a polar oscilloscope made of type.
@@ -26,7 +27,7 @@ import { EnergyTracker } from './audio/energy'
  * to the DOM from the frame loop — React state only handles mode changes.
  */
 
-const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', tab: '[03]', stems: '[04]', tube: '[05]' }
+const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', tab: '[03]', stems: '[04]', tube: '[05]', aj: '[AJ]' }
 
 /** Track time the way every player on earth writes it. */
 const fmtTime = (s: number) => {
@@ -80,6 +81,8 @@ export default function App() {
   const [announce, setAnnounce] = useState<{ text: string; key: number } | null>(null)
   const [decoding, setDecoding] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [aj, setAj] = useState<AJState | null>(null)
+  const ajBeatRef = useRef<HTMLElement>(null)
   const [volume, setVolume] = useState(0.8)
   const [muted, setMuted] = useState(false)
   const [diag, setDiag] = useState(false)
@@ -478,8 +481,10 @@ export default function App() {
     engine.onExtEnded = () => {
       void engine.playRadio()
     }
+    engine.onAJChange = (st) => setAj(st)
     engine.onTrackChange = (tr) => {
       energy.reset()
+      setAj(engine.kind === 'aj' ? engine.ajState : null)
       if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
         stemDeckRef.current.pause()
         stemDeckRef.current.solo(null)
@@ -1330,7 +1335,15 @@ export default function App() {
         scene.onset()
       }
       snapEnv *= Math.exp(-dt * 9)
-      scene.setBands(f.bands)
+      // The star reads each band against ITS OWN running mean, not the
+      // absolute level: measured across the radio the absolute bands sat
+      // pinned (std 0.01..0.05), so the anatomy drew the spectrum's tilt and
+      // barely moved. f.bands stays absolute for everything that must be
+      // (05 SPECTRUM, the ring meters' own reference below).
+      scene.setBands(f.bandsRel)
+      // the typed reflexes (kick / snare / hat), sustain, the tone for AJ,
+      // and the build's tension -- all measured, see features.ts / energy.ts
+      scene.setVoices(f, en.tension)
       if (fp.tempoConfidence > 0.2 && fp.tempo > 0) engine.setEchoTime(60 / fp.tempo * (fp.tempo > 140 ? 1 : 0.75))
       if (beat.trigger) {
         beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
@@ -1656,7 +1669,13 @@ export default function App() {
         // diagnostics: one dim line, only for those who ask
         if (diagRef.current)
           diagRef.current.textContent = `fps ${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))} · worst ${Math.round(hitchShown * 1000)}ms · pts ${Math.round((108000 * scene.densityNow + 2600 + 3600) / 1000)}k · quality ${perf.q < 1 ? 'reduced' : 'full'}`
-        setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : (engineRef.current?.el.paused ?? false))
+        setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : engine.kind === 'aj' ? false : (engineRef.current?.el.paused ?? false))
+        // AJ's binaural beat drifts inside a movement; it is read live, not
+        // from the change events, which only fire on a new root or section
+        if (engine.kind === 'aj' && ajBeatRef.current) {
+          const st = engine.ajState
+          ajBeatRef.current.textContent = st?.beat ? `${st.beat.toFixed(1)} hz` : '--'
+        }
         // the layer rows: visible whenever stems are loaded or the stack
         // is open — top ring first, mirroring the drawing
         if (engine.kind === 'stems' || scene.dissect > 0.25) {
@@ -1857,11 +1876,14 @@ export default function App() {
         case 'Space':
           e.preventDefault()
           if (deck) deck.playing ? deck.pause() : deck.play()
-          else if (eng.kind !== 'tab') (eng.el.paused ? void eng.el.play() : eng.el.pause())
+          // AJ has no pause: the tones are generated, not played back, and
+          // Space on the element path would start the radio under them
+          else if (eng.kind !== 'tab' && eng.kind !== 'aj') (eng.el.paused ? void eng.el.play() : eng.el.pause())
           break
         case 'KeyN':
           // without the tube case this left the jukebox for the radio
           if (eng.kind === 'tube') tubeRef.current?.next()
+          else if (eng.kind === 'aj') eng.ajNext()
           else if (eng.kind === 'radio') void eng.next()
           else void eng.playRadio() // file AND stems: back to the radio
           break
@@ -2437,6 +2459,11 @@ export default function App() {
   themeKeyRef.current = () => applyTheme(theme === 'paper' ? 'ink' : 'paper')
   // the scene is built after first render, so it learns the saved ground here
   useEffect(() => { sceneRef.current?.setTheme(theme) }, [started, theme])
+  // AJ gets its own star: the cymatic plate, driven by the root it hears
+  useEffect(() => {
+    const sc = sceneRef.current as (Scene & { setVariant?: (v: 'star' | 'aj') => void }) | null
+    sc?.setVariant?.(source === 'aj' ? 'aj' : 'star')
+  }, [started, source])
 
   // ── THE POSTER ────────────────────────────────────────────────────────
   // fig.02 · session: the star as it is right now, and only what this
@@ -2492,7 +2519,7 @@ export default function App() {
   const togglePlay = () => {
     const e = engineRef.current
     // another tab's player is theirs to drive; ours is paused on purpose
-    if (!e || e.kind === 'tab') return
+    if (!e || e.kind === 'tab' || e.kind === 'aj') return
     // in jukebox mode our element is silent by design; the transport must
     // drive the player that actually sounds
     if (e.kind === 'tube') {
@@ -2513,11 +2540,12 @@ export default function App() {
     if (!e) return
     // without this, skip left the jukebox for the radio
     if (e.kind === 'tube') { tubeRef.current?.next(); return }
+    if (e.kind === 'aj') { e.ajNext(); return }
     if (e.kind === 'radio') void e.next()
     else void e.playRadio()
   }
   const playLabel = source === 'tube' ? (tubeState?.playing ? 'pause' : 'play') : paused ? 'play' : 'pause'
-  const skipLabel = source === 'file' || source === 'stems' || source === 'tab' ? 'radio' : 'skip'
+  const skipLabel = source === 'file' || source === 'stems' || source === 'tab' ? 'radio' : source === 'aj' ? 'next' : 'skip'
 
   // ── WATCH ─────────────────────────────────────────────────────────────
   // Enters only while something is playing, nothing is held, nothing is
@@ -2934,7 +2962,7 @@ export default function App() {
               //src_ <span>{SOURCE_ID[source]}</span>
               <i className={`src-dot${playing ? ' live' : ''}`} />
             </div>
-            {source !== 'tube' && source !== 'tab' && (
+            {source !== 'tube' && source !== 'tab' && source !== 'aj' && (
               <div className={`k cn-rate${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
             )}
             {/* ONE EXIT PRIMITIVE, used at every level. This is the same
@@ -2946,6 +2974,22 @@ export default function App() {
                 nothing about a heading says press me. */}
             <button className="cn-back" onClick={standby}>
               ← <span>standby</span>
+            </button>
+            {/* AJ: a source with its own door. It toggles rather than
+                selects -- off goes back to the radio -- and it carries the
+                accent while on, like every other held state up here. */}
+            <button
+              className={`cn-tool cn-aj${source === 'aj' ? ' on' : ''}`}
+              onClick={() => {
+                const e = engineRef.current
+                if (!e) return
+                if (e.kind === 'aj') void e.playRadio()
+                else void e.useAJ()
+              }}
+              aria-pressed={source === 'aj'}
+              title="aj: pure frequencies, generated live"
+            >
+              <span>aj</span>
             </button>
             {/* The second-screen pair. Each is absent where the browser
                 cannot do it, rather than a control that silently fails. */}
@@ -3023,7 +3067,15 @@ export default function App() {
               /* §5 phase 2: track meta as plate rows. As inline spans it
                  wrapped mid-value in a 272px rail ("BPM - /73"). */
               <dl className="deck-meta">
-                <div><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
+                {source === 'aj' ? (
+                  <>
+                    <div><dt>//freq_</dt><dd className="deck-freq">{aj ? `${aj.freq} hz` : '--'}</dd></div>
+                    <div><dt>//beat_</dt><dd ref={ajBeatRef}>--</dd></div>
+                    <div><dt>//phase_</dt><dd>{aj?.section ?? '--'}</dd></div>
+                  </>
+                ) : (
+                  <div><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
+                )}
                 <div ref={dropRowRef} className="deck-drop" hidden><dt>//drop_</dt><dd ref={dropRef} /></div>
                 {track.musicalKey && (
                   <div><dt>//key_</dt><dd>{track.musicalKey.toLowerCase()}</dd></div>
@@ -3054,7 +3106,7 @@ export default function App() {
                 )}
               </dl>
             )}
-            {source !== 'tube' && source !== 'tab' && (
+            {source !== 'tube' && source !== 'tab' && source !== 'aj' && (
             <canvas
               ref={waveRef}
               className="deck-wave"
@@ -3104,7 +3156,7 @@ export default function App() {
               }}
             />
             )}
-            {source !== 'tube' && source !== 'tab' && (
+            {source !== 'tube' && source !== 'tab' && source !== 'aj' && (
             <div className="deck-time">
               <data ref={cElapsedRef}>0:00</data>
               <data ref={cTotalRef}>0:00</data>
@@ -3143,8 +3195,11 @@ export default function App() {
                   rendered at all in jukebox mode. vol then has to span the
                   full row — an unfilled cell in a gap:1px grid is a hole
                   showing the line colour, not empty space. */}
-              <div className={`transport${source === 'tube' ? ' no-pitch' : ''}`}>
-                <button className="t-btn" onClick={togglePlay}>{playLabel}</button>
+              {/* AJ: generated, not played back, so there is no pause and no
+                  pitch; the row closes up to two cells rather than leave one
+                  showing the line colour */}
+              <div className={`transport${source === 'tube' || source === 'aj' ? ' no-pitch' : ''}${source === 'aj' ? ' two' : ''}`}>
+                {source !== 'aj' && <button className="t-btn" onClick={togglePlay}>{playLabel}</button>}
                 <button className="t-btn" onClick={skipTrack}>{skipLabel}</button>
                 <button
                   className={`t-btn t-mute${muted ? ' on' : ''}`}
@@ -3180,7 +3235,7 @@ export default function App() {
                     aria-label="volume"
                   />
                 </div>
-                {source !== 'tube' && (
+                {source !== 'tube' && source !== 'aj' && (
                   <label className="dial dial-pitch">
                     <span>pitch</span>
                     <input
@@ -3636,7 +3691,7 @@ export default function App() {
               Hidden above 720px, where the rail is always there. */}
           <div className="cn-mini">
             <div className="cn-mini-name" aria-hidden="true"><Decode text={source === 'tube' ? pipName : name} duration={700} /></div>
-            {source !== 'tab' && <button className="t-btn" onClick={togglePlay}>{playLabel}</button>}
+            {source !== 'tab' && source !== 'aj' && <button className="t-btn" onClick={togglePlay}>{playLabel}</button>}
             <button className="t-btn" onClick={skipTrack}>{skipLabel}</button>
             <button
               className={`t-btn cn-mini-sheet${sheet ? ' on' : ''}`}
