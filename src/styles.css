@@ -674,12 +674,12 @@ body {
   .app button, .app a { cursor: pointer !important; }
   .app input { cursor: text !important; }
   .app .deck-wave { cursor: crosshair !important; }
-  .app .pl-dial { cursor: ns-resize !important; }
+  .app .pl-dial { cursor: ew-resize !important; }
   .app.cursor-armed, .app.cursor-armed * { cursor: auto !important; }
   .app.cursor-armed button, .app.cursor-armed a { cursor: pointer !important; }
   .app.cursor-armed input { cursor: text !important; }
   .app.cursor-armed .deck-wave { cursor: crosshair !important; }
-  .app.cursor-armed .pl-dial { cursor: ns-resize !important; }
+  .app.cursor-armed .pl-dial { cursor: ew-resize !important; }
 }
 
 /* Grabbing the instrument: the reticle's dot swells while spinning.
@@ -1518,7 +1518,7 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   margin-top: var(--gap-related);
 }
 .console-dials .pl-dial { background: var(--ground); }
-.console-dials .pl-dial + .pl-dial { border-left: 0; }
+.console-dials .pl-dial + .pl-dial { border-top: 0; }
 
 /* diagnostics: for those who ask */
 .diag { display: flex; gap: var(--gap-related); align-items: baseline; }
@@ -1867,13 +1867,35 @@ a:focus-visible {
 .pl-dials {
   text-transform: uppercase;
   letter-spacing: var(--track-caps-body);
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: 1fr;
   border-bottom: 1px solid var(--pl-line);
   color: var(--ink-dim);
 }
-.pl-dials > div { padding: 8px; text-align: center; font-size: var(--t-micro); }
-.pl-dials > div + div { border-left: 1px solid var(--pl-line); }
-.pl-dials .cap { display: block; margin-top: var(--gap-tight); }
+.pl-dials > div + div { border-top: 1px solid var(--pl-line); }
+/* THE TRIM: label, ruler, reading. The label track is the transport's 48px
+   so TURB/EXPO/SPIN start their rulers at the same x as VOL and PITCH. */
+.trim {
+  display: grid;
+  grid-template-columns: 48px 1fr 32px;
+  align-items: center;
+  gap: var(--gap-related);
+  padding: 8px 12px;
+  min-height: 40px;
+  font-size: var(--t-micro);
+}
+.trim-track { width: 100%; height: 16px; display: block; overflow: visible; }
+.trim-track line { stroke: currentColor; stroke-width: 1; opacity: 0.35; vector-effect: non-scaling-stroke; }
+.trim-track line.lit { opacity: 1; }
+.trim-track .trim-home { stroke: var(--accent); opacity: 1; }
+.trim-track .trim-needle { stroke: var(--ink); stroke-width: 2; opacity: 1; }
+.trim > b { font-weight: 400; color: var(--ink); text-align: right; }
+/* On the standby plate the three rows must cost what the one row of knobs
+   did (the data column is measured against its cell by flight.mjs), so
+   they sit at the plate's own 28px row. The console keeps 40px, and a
+   coarse pointer gets the full 44 wherever it is. */
+.plate .trim { min-height: 26px; padding: 4px 12px; }
+.plate .trim-track { height: 12px; }
+@media (pointer: coarse) { .trim, .plate .trim { min-height: 44px; } }
 .pl-peak { display: grid; grid-template-columns: 1fr; gap: var(--gap-tight); }
 .pl-peak-hd { display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: var(--track-caps-body); }
 
@@ -2061,12 +2083,17 @@ a:focus-visible {
    The focus RING stays red, because an outline is a keyline and that is
    exactly the job §1 gives the accent. */
 .pl-dial:hover,
-.pl-dial:focus-visible { background: var(--lift); color: var(--ink); }
+.pl-dial:focus-visible { background: linear-gradient(var(--lift), var(--lift)), var(--ground); color: var(--ink); }
 .pl-dial:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.pl-dial:hover circle:last-of-type,
-.pl-dial:focus-visible circle:last-of-type { r: 2.6; }
-.pl-dial:active { background: var(--lift-press); }
-.pl-dial .cap b { font-weight: 400; color: var(--ink); }
+/* the ruler arms with the face: unlit ticks come up, so the travel left
+   is readable while the hand is on it */
+.pl-dial:hover .trim-track line,
+.pl-dial:focus-visible .trim-track line { opacity: 0.6; }
+.pl-dial:hover .trim-track line.lit,
+.pl-dial:focus-visible .trim-track line.lit { opacity: 1; }
+.pl-dial:active { background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground); }
+/* the lift is a tint; over the console's gap grid a bare tint showed the
+   LINE colour through it and swallowed the needle */
 
 /* ── THE POWER-ON FLIGHT ────────────────────────────────────────────────
    Beat 1 REV: a scan line runs the data column, every state pill arms, the
@@ -2722,7 +2749,7 @@ input[type='range'] { height: 32px; }
    the clock, the bpm, the dial values, the pills and the diagnostics. */
 .deck-time,
 .deck-meta dd,
-.pl-dial .cap b,
+.trim > b,
 .cn-hdr .k span,
 .chip,
 .diag-line,

@@ -114,7 +114,8 @@ for (const [label, value] of named) {
   }
 }
 // A control you drag should not read as ordinary text or an arrow.
-const drag = { 'the seek strip': 'crosshair', 'a dial': 'ns-resize' }
+// the trims drag horizontally (they were vertical knobs)
+const drag = { 'the seek strip': 'crosshair', 'a dial': 'ew-resize' }
 for (const [label, want] of Object.entries(drag)) {
   const got = seen.controls[label]
   if (got && got !== 'none' && got !== want) {

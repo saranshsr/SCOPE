@@ -130,11 +130,17 @@ const readD = () => p.evaluate(() => window.__sc?.uniforms?.uDissect?.value ?? 0
 // the destination, and fall back to "it stopped moving" for the case where
 // a starved rasteriser never quite arrives (CHECKS.md §1.1).
 {
-  const by = Date.now() + 8000
-  let last = -1
+  // "Stopped moving" has to hold for a second, not one 250ms tick: on a
+  // loaded machine the damped glide advances in bursts, and a single quiet
+  // tick read 0.677 as settled -- then the glide finishing during the sweep
+  // was blamed on every surface in turn (0.677 -> 0.95 -> 0.99 -> 1).
+  const by = Date.now() + 20000
+  let last = -1, still = 0
   while (Date.now() < by) {
     const d = await readD()
-    if (d >= 0.97 || Math.abs(d - last) < 0.002) break
+    if (d >= 0.97) break
+    still = Math.abs(d - last) < 0.002 ? still + 1 : 0
+    if (still >= 4) break
     last = d
     await new Promise(r => setTimeout(r, 250))
   }

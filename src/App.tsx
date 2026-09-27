@@ -3586,7 +3586,7 @@ export default function App() {
 
           {/* 4 · VISUALS — how the star reacts. Audio controls live with
               the track; these dials only shape the matter. */}
-          <h2 className="cn-mod"><span>04 · visuals</span><i>//3 dials_</i></h2>
+          <h2 className="cn-mod"><span>04 · visuals</span><i>//3 trims_</i></h2>
           <div className="tuning rail-sec" style={{ '--i': 5 } as React.CSSProperties}>
             {/* The SAME dial the landing ships. These were UA-default range
                 inputs rendering the same three parameters in a second
@@ -3916,58 +3916,21 @@ function Meter() {
   )
 }
 
-/**
- * noon's ring, in the plate's own line.
- *
- * Measured off the real mark (Figma 1515:9212): a C-ring of 229 degrees whose
- * opening spans 131 degrees across the top, centred 27.5 degrees left of
- * twelve, with a detached wedge sitting inside that opening. The mark is a
- * clock reading noon and the wedge is its hand.
- *
- * The artwork itself cannot come here. Its ring is 15.55% of its own box, so
- * at this dial's 42px it would be 6.5px of ink against a sheet whose §1 says
- * hairlines only, 1px -- it would read as a logo pasted onto a control. What
- * transfers is the COMPOSITION: the opening's angle and the detached tick,
- * drawn in the 1px currentColor every other stroke on this plate uses. No
- * letterforms are involved, so nothing is being faked; this is the geometry
- * speaking in the sheet's voice.
- *
- * Angles are the dial's own convention: 0 is up, clockwise positive.
- */
-const RING_OPEN_FROM = 38   // where the arc resumes, right of twelve
-const RING_OPEN_TO = 267    // where it breaks, left of twelve
-const dialPt = (deg: number, r: number) =>
-  [21 + Math.sin((deg * Math.PI) / 180) * r, 21 - Math.cos((deg * Math.PI) / 180) * r] as const
-/** the constant ring: the brand half, which never moves */
-const NOON_RING = (() => {
-  const [sx, sy] = dialPt(RING_OPEN_FROM, 13)
-  const [ex, ey] = dialPt(RING_OPEN_TO, 13)
-  return `M ${sx.toFixed(2)} ${sy.toFixed(2)} A 13 13 0 1 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`
-})()
-/**
- * The needle stays, and that is a finding rather than a compromise.
- *
- * The mark's own detached wedge was tried as the pointer -- it is the one
- * part of noon's artwork that already looks like a hand, and letting it do
- * the pointing would have made the brand structural rather than applied.
- * Rendered at 42px it fails: a short arc concentric with the ring reads as a
- * FRAGMENT of that ring, not as a pointer, and at the low end it sits close
- * enough to the ring's terminal to be mistaken for it. These dials are
- * role="slider" with drag and arrow keys, not decoration, and a control that
- * is harder to read is not a trade worth making for a logo.
- *
- * So the ring carries noon and the needle carries the value. It costs nothing
- * -- the needle is what shipped before -- and the dial gains the mark for
- * free. At the rest value the needle points up through the opening, which is
- * a clock reading noon.
- */
 const DIAL_MIN = 0.25
 const DIAL_MAX = 2
+const DIAL_STEP = 0.05
+/** every 0.05 of travel gets a tick; the round values get a long one */
+const TRIM_TICKS = Array.from({ length: Math.round((DIAL_MAX - DIAL_MIN) / DIAL_STEP) + 1 }, (_, i) => DIAL_MIN + i * DIAL_STEP)
 
 /**
- * A dial you can actually turn, on the landing page. Drag it vertically or
- * use the arrows: the star reshapes under the frame while the instrument is
- * still on standby, which is the whole point of showing it there.
+ * A TRIM, not a knob. The three visual controls were 42px dials whose ring
+ * was the noon mark -- a logo asked to be a gauge, and a knob that small
+ * has almost no travel to aim with. A trim is what the rest of the console
+ * already speaks: a calibrated ruler like the //peak_ scale and the LEVEL
+ * meter, read left to right, lit up to the value. The whole row is the
+ * target, the drag is horizontal and absolute (press where you want it),
+ * and the one accent tick is the detent at 100, where double-click, Home
+ * and the "2" preset all return. Arrow keys still step 5, shift 25.
  */
 function Dial({
   v,
@@ -3979,13 +3942,21 @@ function Dial({
   /** takes an updater, so held arrow keys accumulate instead of racing renders */
   onChange: (next: (prev: number) => number) => void
 }) {
-  const drag = useRef<{ y: number; v: number } | null>(null)
+  const track = useRef<SVGSVGElement>(null)
+  const held = useRef(false)
   const clamp = (n: number) => Math.max(DIAL_MIN, Math.min(DIAL_MAX, n))
-  const a = ((-135 + ((v - DIAL_MIN) / (DIAL_MAX - DIAL_MIN)) * 270) * Math.PI) / 180
   const nudge = (d: number) => onChange((p) => clamp(Number((p + d).toFixed(2))))
+  const setAt = (clientX: number) => {
+    const r = track.current?.getBoundingClientRect()
+    if (!r || r.width <= 0) return
+    const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width))
+    const raw = DIAL_MIN + f * (DIAL_MAX - DIAL_MIN)
+    onChange(() => clamp(Number((Math.round(raw / DIAL_STEP) * DIAL_STEP).toFixed(2))))
+  }
+  const x = (n: number) => ((n - DIAL_MIN) / (DIAL_MAX - DIAL_MIN)) * 200
   return (
     <div
-      className="pl-dial"
+      className="pl-dial trim"
       role="slider"
       tabIndex={0}
       aria-label={cap}
@@ -3995,17 +3966,12 @@ function Dial({
       aria-valuetext={`${cap} ${Math.round(v * 100)}`}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
-        drag.current = { y: e.clientY, v }
+        held.current = true
+        setAt(e.clientX)
       }}
-      onPointerMove={(e) => {
-        const d = drag.current
-        if (!d) return
-        // ~200px for the full sweep: a slam of the wrist should not max it
-        const next = clamp(d.v + ((d.y - e.clientY) / 200) * (DIAL_MAX - DIAL_MIN))
-        onChange(() => next)
-      }}
+      onPointerMove={(e) => { if (held.current) setAt(e.clientX) }}
       onPointerUp={(e) => {
-        drag.current = null
+        held.current = false
         e.currentTarget.releasePointerCapture(e.pointerId)
       }}
       onDoubleClick={() => onChange(() => 1)}
@@ -4016,18 +3982,24 @@ function Dial({
         else if (e.key === 'Home') { e.preventDefault(); onChange(() => 1) }
       }}
     >
-      <svg width="42" height="42" viewBox="0 0 42 42" aria-hidden="true">
-        <rect x=".5" y=".5" width="41" height="41" fill="none" stroke="currentColor" opacity=".5" />
-        <path d={NOON_RING} fill="none" stroke="currentColor" />
-        <line
-          x1="21" y1="21"
-          x2={(21 + Math.sin(a) * 12).toFixed(1)}
-          y2={(21 - Math.cos(a) * 12).toFixed(1)}
-          stroke="var(--ink)" strokeWidth="1.5"
-        />
-        <circle cx="21" cy="21" r="1.6" fill="var(--accent)" />
+      <span className="cap">{cap}</span>
+      <svg ref={track} className="trim-track" viewBox="0 0 200 16" preserveAspectRatio="none" aria-hidden="true">
+        {TRIM_TICKS.map((t) => {
+          const major = Math.abs(t * 2 - Math.round(t * 2)) < 1e-6
+          const lit = t <= v + 1e-6
+          return (
+            <line
+              key={t}
+              className={lit ? 'lit' : ''}
+              x1={x(t)} x2={x(t)}
+              y1={major ? 4 : 9} y2={16}
+            />
+          )
+        })}
+        <line className="trim-home" x1={x(1)} x2={x(1)} y1={0} y2={3} />
+        <line className="trim-needle" x1={x(v)} x2={x(v)} y1={0} y2={16} />
       </svg>
-      <span className="cap">{cap} <b>{Math.round(v * 100)}</b></span>
+      <b>{Math.round(v * 100)}</b>
     </div>
   )
 }
