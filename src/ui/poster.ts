@@ -381,6 +381,12 @@ function drawHatch(ctx: Ctx2D, x: number, y: number, w: number, h: number, color
  *  envelope traced crisp over a hairline baseline. The tempo gets a lane
  *  of its own under it -- it used to run through the level as a stepped
  *  accent scribble, crossing the label and reading as neither. */
+function tempoMedian(curve: number[]): number {
+  const s = curve.slice().sort((a, b) => a - b)
+  const m = s.length >> 1
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
 function drawStrip(
   ctx: Ctx2D,
   rect: { x: number; y: number; w: number; h: number },
@@ -449,19 +455,22 @@ function drawStrip(
   }
 
   if (hasTempo) {
-    // its own lane: a hairline rule and the tempo as a stepped trace in it
-    let lo = Infinity
-    let hi = -Infinity
-    for (const t of o.tempoCurve) { if (t < lo) lo = t; if (t > hi) hi = t }
-    const span = Math.max(1, hi - lo)
+    // its own lane: a hairline rule and the tempo as a stepped trace in it.
+    // A FIXED window, +-12 BPM around the session's median, not the
+    // session's own min..max: normalised to its own range, a steady 138
+    // had a span of zero and printed as a line on the lane's floor -- the
+    // same drawing as the slowest tempo of a set that sped up. Now steady
+    // reads as the middle, a drift reads as the size it was, and a tempo
+    // outside the window rides the lane's inset edge instead of leaving it.
     const n = o.tempoCurve.length
-    const ly0 = y + h - laneH + 6
-    const ly1 = y + h - 6
+    const ly0 = y + h - laneH + 8
+    const ly1 = y + h - 8
+    const ctr = tempoMedian(o.tempoCurve)
     hline(ctx, x, x + w, y + h - laneH, pal.line)
     ctx.beginPath()
     const iw = Math.floor(w - 24)
     for (let i = 0; i <= iw; i++) {
-      const v = (o.tempoCurve[Math.min(n - 1, Math.floor((i / iw) * n))] - lo) / span
+      const v = clamp01((o.tempoCurve[Math.min(n - 1, Math.floor((i / iw) * n))] - ctr + 12) / 24)
       const py = Math.round(ly1 - v * (ly1 - ly0)) + 0.5
       if (i === 0) ctx.moveTo(x + 12 + i, py)
       else ctx.lineTo(x + 12 + i, py)
@@ -477,12 +486,16 @@ function drawStrip(
   setFont(ctx, FONT_MONO, 15, TRACK_MICRO)
   ctx.textBaseline = 'top'
   ctx.textAlign = 'left'
+  // the LEVEL chip is a slip of the ground sized to its own label, so the
+  // trace and the hatch never run through its letters
+  const levelLabel = o.levelCurve.length ? '// LEVEL · MEASURED' : '// LEVEL · NO READING'
+  ctx.fillStyle = pal.ground
+  ctx.fillRect(x, y, ctx.measureText(levelLabel).width + 24, chipH)
   ctx.fillStyle = pal.inkDim
-  ctx.fillText(o.levelCurve.length ? '// LEVEL · MEASURED' : '// LEVEL · NO READING', x + 12, y + 8)
+  ctx.fillText(levelLabel, x + 12, y + 8)
   if (hasTempo) {
-    const bpmLo = Math.round(Math.min(...o.tempoCurve))
-    const bpmHi = Math.round(Math.max(...o.tempoCurve))
-    const label = bpmLo === bpmHi ? `// TEMPO · ${bpmLo}` : `// TEMPO · ${bpmLo}–${bpmHi}`
+    // the value the lane is centred on, so the chip and the drawing agree
+    const label = `// TEMPO · ${Math.round(tempoMedian(o.tempoCurve))}`
     const lw = ctx.measureText(label).width + 24
     if (pal.mark) {
       ctx.fillStyle = pal.mark
@@ -536,6 +549,9 @@ function drawFooter(ctx: Ctx2D, x0: number, x1: number, y0: number, y1: number, 
   ctx.fillStyle = pal.inkDim
   ctx.fillText('/ MADE BY NOON', x0 + PAD, mid)
   vline(ctx, split, y0, y1, pal.line)
+  // vline() leaves fillStyle at the hairline, and the URL used to be set in
+  // it: 2.2:1 on paper. Back to the chrome ink before the second label.
+  ctx.fillStyle = pal.inkDim
   ctx.textAlign = 'right'
   ctx.fillText('SCOPE-NOON13.VERCEL.APP', x1 - PAD, mid)
 }
