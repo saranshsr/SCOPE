@@ -136,7 +136,10 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --lift: rgba(var(--ink-rgb), 0.08);
   --lift-press: rgba(var(--ink-rgb), 0.15);
-  --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
+  /* Arial Black before the system face: until the woff2 lands, the
+     wordmark swaps in from the one common face of the same heavy, wide
+     cut, not from a regular-weight sans a third narrower. */
+  --font-display: 'Archivo Black', 'Arial Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Departure Mono', ui-monospace, Menlo, monospace;
 
   /* ── THE RAMP ───────────────────────────────────────────────────────

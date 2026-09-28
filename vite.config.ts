@@ -46,6 +46,39 @@ function siteUrl(mode: string): Plugin {
 }
 
 /**
+ * Preloads the two faces every page paints with, in BUILDS only.
+ *
+ * Without it a woff2 is not requested until the stylesheet has arrived and
+ * been parsed, one round trip late, and the wordmark and every legend paint
+ * in the fallback first and then swap. The names are content-hashed and
+ * change every build, so they are read from the bundle rather than written
+ * into the html. Only the latin subset of Archivo: latin-ext is a
+ * unicode-range file the browser fetches on demand, and preloading it would
+ * spend the first round on bytes that most pages never use.
+ */
+function preloadFonts(): Plugin {
+  const FACES = [/DepartureMono-Regular-[^/]*\.woff2$/, /archivo-black-latin-400-normal-[^/]*\.woff2$/]
+  let base = '/'
+  return {
+    name: 'scope-preload-fonts',
+    apply: 'build',
+    configResolved(c) { base = c.base },
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, ctx) {
+        if (!ctx.bundle) return
+        const files = Object.keys(ctx.bundle)
+        return FACES.flatMap((re) => files.filter((f) => re.test(f))).map((f) => ({
+          tag: 'link',
+          attrs: { rel: 'preload', href: base + f, as: 'font', type: 'font/woff2', crossorigin: '' },
+          injectTo: 'head-prepend' as const,
+        }))
+      },
+    },
+  }
+}
+
+/**
  * Serves the owner's private library in DEV ONLY, from outside public/.
  *
  * It used to live in public/tracks-local, which Vite copies wholesale into
@@ -135,7 +168,7 @@ function devApi(mode: string): Plugin {
 }
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), siteUrl(mode), localMedia(), devApi(mode)],
+  plugins: [react(), siteUrl(mode), preloadFonts(), localMedia(), devApi(mode)],
   // two pages: the instrument, and the 404 plate. Vercel serves dist/404.html
   // for any path with no file, so a dead link lands on the same sheet.
   build: {
