@@ -368,9 +368,14 @@ async function waitFor(p, fn, { timeout = 8000, interval = 200, args = [] } = {}
     fail.push('hint: no `.power` control found -- nothing could start the console.')
   } else {
     await sleep(1500)
-    const pop = await waitFor(p, () => !!document.querySelector('.driver-popover'), { timeout: 4000 })
+    // 10s, not 4: the hint now waits for the power-on track title to finish
+    // its 4.8s cut before it lays a scrim over it (Onboard.tsx afterAnnounce),
+    // and under swiftshader the first title itself lands ~2.5s after power-on.
+    // Onboard caps that wait at 8s, so 1.5 + 10 still catches a hint that
+    // never comes.
+    const pop = await waitFor(p, () => !!document.querySelector('.driver-popover'), { timeout: 10000 })
     if (!pop) {
-      fail.push('hint: no `.driver-popover` appeared ~1.5s after power-on with the onboard key removed.')
+      fail.push('hint: no `.driver-popover` appeared within ~11s of power-on with the onboard key removed.')
     } else {
       // driver.js settles its own entrance transition over `duration` (240ms)
       // before it marks the step "active" internally -- destroying the tour
