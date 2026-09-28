@@ -97,6 +97,10 @@ export default function App() {
   const peakRef = useRef<HTMLSpanElement>(null)
   /** the rail's scrolling half — watched so the dock seam can say "more" */
   const railStackRef = useRef<HTMLDivElement>(null)
+  /** whichever element actually scrolls the rail: .rail-stack on the plate,
+   *  .rail itself on the phone sheet, where the stack goes overflow:visible.
+   *  Also marked [data-rail-scroller] in the DOM, for code outside App. */
+  const railScrollerRef = useRef<HTMLElement | null>(null)
   const railBarRef = useRef<HTMLElement>(null)
   /** jukebox: the YouTube player, and whether the star is listening */
   const tubeRef = useRef<Tube | null>(null)
@@ -254,6 +258,18 @@ export default function App() {
     void tubeRef.current.mount(tubeHostRef.current, r?.id, r?.t)
   }, [source])
 
+  // The phone sheet is a single scroller, so its running footer is the last
+  // row of that scroll instead of a band that takes 45px off a 667px phone
+  // for the whole time the sheet is open. Same breakpoint as styles.css.
+  const [narrow, setNarrow] = useState(() => window.matchMedia?.('(max-width: 720px)').matches ?? false)
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 720px)')
+    if (!mq) return
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+
   // The one thing a scroll region owes you is to admit it is one. macOS
   // ships overlay scrollbars, so the styled bar in styles.css is invisible
   // at rest and no CSS can force it back — which is how two whole modules
@@ -263,10 +279,19 @@ export default function App() {
   // other: it reports a real quantity, and it is absent when there is
   // nothing to report.
   useEffect(() => {
-    const el = railStackRef.current
-    if (!started || !el) return
-    const rail = el.parentElement
+    const stack = railStackRef.current
+    if (!started || !stack) return
+    const rail = stack.parentElement
     if (!rail) return
+    // WHICH element scrolls is a breakpoint decision, not a constant. On the
+    // plate the stack scrolls inside a fixed rail; on the phone sheet the
+    // stack goes `overflow: visible` and the rail is the one scroller. Bound
+    // to the stack there, the thumb was sized off a box that never scrolls
+    // -- 1133px tall on a 341px sheet -- and never moved. Resolved again on
+    // every resize, since crossing 720px swaps the two.
+    const resolve = (): HTMLElement =>
+      getComputedStyle(stack).overflowY === 'visible' ? rail : stack
+    let el: HTMLElement = resolve()
     let hide = 0
     const sync = () => {
       const more = el.scrollHeight - el.scrollTop - el.clientHeight > 1
@@ -275,6 +300,9 @@ export default function App() {
       // the indicator's geometry, as fractions of the track
       const bar = railBarRef.current
       if (!bar) return
+      // the bar is a child of .rail, so when .rail is the scroller it scrolls
+      // with the content; pinning it to the scroll offset keeps it on glass
+      bar.style.top = el === rail ? `${rail.scrollTop}px` : ''
       const span = el.scrollHeight - el.clientHeight
       if (span <= 1) { bar.classList.remove('on'); return }
       const h = Math.max(24, el.clientHeight * (el.clientHeight / el.scrollHeight))
@@ -349,18 +377,34 @@ export default function App() {
     thumb?.addEventListener('pointercancel', onDrop)
     rail.addEventListener('pointermove', nearEdge)
 
+    const bind = () => {
+      el.addEventListener('scroll', sync, { passive: true })
+      el.addEventListener('scroll', flash, { passive: true })
+      el.setAttribute('data-rail-scroller', '')
+      railScrollerRef.current = el
+    }
+    const unbind = () => {
+      el.removeEventListener('scroll', sync)
+      el.removeEventListener('scroll', flash)
+      el.removeAttribute('data-rail-scroller')
+    }
+    bind()
     sync()
-    el.addEventListener('scroll', sync, { passive: true })
-    el.addEventListener('scroll', flash, { passive: true })
-    const ro = new ResizeObserver(sync)
-    ro.observe(el)
+    const ro = new ResizeObserver(() => {
+      const next = resolve()
+      if (next !== el) { unbind(); el = next; bind() }
+      sync()
+    })
+    ro.observe(stack)
+    ro.observe(rail)
     // folds open and close as the source changes, which changes the height
     // without resizing the container
     const mo = new MutationObserver(sync)
-    mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    mo.observe(stack, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
     return () => {
-      el.removeEventListener('scroll', sync)
-      el.removeEventListener('scroll', flash)
+      unbind()
+      railScrollerRef.current = null
+      if (railBarRef.current) railBarRef.current.style.top = ''
       thumb?.removeEventListener('pointerdown', onGrab)
       thumb?.removeEventListener('pointermove', onDragMove)
       thumb?.removeEventListener('pointerup', onDrop)
@@ -1801,10 +1845,15 @@ export default function App() {
           const nd = drops.length && isFinite(deckT.t) ? nextDrop(drops, deckT.t) : null
           if (dropRowRef.current && dropRef.current) {
             const dtS = nd ? nd.t - deckT.t : Infinity
-            dropRowRef.current.hidden = !nd
+            // mounted for the whole track once it has drops: after the last
+            // one it says when that landed, so nothing below it jumps 31px
+            dropRowRef.current.hidden = !drops.length
             if (nd) {
               dropRef.current.textContent = dtS < 10 ? `in ${dtS.toFixed(1)}s` : `in ${fmtTime(dtS)}`
               dropRef.current.classList.toggle('armed', dtS < 4)
+            } else if (drops.length && isFinite(deckT.t)) {
+              dropRef.current.textContent = `landed ${fmtTime(drops[drops.length - 1].t)}`
+              dropRef.current.classList.remove('armed')
             }
           }
           if (cElapsedRef.current) cElapsedRef.current.textContent = fmtTime(deckT.t)
@@ -2186,13 +2235,28 @@ export default function App() {
     const el = layersFoldRef.current
     if (!el) return
     const calm = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    // D is a toggle, so the rail should come back to where it was: pressing
+    // D twice used to leave 01 · NOW PLAYING scrolled off the top for good.
+    const sc = railScrollerRef.current
+    const saved = sc ? sc.scrollTop : null
+    let moved = false
     const t = window.setTimeout(
-      () => el.scrollIntoView({ block: 'end', behavior: calm ? 'auto' : 'smooth' }),
+      () => {
+        // a room being watched has no rail on glass to scroll
+        if (appRef.current?.classList.contains('watching')) return
+        moved = true
+        el.scrollIntoView({ block: 'end', behavior: calm ? 'auto' : 'smooth' })
+      },
       // after the fold's own 420ms grid-template-rows transition, or it
       // scrolls to a height the module has not reached yet.
       calm ? 0 : 460,
     )
-    return () => window.clearTimeout(t)
+    return () => {
+      window.clearTimeout(t)
+      if (moved && sc && saved !== null && sc.isConnected) {
+        sc.scrollTo({ top: saved, behavior: calm ? 'auto' : 'smooth' })
+      }
+    }
     // the ROWS change every chrome tick; only the open/shut edge matters here
   }, [!!layerUi])
 
@@ -2791,6 +2855,31 @@ export default function App() {
     t.textContent = pipName
     cap.append(id, t)
   }, [pipOpen, pipName, source])
+
+  // The running footer. One element, two homes: a band under the body on
+  // the plate, and the last row of the scroll on the phone sheet (see
+  // `narrow`). The meta names the field's size, not a live count -- diag's
+  // `pts` is the live count, and it is lower whenever quality steps down.
+  // No `webgl ·`: the first cell is exactly the rail's width now, and the
+  // meta plus the stamp only fit it in 18 characters.
+  const footerInRail = sheet && narrow
+  const consoleFooter = (
+    <footer className="pl-ftr cn-ftr">
+      <span>
+        <span className="pl-meta">/ 108k-point field</span>
+        <span className="pl-by">
+          <NoonMark /> made by noon
+        </span>
+      </span>
+      <span>/ grab the star to mix · [?] for the full legend</span>
+      <span className="diag">
+        <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
+          diag {diag ? '[-]' : '[+]'}
+        </button>
+        {diag && <samp ref={diagRef} className="diag-line">fps -- · worst -- · pts -- · quality --</samp>}
+      </span>
+    </footer>
+  )
 
   return (
     <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}${watching ? ' watching' : ''}${stage ? ' stage' : ''}`}>
@@ -3562,7 +3651,7 @@ export default function App() {
             </p>
           )}
           {!layerUi && (
-            <p className="cn-hint">pull the star apart (or press d) to mix its rings</p>
+            <p className="cn-hint">pull the star apart<span className="kbd-only"> (or press d)</span> to mix its rings</p>
           )}
           <div ref={layersFoldRef} className={`railfold${layerUi ? ' open' : ''}`}>
             <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
@@ -3691,6 +3780,9 @@ export default function App() {
             </div>
           </div>
 
+          {/* the phone sheet's last row (see consoleFooter) */}
+          {footerInRail && consoleFooter}
+
           {/* OUR OWN SCROLLBAR. The browser's is either always there,
               taking a permanent 10px of a 320px column for an occasional
               need, or it is an overlay we cannot square off. This one is
@@ -3743,21 +3835,7 @@ export default function App() {
             </button>
           </div>
 
-          <footer className="pl-ftr cn-ftr">
-            <span>
-              <span className="pl-meta">/ webgl · 108k particles</span>
-              <span className="pl-by">
-                <NoonMark /> made by noon
-              </span>
-            </span>
-            <span>/ grab the star to mix · [?] for the full legend</span>
-            <span className="diag">
-              <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
-                diag {diag ? '[-]' : '[+]'}
-              </button>
-              {diag && <samp ref={diagRef} className="diag-line">fps -- · worst -- · pts -- · quality --</samp>}
-            </span>
-          </footer>
+          {!footerInRail && consoleFooter}
         </div>
       )}
 
