@@ -1212,7 +1212,11 @@ body {
   letter-spacing: var(--track-caps-micro);
   color: var(--accent);
 }
-.plate-tour .driver-popover-footer-btn {
+/* (0,3,0), not (0,2,0): the library's sheet now arrives with the first tour
+   (Onboard.tsx imports it on demand), so it is the LATER sheet, and its
+   `.driver-popover-footer-btn:focus { background-color: #f7f7f7 }` tied
+   the old selector and won -- a white cell on a tabbed-to BACK. */
+.driver-popover.plate-tour .driver-popover-footer-btn {
   font: inherit;
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-body);
@@ -1224,8 +1228,32 @@ body {
   background: none;
   color: var(--ink-dim);
   text-shadow: none;
+  transition: color 140ms var(--ease), background 140ms var(--ease), border-color 140ms var(--ease);
 }
-.plate-tour .driver-popover-footer-btn:hover { color: var(--ink); background: none; }
+/* THE TOUR'S BUTTONS ARE ACTIONS, so they speak the sheet's one action
+   hover: the cell inverts to ink, ground type on it. Yellow means armed or
+   locked and nothing else -- the X used to go yellow on hover, and NEXT
+   filled yellow, which put the accent on "leave" and on "carry on", two
+   things that are neither armed nor locked. Hover is a pointer's state, so
+   it only exists where there is one: a finger's tap would otherwise leave
+   the last card's button stuck inverted. */
+@media (hover: hover) {
+  .driver-popover.plate-tour .driver-popover-footer-btn:hover,
+  .driver-popover.plate-tour .driver-popover-close-btn:hover {
+    color: var(--ground);
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+}
+/* the press answers in the cell, not the accent: a heavier lift on the
+   ground under ink type (the --lift-cell-press step, as a tint over the
+   ground so it is opaque in either theme) */
+.driver-popover.plate-tour .driver-popover-footer-btn:active,
+.driver-popover.plate-tour .driver-popover-close-btn:active {
+  color: var(--ink);
+  background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground);
+  border-color: var(--pl-line);
+}
 /* BACK on step 1/6 is `disabled` with `pointer-events: none`, and driver's
    own stylesheet fades it to 0.5 -- so it admits it is off. It also kept
    `cursor: pointer`, which claims the opposite, on the first control a
@@ -1233,18 +1261,26 @@ body {
    many words ("a control that cannot act must not look like it can"), and
    its test is opacity AND cursor together, so a control that fails only
    one of the two slips past it. Half-honest is the same defect, quieter. */
-.plate-tour .driver-popover-footer-btn:disabled,
-.plate-tour .driver-popover-footer-btn:disabled:hover { cursor: default; color: var(--ink-dim); }
-/* the forward action is the filled cell, the way POWER ON is */
-.plate-tour .driver-popover-navigation-btns button:last-child {
+.driver-popover.plate-tour .driver-popover-footer-btn:disabled,
+.driver-popover.plate-tour .driver-popover-footer-btn:disabled:hover {
+  cursor: default;
+  color: var(--ink-dim);
+  background: none;
+  border-color: var(--pl-line);
+}
+/* the forward action is the filled cell, the way POWER ON is. It is already
+   the inverted cell at rest, so its hover is its rest: there is no further
+   inversion to make, and the accent is not a hover. The press still answers. */
+.plate-tour .driver-popover-navigation-btns button:last-child,
+.plate-tour .driver-popover-navigation-btns button:last-child:hover {
   color: var(--ground);
   background: var(--ink);
   border-color: var(--ink);
 }
-.plate-tour .driver-popover-navigation-btns button:last-child:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+.plate-tour .driver-popover-navigation-btns button:last-child:active {
+  color: var(--ink);
+  background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground);
+  border-color: var(--ink);
 }
 /* `display: flex !important`, and the important is earned rather than
    reached for: driver.js sets `display: block` as an INLINE STYLE on this
@@ -1269,8 +1305,8 @@ body {
   align-items: center;
   justify-content: center;
   line-height: var(--leading-none);
+  transition: color 140ms var(--ease), background 140ms var(--ease);
 }
-.plate-tour .driver-popover-close-btn:hover { color: var(--accent); background: none; }
 .plate-tour .driver-popover-arrow { border-color: var(--pl-line); }
 .plate-tour .driver-popover-arrow-side-left { border-left-color: var(--pl-line); }
 .plate-tour .driver-popover-arrow-side-right { border-right-color: var(--pl-line); }
@@ -1288,8 +1324,11 @@ body {
   width: min(620px, calc(100vw - 32px));
   max-width: none;
 }
-.plate-tour-legend .driver-popover-description {
-  padding: 0;
+.plate-tour-legend .driver-popover-description { padding: 0; }
+/* the columns live one box in (Onboard.tsx legendHtml): the description is
+   what scrolls when a short window cannot hold the map, and a multi-column
+   box given a max-height grows more columns sideways instead */
+.plate-tour-legend .tour-legs {
   columns: 2;
   column-gap: 1px;
   column-rule: 1px solid var(--pl-line);
@@ -1337,6 +1376,26 @@ body {
    the hole lags the popover across a step change. */
 @media (prefers-reduced-motion: reduce) {
   .driver-popover.plate-tour { animation: none; }
+}
+
+/* A phone: the card is the plate's width less the 15px gutter each side,
+   never wider -- at 300px minimum and 420px maximum it ran 5px past both of
+   the plate's hairlines at 390 -- and the legend is one column, because two
+   columns of 180px wrapped every key and every action onto two lines. */
+@media (max-width: 720px) {
+  .driver-popover.plate-tour {
+    min-width: 0;
+    max-width: min(420px, calc(100vw - 30px));
+  }
+  .driver-popover.plate-tour-legend { width: calc(100vw - 30px); }
+  .plate-tour-legend .tour-legs { columns: 1; }
+}
+
+/* A finger: every control on the card is a 44px target (DESIGN.md §2 law 7), the
+   close cell included. 36px and 32px were a mouse's sizes. */
+@media (pointer: coarse) {
+  .driver-popover.plate-tour .driver-popover-footer-btn { min-height: 44px; }
+  .driver-popover.plate-tour .driver-popover-close-btn { width: 44px; height: 44px; }
 }
 
 /* help is not a consumable: the manual reopens from the brand row */
