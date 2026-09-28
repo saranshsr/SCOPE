@@ -18,88 +18,221 @@ const APP = 'scope'
 
 /** THE VIBE LEXICON — how a prompt becomes a musical read. Each entry
  *  maps feel-words to Audius's own metadata: moods (their taxonomy),
- *  genres (their names), and a bpm range. Multiple hits blend. */
+ *  genres (their names, every one checked live against /tracks/trending),
+ *  and a bpm range.
+ *
+ *  Matching is by WHOLE WORD (a prefix may take a suffix: "danc" matches
+ *  dance, dancing). The old patterns matched inside words, so "trap" and
+ *  "therapy" read as hip-hop, "brunch" as running, "made" as angry and
+ *  "update" as a date.
+ *
+ *  Hits are WEIGHTED, not unioned: a named style (techno, lofi) outweighs
+ *  a mood word, which outweighs a scene (rooftop, commute). Genres and
+ *  moods are ranked by weight, and the tempo is the weighted centre of the
+ *  hits rather than the widest span they cover -- "chill gym" used to read
+ *  as 60-180 bpm, which is no read at all. */
 interface VibeSense {
   moods?: string[]
   genres?: string[]
   bpm?: [number, number]
+  /** weight per genre / mood, for ranking tracks against the read */
+  genreW?: Record<string, number>
+  moodW?: Record<string, number>
+  /** genres the prompt asked NOT to hear ("no rap", "without techno") */
+  avoid?: string[]
+  /** words to search for by TEXT: styles Audius has no genre for */
+  terms?: string[]
 }
 
-const LEXICON: [RegExp, VibeSense][] = [
+type Kind = 'style' | 'mood' | 'scene'
+interface Entry { re: RegExp; kind: Kind; moods?: string[]; genres?: string[]; bpm?: [number, number]; search?: boolean }
+const KIND_W: Record<Kind, number> = { style: 3, mood: 2, scene: 1.5 }
+
+/** whole-word alternation; a trailing * lets a stem take any suffix */
+const W = (...alts: string[]) =>
+  new RegExp(`(?:^|[^a-z0-9])(?:${alts.map((a) => (a.endsWith('*') ? a.slice(0, -1) + '[a-z]*' : a)).join('|')})(?=$|[^a-z0-9])`, 'i')
+const E = (kind: Kind, re: RegExp, v: Omit<Entry, 're' | 'kind'>): Entry => ({ re, kind, ...v })
+
+const LEXICON: Entry[] = [
   // -- energy / activity
-  [/gym|workout|lift|rage|hype|beast|pump/i, { moods: ['Aggressive', 'Energizing', 'Fiery', 'Rowdy'], genres: ['Trap', 'Dubstep', 'Drum & Bass', 'Hip-Hop/Rap'], bpm: [130, 180] }],
-  [/run|running|cardio|sprint/i, { moods: ['Energizing', 'Upbeat'], genres: ['Drum & Bass', 'House', 'Electronic'], bpm: [150, 180] }],
-  [/party|club|dance|banger|festival/i, { moods: ['Excited', 'Rowdy', 'Upbeat'], genres: ['House', 'Tech House', 'Electronic', 'Dancehall'], bpm: [120, 132] }],
-  [/rave|warehouse|underground/i, { moods: ['Gritty', 'Fiery'], genres: ['Techno', 'Tech House', 'Jungle'], bpm: [128, 145] }],
+  E('scene', W('gym*', 'workout*', 'lift*', 'rage', 'hype*', 'beast mode', 'pump*', 'pr day', 'leg day'), { moods: ['Aggressive', 'Energizing', 'Fiery', 'Rowdy'], genres: ['Trap', 'Dubstep', 'Drum & Bass', 'Hip-Hop/Rap'], bpm: [130, 175] }),
+  E('scene', W('run', 'runs', 'running', 'jog*', 'cardio', 'sprint*', 'marathon'), { moods: ['Energizing', 'Upbeat'], genres: ['Drum & Bass', 'House', 'Electronic'], bpm: [150, 178] }),
+  E('scene', W('party', 'parties', 'club*', 'danc*', 'banger*', 'festival*', 'pregame', 'pre game'), { moods: ['Excited', 'Rowdy', 'Upbeat'], genres: ['House', 'Tech House', 'Electronic', 'Dancehall'], bpm: [120, 132] }),
+  E('scene', W('rave*', 'warehouse', 'underground', 'berlin'), { moods: ['Gritty', 'Fiery'], genres: ['Techno', 'Tech House', 'Jungle'], bpm: [128, 145] }),
+  E('scene', W('gaming', 'game*', 'boss fight', 'speedrun*', 'ranked'), { moods: ['Energizing', 'Excited', 'Fiery'], genres: ['Electronic', 'Dubstep', 'Drum & Bass', 'Hyperpop'], bpm: [128, 175] }),
+  E('scene', W('clean*', 'chores', 'tidy*', 'cook*', 'kitchen'), { moods: ['Upbeat', 'Easygoing'], genres: ['Funk', 'Disco', 'Pop', 'House'], bpm: [105, 125] }),
+  E('scene', W('walk*', 'stroll*', 'wander*'), { moods: ['Easygoing', 'Upbeat'], genres: ['Lo-Fi', 'Alternative', 'Folk', 'Pop'], bpm: [90, 120] }),
+  E('scene', W('commut*', 'metro', 'subway', 'train', 'bus'), { moods: ['Cool', 'Easygoing'], genres: ['Lo-Fi', 'Hip-Hop/Rap', 'Electronic'], bpm: [85, 120] }),
+  E('scene', W('road ?trip*', 'travel*', 'airport', 'flight', 'plane'), { moods: ['Upbeat', 'Stirring', 'Easygoing'], genres: ['Pop', 'Alternative', 'Electronic', 'Folk'], bpm: [95, 128] }),
   // -- time / place
-  [/late night|night drive|midnight|3am|after ?hours/i, { moods: ['Brooding', 'Cool', 'Sophisticated'], genres: ['Electronic', 'Deep House', 'Downtempo', 'R&B/Soul'], bpm: [95, 122] }],
-  [/drive|driving|highway|cruis/i, { moods: ['Cool', 'Defiant'], genres: ['Hip-Hop/Rap', 'Electronic', 'House'], bpm: [90, 125] }],
-  [/sunset|rooftop|golden hour|beach|pool/i, { moods: ['Easygoing', 'Romantic', 'Upbeat'], genres: ['Deep House', 'Disco', 'House'], bpm: [110, 124] }],
-  [/morning|sunrise|coffee/i, { moods: ['Peaceful', 'Easygoing', 'Tender'], genres: ['Lo-Fi', 'Downtempo', 'Jazz'], bpm: [70, 105] }],
-  [/rain|rainy|grey|gray|winter|cozy|fireplace|campfire|bonfire|by the fire/i, { moods: ['Melancholy', 'Sentimental', 'Peaceful'], genres: ['Lo-Fi', 'Downtempo', 'Ambient', 'R&B/Soul'], bpm: [60, 100] }],
+  E('scene', W('late night', 'night drive', 'midnight', '3am', '2am', '4am', 'after ?hours', 'nocturnal', 'night'), { moods: ['Brooding', 'Cool', 'Sophisticated'], genres: ['Electronic', 'Deep House', 'Downtempo', 'R&B/Soul'], bpm: [95, 122] }),
+  E('scene', W('driv*', 'highway', 'cruis*', 'freeway'), { moods: ['Cool', 'Defiant'], genres: ['Hip-Hop/Rap', 'Electronic', 'House', 'Electro'], bpm: [90, 125] }),
+  E('scene', W('sunset', 'rooftop', 'golden hour', 'beach', 'pool ?party', 'pool', 'summer*', 'vacation', 'holiday', 'ibiza', 'tropical'), { moods: ['Easygoing', 'Romantic', 'Upbeat'], genres: ['Deep House', 'Tropical House', 'Disco', 'House'], bpm: [108, 124] }),
+  E('scene', W('morning', 'sunrise', 'coffee', 'breakfast', 'wake up', 'spring'), { moods: ['Peaceful', 'Easygoing', 'Tender'], genres: ['Lo-Fi', 'Acoustic', 'Downtempo', 'Jazz'], bpm: [70, 105] }),
+  E('scene', W('rain*', 'grey', 'gray', 'winter', 'cozy', 'cosy', 'fireplace', 'campfire', 'bonfire', 'by the fire', 'autumn', 'fall', 'snow*', 'storm*'), { moods: ['Melancholy', 'Sentimental', 'Peaceful'], genres: ['Lo-Fi', 'Downtempo', 'Ambient', 'Acoustic'], bpm: [60, 100] }),
+  E('scene', W('city', 'urban', 'street*', 'neon', 'tokyo', 'cyberpunk'), { moods: ['Cool', 'Gritty', 'Sophisticated'], genres: ['Electronic', 'Hip-Hop/Rap', 'Electro', 'Vaporwave'], bpm: [90, 128] }),
+  E('scene', W('nature', 'forest', 'ocean', 'sea', 'waves', 'mountain*', 'desert', 'garden'), { moods: ['Peaceful', 'Stirring'], genres: ['Ambient', 'Acoustic', 'Downtempo', 'World'], bpm: [55, 100] }),
+  E('scene', W('dinner', 'wine', 'cocktail*', 'lounge', 'bar', 'fancy', 'classy'), { moods: ['Sophisticated', 'Sensual', 'Cool'], genres: ['Jazz', 'R&B/Soul', 'Deep House', 'Downtempo'], bpm: [80, 118] }),
   // -- state of mind
   // "design time" is the canonical bug this lexicon exists to fix: it must
   // resolve here (a vibe read) and never as a literal search for a track
   // titled "Design Time" — see classifyIntent below.
-  [/study|focus|deep work|coding|concentrat|design ?time|designing|creative flow|working late/i, { moods: ['Peaceful', 'Easygoing'], genres: ['Lo-Fi', 'Ambient', 'Downtempo', 'Electronic'], bpm: [60, 110] }],
-  [/chill|relax|calm|unwind|laid ?back/i, { moods: ['Easygoing', 'Peaceful', 'Cool'], genres: ['Lo-Fi', 'Deep House', 'Downtempo'], bpm: [80, 115] }],
-  [/sad|heartbreak|cry|miss|lonely/i, { moods: ['Melancholy', 'Yearning', 'Sentimental'], genres: ['R&B/Soul', 'Lo-Fi', 'Downtempo'], bpm: [60, 100] }],
-  [/angry|mad|fury|vent/i, { moods: ['Aggressive', 'Defiant', 'Fiery'], genres: ['Metal', 'Trap', 'Dubstep'], bpm: [130, 175] }],
-  [/happy|joy|good mood|feel ?good|smile/i, { moods: ['Upbeat', 'Excited', 'Empowering'], genres: ['Disco', 'House', 'Pop', 'Funk'], bpm: [110, 128] }],
-  [/love|romantic|date|slow dance/i, { moods: ['Romantic', 'Tender', 'Sentimental'], genres: ['R&B/Soul', 'Jazz', 'Downtempo'], bpm: [65, 105] }],
-  [/dark|sinister|villain|menac/i, { moods: ['Brooding', 'Serious', 'Gritty'], genres: ['Techno', 'Trap', 'Electronic'], bpm: [100, 140] }],
-  [/space|cosmic|float|dream|ethereal/i, { moods: ['Peaceful', 'Stirring'], genres: ['Ambient', 'Electronic', 'Downtempo'], bpm: [60, 110] }],
+  E('scene', W('study*', 'focus*', 'deep work', 'cod*', 'programming', 'concentrat*', 'design ?time', 'design*', 'creative flow', 'working late', 'work', 'working', 'reading', 'writing', 'homework', 'exam*', 'productiv*', 'flow state'), { moods: ['Peaceful', 'Easygoing', 'Sophisticated'], genres: ['Lo-Fi', 'Ambient', 'Downtempo', 'Electronic'], bpm: [65, 110] }),
+  E('scene', W('sleep*', 'bedtime', 'nap*', 'insomnia', 'lullab*'), { moods: ['Peaceful', 'Tender'], genres: ['Ambient', 'Classical', 'Lo-Fi'], bpm: [50, 80] }),
+  E('scene', W('meditat*', 'yoga', 'breath*', 'mindful*', 'spa', 'zen', 'healing', 'prayer', 'pray*'), { moods: ['Peaceful', 'Tender'], genres: ['Ambient', 'World', 'Devotional', 'Classical'], bpm: [50, 85] }),
+  E('mood', W('chill*', 'relax*', 'calm*', 'unwind*', 'laid ?back', 'mellow', 'easy', 'vibes?', 'vibing'), { moods: ['Easygoing', 'Peaceful', 'Cool'], genres: ['Lo-Fi', 'Deep House', 'Downtempo'], bpm: [80, 115] }),
+  E('mood', W('sad*', 'heartbr*', 'cry', 'crying', 'miss you', 'missing', 'lonel*', 'alone', 'breakup', 'broken', 'hurt*', 'grief', 'blue'), { moods: ['Melancholy', 'Yearning', 'Sentimental'], genres: ['R&B/Soul', 'Lo-Fi', 'Downtempo', 'Acoustic'], bpm: [60, 100] }),
+  E('mood', W('angry', 'anger', 'mad', 'fury', 'furious', 'vent*', 'pissed', 'rage'), { moods: ['Aggressive', 'Defiant', 'Fiery'], genres: ['Metal', 'Trap', 'Dubstep', 'Punk'], bpm: [130, 175] }),
+  E('mood', W('happy', 'joy*', 'good mood', 'feel ?good', 'smil*', 'sunny', 'bright', 'cheer*', 'celebrat*', 'fun'), { moods: ['Upbeat', 'Excited', 'Empowering'], genres: ['Disco', 'House', 'Pop', 'Funk'], bpm: [110, 128] }),
+  E('mood', W('love', 'romantic', 'romance', 'date night', 'first date', 'slow dance', 'crush', 'wedding'), { moods: ['Romantic', 'Tender', 'Sentimental', 'Sensual'], genres: ['R&B/Soul', 'Jazz', 'Downtempo', 'Pop'], bpm: [65, 105] }),
+  E('mood', W('sexy', 'sensual', 'seduct*', 'slow jam*'), { moods: ['Sensual', 'Romantic', 'Cool'], genres: ['R&B/Soul', 'Downtempo'], bpm: [65, 100] }),
+  E('mood', W('dark', 'sinister', 'villain*', 'menac*', 'evil', 'creepy', 'horror', 'haunt*'), { moods: ['Brooding', 'Serious', 'Gritty'], genres: ['Techno', 'Trap', 'Electronic', 'Experimental'], bpm: [100, 140] }),
+  E('mood', W('space', 'cosmic', 'float*', 'dream*', 'ethereal', 'galaxy', 'stars', 'astral'), { moods: ['Peaceful', 'Stirring'], genres: ['Ambient', 'Electronic', 'Downtempo'], bpm: [60, 110] }),
+  E('mood', W('epic', 'cinematic', 'movie', 'film', 'trailer', 'soundtrack', 'heroic', 'triumph*', 'anthem*'), { moods: ['Stirring', 'Empowering', 'Serious'], genres: ['Soundtrack', 'Classical', 'Electronic'], bpm: [80, 140] }),
+  E('mood', W('confiden*', 'boss', 'main character', 'motivat*', 'grind*', 'hustl*', 'win', 'winning'), { moods: ['Empowering', 'Defiant', 'Energizing'], genres: ['Hip-Hop/Rap', 'Trap', 'Pop'], bpm: [85, 150] }),
+  E('mood', W('nostalg*', 'throwback*', 'old school', 'memories', 'childhood'), { moods: ['Sentimental', 'Yearning'], genres: ['Funk', 'Disco', 'R&B/Soul', 'Vaporwave'], bpm: [85, 122] }),
+  E('mood', W('weird', 'strange', 'experimental', 'abstract', 'glitchy'), { moods: ['Stirring', 'Serious'], genres: ['Experimental', 'Glitch Hop', 'Electronic'], bpm: [80, 150] }),
   // -- direct style words pass straight through
-  [/house/i, { genres: ['House', 'Deep House', 'Tech House'], bpm: [118, 128] }],
-  [/techno/i, { genres: ['Techno'], bpm: [125, 140] }],
-  [/dnb|drum and bass|drum & bass|jungle/i, { genres: ['Drum & Bass', 'Jungle'], bpm: [160, 180] }],
-  [/dubstep|bass music|wobble/i, { genres: ['Dubstep'], bpm: [135, 150] }],
-  [/trap|808/i, { genres: ['Trap'], bpm: [130, 160] }],
-  [/hip ?hop|rap/i, { genres: ['Hip-Hop/Rap'], bpm: [80, 150] }],
-  [/lo ?-?fi/i, { genres: ['Lo-Fi'], bpm: [60, 95] }],
-  [/disco|funk|groove/i, { genres: ['Disco', 'Funk'], bpm: [105, 125] }],
-  [/ambient|drone/i, { genres: ['Ambient'], bpm: [50, 90] }],
-  [/jazz/i, { genres: ['Jazz'] }],
-  [/soul|rnb|r&b/i, { genres: ['R&B/Soul'], bpm: [70, 110] }],
-  [/reggae|dub(?!step)/i, { genres: ['Reggae'], bpm: [70, 100] }],
-  [/latin|reggaeton/i, { genres: ['Latin'], bpm: [90, 110] }],
-  [/phonk|drift/i, { moods: ['Gritty', 'Brooding'], genres: ['Trap', 'Electro', 'Hip-Hop/Rap'], bpm: [125, 165] }],
-  [/hyperpop|glitch/i, { moods: ['Excited', 'Rowdy'], genres: ['Hyperpop', 'Glitch Hop', 'Electronic'], bpm: [130, 170] }],
-  [/trance|uplifting|euphoric/i, { moods: ['Stirring', 'Empowering'], genres: ['Trance', 'Progressive House'], bpm: [132, 142] }],
-  [/hardstyle|hardcore|gabber/i, { moods: ['Aggressive', 'Rowdy'], genres: ['Hardstyle'], bpm: [145, 180] }],
-  [/vaporwave|synthwave|retro|80s/i, { moods: ['Cool', 'Sentimental'], genres: ['Vaporwave', 'Electronic', 'Electro'], bpm: [80, 118] }],
-  [/afro|amapiano|afrobeats?/i, { moods: ['Upbeat', 'Easygoing'], genres: ['Afrobeat', 'House', 'Dancehall'], bpm: [100, 118] }],
-  [/future bass|melodic bass|chill trap/i, { moods: ['Stirring', 'Yearning'], genres: ['Future Bass', 'Electronic'], bpm: [130, 160] }],
-  [/sad boy|sadboy|down bad|in my feels|feels/i, { moods: ['Melancholy', 'Yearning'], genres: ['Lo-Fi', 'R&B/Soul', 'Hip-Hop/Rap'], bpm: [60, 105] }],
-  [/rock|guitar|band/i, { genres: ['Rock', 'Alternative'], bpm: [100, 160] }],
-  [/metal|heavy/i, { moods: ['Aggressive', 'Fiery'], genres: ['Metal'], bpm: [120, 190] }],
-  [/pop\b|catchy|radio/i, { moods: ['Upbeat'], genres: ['Pop'], bpm: [100, 130] }],
+  E('style', W('house'), { genres: ['House', 'Deep House', 'Tech House'], bpm: [118, 128] }),
+  E('style', W('deep house'), { genres: ['Deep House'], bpm: [115, 124] }),
+  E('style', W('tech house'), { genres: ['Tech House'], bpm: [122, 128] }),
+  E('style', W('techno'), { genres: ['Techno'], bpm: [125, 140] }),
+  E('style', W('dnb', 'd&b', 'drum and bass', 'drum & bass', 'drum n bass', 'jungle', 'liquid'), { genres: ['Drum & Bass', 'Jungle'], bpm: [160, 178] }),
+  E('style', W('dubstep', 'bass music', 'wobble', 'riddim', 'brostep'), { genres: ['Dubstep'], bpm: [135, 150] }),
+  E('style', W('trap', '808s?'), { genres: ['Trap'], bpm: [130, 160] }),
+  E('style', W('hip ?hop', 'rap', 'rapper*', 'boom ?bap', 'drill'), { genres: ['Hip-Hop/Rap'], bpm: [80, 150] }),
+  E('style', W('lo ?-?fi', 'lofi', 'chillhop'), { genres: ['Lo-Fi'], bpm: [60, 95] }),
+  E('style', W('disco', 'funk*', 'groov*', 'nu disco'), { genres: ['Disco', 'Funk'], bpm: [105, 125] }),
+  E('style', W('ambient', 'drone', 'soundscape*'), { genres: ['Ambient'], bpm: [50, 90] }),
+  E('style', W('jazz*', 'bebop', 'swing', 'saxophone', 'sax'), { genres: ['Jazz'], bpm: [80, 140] }),
+  E('style', W('soul', 'rnb', 'r&b', 'r and b', 'neo soul'), { genres: ['R&B/Soul'], bpm: [70, 110] }),
+  E('style', W('reggae', 'dub', 'ska'), { genres: ['Reggae'], bpm: [70, 100] }),
+  E('style', W('dancehall'), { genres: ['Dancehall'], bpm: [90, 110] }),
+  E('style', W('latin', 'reggaeton', 'salsa', 'bachata', 'cumbia', 'moombahton'), { genres: ['Latin', 'Moombahton'], bpm: [90, 110] }),
+  E('style', W('phonk', 'drift phonk'), { moods: ['Gritty', 'Brooding'], genres: ['Trap', 'Electro', 'Hip-Hop/Rap'], bpm: [125, 165] }),
+  E('style', W('hyperpop', 'glitch*', 'pc music'), { moods: ['Excited', 'Rowdy'], genres: ['Hyperpop', 'Glitch Hop', 'Electronic'], bpm: [130, 170] }),
+  E('style', W('trance', 'uplifting', 'euphoric', 'psytrance'), { moods: ['Stirring', 'Empowering'], genres: ['Trance', 'Progressive House'], bpm: [132, 145] }),
+  E('style', W('hardstyle', 'hardcore', 'gabber', 'hard dance'), { moods: ['Aggressive', 'Rowdy'], genres: ['Hardstyle'], bpm: [145, 180] }),
+  E('style', W('vaporwave', 'synthwave', 'retrowave', 'outrun', 'retro', '80s', 'eighties'), { moods: ['Cool', 'Sentimental'], genres: ['Vaporwave', 'Electro', 'Electronic'], bpm: [80, 118] }),
+  // Audius has no Afrobeat genre (probed: zero tracks); World + Dancehall
+  // + House carry it, and the mood does the rest
+  E('style', W('afro*', 'amapiano', 'afrohouse', 'afro house', 'naija'), { moods: ['Upbeat', 'Easygoing'], genres: ['Afro House', 'World', 'Dancehall', 'House'], bpm: [100, 122], search: true }),
+  E('style', W('future bass', 'melodic bass', 'chill trap', 'future house'), { moods: ['Stirring', 'Yearning'], genres: ['Future Bass', 'Future House', 'Electronic'], bpm: [125, 160] }),
+  E('style', W('jersey club', 'baltimore club'), { moods: ['Excited', 'Rowdy'], genres: ['Jersey Club'], bpm: [130, 145] }),
+  E('style', W('sad ?boy', 'down bad', 'in my feels', 'feels', 'emo'), { moods: ['Melancholy', 'Yearning'], genres: ['Lo-Fi', 'R&B/Soul', 'Hip-Hop/Rap', 'Alternative'], bpm: [60, 105] }),
+  E('style', W('rock', 'guitar*', 'band', 'indie', 'grunge', 'shoegaze', 'alt'), { genres: ['Rock', 'Alternative'], bpm: [95, 160] }),
+  E('style', W('punk', 'pop punk'), { moods: ['Defiant', 'Rowdy'], genres: ['Punk', 'Rock'], bpm: [150, 190] }),
+  E('style', W('metal', 'heavy', 'metalcore', 'djent'), { moods: ['Aggressive', 'Fiery'], genres: ['Metal'], bpm: [120, 190] }),
+  E('style', W('pop', 'catchy', 'radio', 'top 40'), { moods: ['Upbeat'], genres: ['Pop'], bpm: [100, 130] }),
+  E('style', W('classical', 'orchestra*', 'piano', 'strings', 'symphon*', 'cello', 'violin'), { moods: ['Peaceful', 'Stirring', 'Sophisticated'], genres: ['Classical', 'Soundtrack'], bpm: [55, 120] }),
+  E('style', W('acoustic', 'unplugged', 'singer songwriter'), { moods: ['Tender', 'Sentimental'], genres: ['Acoustic', 'Folk'], bpm: [70, 115] }),
+  E('style', W('folk', 'country', 'bluegrass', 'americana'), { genres: ['Folk', 'Country'], bpm: [80, 130] }),
+  E('style', W('blues'), { genres: ['Blues'], bpm: [60, 110] }),
+  E('style', W('electronic', 'edm', 'synth*', 'electro'), { genres: ['Electronic', 'Electro'], bpm: [110, 140] }),
+  E('style', W('downtempo', 'trip ?hop', 'chillout'), { genres: ['Downtempo'], bpm: [80, 105] }),
+  E('style', W('instrumental', 'no vocals', 'beats'), { genres: ['Lo-Fi', 'Ambient', 'Electronic', 'Soundtrack'] }),
+  // noon's own rooms: South Asia and the Gulf
+  // Audius has no genre for these, so the words are searched as text too
+  // (search: true) and a text hit outranks a generic "World" genre match
+  E('style', W('bollywood', 'desi', 'hindi', 'punjabi', 'bhangra', 'indian', 'tamil', 'telugu', 'urdu'), { moods: ['Upbeat', 'Romantic'], genres: ['World', 'Pop'], bpm: [85, 130], search: true }),
+  E('style', W('sufi', 'qawwali'), { moods: ['Stirring', 'Sentimental'], genres: ['World', 'Devotional'], bpm: [70, 120], search: true }),
+  E('style', W('arabic', 'khaleeji', 'arab', 'middle eastern', 'oud', 'egyptian', 'lebanese'), { moods: ['Stirring', 'Sentimental'], genres: ['World', 'Pop'], bpm: [75, 125], search: true }),
+  E('style', W('eid', 'ramadan', 'nasheed'), { moods: ['Peaceful', 'Stirring'], genres: ['Devotional', 'World'], bpm: [60, 110], search: true }),
+  E('style', W('kpop', 'k-pop', 'jpop', 'j-pop', 'anime'), { moods: ['Upbeat', 'Excited'], genres: ['Pop', 'Electronic'], bpm: [100, 140], search: true }),
+  E('style', W('world', 'global', 'ethnic', 'tribal'), { genres: ['World'], bpm: [80, 125] }),
 ]
 
-/** Read a prompt: blend every lexicon hit into one sense + a human line. */
+/** INTENSITY: words that move the tempo and the energy without naming a
+ *  style. They shift the read's centre rather than adding genres. */
+const SLOWER = W('slow*', 'soft*', 'gentle', 'quiet*', 'sleepy', 'lazy', 'low ?key', 'mellow', 'downbeat')
+const FASTER = W('fast*', 'hard*', 'loud*', 'intense', 'energ*', 'upbeat', 'turnt', 'heavy', 'aggressive', 'crazy', 'wild')
+const STRONG = W('super', 'very', 'really', 'extra', 'max', 'ultra', 'so')
+
+/** NEGATION: "no rap", "not too sad", "without techno", "anything but pop".
+ *  The phrase after the negator is read as its own prompt and whatever it
+ *  names is struck from the read and kept out of the results. */
+const NEGATE = /(?:^|[^a-z])(?:no|not|without|minus|except|anything but|nothing|zero|skip|avoid|hate)\s+(?:too\s+|any\s+|more\s+)?([a-z0-9&'\- ]+?)(?=$|[,.;]|\s+(?:and|but|or|with|please|pls)\b)/gi
+
+/** Read a prompt: weigh every lexicon hit into one sense + a human line. */
 export function readVibe(prompt: string): { sense: VibeSense; read: string } {
-  const moods = new Set<string>()
-  const genres = new Set<string>()
-  let bpmLo = Infinity
-  let bpmHi = -Infinity
-  for (const [re, v] of LEXICON) {
-    if (!re.test(prompt)) continue
-    v.moods?.forEach((m) => moods.add(m))
-    v.genres?.forEach((g) => genres.add(g))
-    if (v.bpm) {
-      bpmLo = Math.min(bpmLo, v.bpm[0])
-      bpmHi = Math.max(bpmHi, v.bpm[1])
+  // strike negated phrases first, so "no rap" never reads as rap
+  const avoidG = new Set<string>()
+  const avoidM = new Set<string>()
+  const struck: string[] = []
+  let text = ` ${prompt.toLowerCase()} `
+  for (const m of prompt.toLowerCase().matchAll(NEGATE)) {
+    const phrase = m[1].trim()
+    const hit = LEXICON.filter((e) => e.re.test(` ${phrase} `))
+    // "not too slow" / "nothing hard": a negated intensity word is struck
+    // from the text so it cannot push the tempo the way it says not to
+    const pace = SLOWER.test(` ${phrase} `) || FASTER.test(` ${phrase} `)
+    if (!hit.length && !pace) continue
+    if (pace) { text = text.replace(m[0].toLowerCase(), ' '); if (!hit.length) continue }
+    struck.push(phrase)
+    for (const e of hit) {
+      // a negated STYLE removes its genres; a negated mood removes its moods
+      if (e.kind === 'style') e.genres?.forEach((g) => avoidG.add(g))
+      else e.moods?.forEach((mo) => avoidM.add(mo))
+    }
+    text = text.replace(m[0].toLowerCase(), ' ')
+  }
+
+  const gW = new Map<string, number>()
+  const mW = new Map<string, number>()
+  let bpmSum = 0
+  let spanSum = 0
+  let bpmW = 0
+  const terms: string[] = []
+  for (const e of LEXICON) {
+    if (!e.re.test(text)) continue
+    if (e.search) {
+      const hit = text.match(e.re)?.[0].replace(/[^a-z0-9&\- ]/gi, ' ').trim()
+      if (hit && !terms.includes(hit)) terms.push(hit)
+    }
+    const w = KIND_W[e.kind]
+    // earlier genres in an entry are its truer read: rank decays within it
+    e.genres?.forEach((g, i) => { if (!avoidG.has(g)) gW.set(g, (gW.get(g) ?? 0) + w / (1 + i * 0.35)) })
+    e.moods?.forEach((mo, i) => { if (!avoidM.has(mo)) mW.set(mo, (mW.get(mo) ?? 0) + w / (1 + i * 0.35)) })
+    if (e.bpm) {
+      bpmSum += ((e.bpm[0] + e.bpm[1]) / 2) * w
+      spanSum += ((e.bpm[1] - e.bpm[0]) / 2) * w
+      bpmW += w
     }
   }
+
+  // intensity words move the centre; "super" doubles the push
+  const push = (STRONG.test(text) ? 2 : 1) * 14
+  let shift = 0
+  if (SLOWER.test(text)) shift -= push
+  if (FASTER.test(text)) shift += push
+  let bpm: [number, number] | undefined
+  if (bpmW) {
+    const c = bpmSum / bpmW + shift
+    const half = Math.max(8, Math.min(24, spanSum / bpmW))
+    bpm = [Math.round(Math.max(50, c - half)), Math.round(Math.min(190, c + half))]
+  } else if (shift) {
+    bpm = shift < 0 ? [60, 100] : [125, 165]
+  }
+  if (shift < 0) mW.set('Peaceful', (mW.get('Peaceful') ?? 0) + 1)
+  if (shift > 0) mW.set('Energizing', (mW.get('Energizing') ?? 0) + 1)
+
+  const rank = (m: Map<string, number>, n: number) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n)
+  const g = rank(gW, 5)
+  const mo = rank(mW, 4)
   const sense: VibeSense = {
-    moods: moods.size ? [...moods] : undefined,
-    genres: genres.size ? [...genres] : undefined,
-    bpm: isFinite(bpmLo) ? [bpmLo, bpmHi] : undefined,
+    moods: mo.length ? mo.map((x) => x[0]) : undefined,
+    genres: g.length ? g.map((x) => x[0]) : undefined,
+    bpm,
+    genreW: g.length ? Object.fromEntries(g) : undefined,
+    moodW: mo.length ? Object.fromEntries(mo) : undefined,
+    avoid: avoidG.size ? [...avoidG] : undefined,
+    terms: terms.length ? terms.slice(0, 2) : undefined,
   }
   const bits: string[] = []
   if (sense.moods) bits.push(sense.moods.slice(0, 2).join('/').toLowerCase())
   if (sense.genres) bits.push(sense.genres.slice(0, 2).join('/').toLowerCase())
   if (sense.bpm) bits.push(`${sense.bpm[0]}-${sense.bpm[1]}bpm`)
+  if (struck.length) bits.push(`no ${struck.join(', no ')}`)
   return { sense, read: bits.length ? `read as ${bits.join(' · ')}` : 'no read · searching the words themselves' }
 }
 
@@ -144,7 +277,9 @@ function classifyIntent(prompt: string, sense: VibeSense): Intent {
   const quoteMatch = trimmed.match(/^["“'](.+?)["”']$/)
   if (quoteMatch) return { mode: 'name', query: quoteMatch[1], quoted: true }
 
-  const hasVibeSense = !!(sense.moods || sense.genres || sense.bpm)
+  // an exclusion alone ("anything but techno") is still a vibe request:
+  // it asks for the radio minus something, not for a track by that name
+  const hasVibeSense = !!(sense.moods || sense.genres || sense.bpm || sense.avoid)
 
   // word-boundary "by" only -- must not fire on "somebody" etc. And only when
   // the phrase has no vibe reading: "music by the fire" and "songs to drive
@@ -275,7 +410,7 @@ export async function fetchVibe(prompt: string): Promise<{ tracks: TrackInfo[]; 
   try {
     const host = await resolveHost()
     const genres = sense.genres ?? CLUB
-    const pool = new Map<string, { t: AudiusTrack; fromSearch: boolean }>()
+    const pool = new Map<string, { t: AudiusTrack; fromSearch: boolean; fromTerm?: boolean }>()
     // a quoted phrase or an explicit "X by Y" is confidently a name — don't
     // bother sweeping mood trending for it, the search alone should answer.
     const skipTrending = intent.mode === 'name' && (intent.quoted || !!intent.byArtist)
@@ -306,6 +441,26 @@ export async function fetchVibe(prompt: string): Promise<{ tracks: TrackInfo[]; 
         }
       })(),
     )
+    // a style Audius has no genre for is found by its name: search the
+    // term itself, and let those hits carry the read
+    for (const term of intent.mode === 'vibe' ? sense.terms ?? [] : []) {
+      jobs.push(
+        (async () => {
+          const r = await fetch(
+            `${host}/v1/tracks/search?query=${encodeURIComponent(term)}&app_name=${APP}&limit=40`,
+            { signal: AbortSignal.timeout(7000) },
+          )
+          if (!r.ok) return
+          const d = (await r.json()) as { data?: AudiusTrack[] }
+          for (const t of d.data ?? []) {
+            if (!playable(t)) continue
+            const prev = pool.get(t.id)
+            if (prev) prev.fromTerm = true
+            else pool.set(t.id, { t, fromSearch: false, fromTerm: true })
+          }
+        })(),
+      )
+    }
     await Promise.allSettled(jobs)
 
     // live override check: does a search hit's ARTIST match what was typed,
@@ -321,7 +476,14 @@ export async function fetchVibe(prompt: string): Promise<{ tracks: TrackInfo[]; 
     }
     const mode: 'vibe' | 'name' = matchedArtist ? 'name' : intent.mode
 
-    const scored = [...pool.values()].map(({ t, fromSearch }) => {
+    // the radio plays music: recitations, talk and audiobooks that share a
+    // word with the prompt stay out unless the prompt asked for them
+    const talk = /\b(quran|qur'an|surah|ayat|ayah|recitation|tilawat|sermon|podcast|audiobook|chapter \d+|episode \d+)\b/i
+    const TALK_GENRES = ['Spoken Word', 'Podcasts', 'Audiobooks', 'Comedy', 'Kids']
+    const wantsTalk = talk.test(prompt)
+    const scored = [...pool.values()].filter(({ t }) =>
+      intent.mode === 'name' || wantsTalk || !(talk.test(t.title) || (t.genre && TALK_GENRES.includes(t.genre))),
+    ).map(({ t, fromSearch, fromTerm }) => {
       let score = Math.log10(1 + (t.play_count ?? 0)) * 0.5
       if (mode === 'name') {
         // a name search IS the search hit — weight it hard, and pin the
@@ -333,14 +495,25 @@ export async function fetchVibe(prompt: string): Promise<{ tracks: TrackInfo[]; 
         // literal-title bug: a stray title hit alone can't outscore a real
         // mood/genre/bpm match against the read.
         if (fromSearch) score += 0.3
-        if (sense.moods && t.mood && sense.moods.includes(t.mood)) score += 2
-        if (sense.genres && t.genre && sense.genres.includes(t.genre)) score += 1.5
-        if (sense.bpm && t.bpm && t.bpm >= sense.bpm[0] && t.bpm <= sense.bpm[1]) score += 1
+        if (fromTerm) score += 3.2
+        // weighted against the read: the lead genre and mood count most
+        const gTop = sense.genreW ? Math.max(...Object.values(sense.genreW)) : 1
+        const mTop = sense.moodW ? Math.max(...Object.values(sense.moodW)) : 1
+        if (t.mood && sense.moodW?.[t.mood]) score += 2 * (sense.moodW[t.mood] / mTop)
+        if (t.genre && sense.genreW?.[t.genre]) score += 1.8 * (sense.genreW[t.genre] / gTop)
+        if (sense.bpm && t.bpm) {
+          const c = (sense.bpm[0] + sense.bpm[1]) / 2
+          const half = (sense.bpm[1] - sense.bpm[0]) / 2
+          // in range scores fully, and it falls off outside rather than at a cliff
+          score += Math.max(0, 1.2 - Math.max(0, Math.abs(t.bpm - c) - half) / 12)
+        }
+        // what the prompt ruled out stays out
+        if (t.genre && sense.avoid?.includes(t.genre)) score -= 100
       }
       return { t, score }
     })
     scored.sort((a, b) => b.score - a.score)
-    const top = scored.slice(0, 30).map((x) => x.t)
+    const top = scored.filter((x) => x.score > -50).slice(0, 30).map((x) => x.t)
     // light shuffle inside the top tier so replays differ -- except over
     // the matched artist's own tracks. The read says "the artist X", so the
     // first thing that plays has to BE X, not a remix that outscored them
