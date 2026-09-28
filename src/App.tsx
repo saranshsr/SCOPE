@@ -183,6 +183,8 @@ export default function App() {
   // read of how it understood you.
   const [query, setQuery] = useState('')
   const [vibeRead, setVibeRead] = useState<string | null>(null)
+  // the vibe whose playlist actually loaded: what a chip's .on reports
+  const [vibeOn, setVibeOn] = useState<string | null>(null)
   const [tuning2, setTuning2] = useState<'idle' | 'loading' | 'empty'>('idle')
   const [onboard, setOnboard] = useState(false)
   /** which tour: the one-card hint on power-on, the full walk from [?] */
@@ -2224,6 +2226,7 @@ export default function App() {
       return
     }
     setTuning2('idle')
+    setVibeOn(prompt.trim())
     try {
       localStorage.setItem('scope-vibe', prompt.trim())
     } catch { /* private mode */ }
@@ -3524,7 +3527,12 @@ export default function App() {
               </form>
               <div className="tuner-chips">
                 {['late night drive', 'gym rage', 'rainy study', 'rooftop sunset'].map((v) => (
-                  <button key={v} onClick={() => { setQuery(v); void setVibe(v) }}>
+                  <button
+                    key={v}
+                    className={vibeOn === v ? 'on' : undefined}
+                    aria-pressed={vibeOn === v}
+                    onClick={() => { setQuery(v); void setVibe(v) }}
+                  >
                     {v}
                   </button>
                 ))}
