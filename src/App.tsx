@@ -194,7 +194,14 @@ export default function App() {
   /** the key handler lives in a mount-once effect; it flips the ground
    *  through this so it always sees the current one */
   const themeKeyRef = useRef<(() => void) | null>(null)
+  // The poster button's own feedback: busy while the frame is grabbed and
+  // the PNG encoded, then a receipt naming the file that was actually
+  // written. The ref is the re-entry guard -- a second press inside one
+  // render would read the state before it changed.
   const [posterBusy, setPosterBusy] = useState(false)
+  const [posterSaved, setPosterSaved] = useState<string | null>(null)
+  const posterBusyRef = useRef(false)
+  const posterReceiptRef = useRef(0)
   // THE VIBE: a prompt in, a playlist out — plus the instrument's honest
   // read of how it understood you.
   const [query, setQuery] = useState('')
@@ -623,6 +630,8 @@ export default function App() {
         if (faultHold.current) faultHold.current = false
         else setFault(null)
       }
+      tierAvg.fill(0)
+      tierAge.fill(0)
       setAj(engine.kind === 'aj' ? engine.ajState : null)
       // Leaving the stems reverts the rings whenever they still name stems,
       // not only while the deck happened to be playing: a paused deck left
@@ -779,7 +788,7 @@ export default function App() {
      * exactly that, unnormalised, and they already read well. The rings
      * were duplicating them badly; now they say the thing the bars cannot.
      *
-     * TAU is 6s, longer than a couple of bars at any tempo, so the
+     * TAU is 4s, two bars at 120 BPM and longer than a beat at any tempo, so the
      * reference is stable under a beat rather than chasing it. FLOOR is
      * the absolute mean below which a band is treated as silent: the mean
      * stops integrating there and freezes, so a quiet passage reads quiet
@@ -788,17 +797,45 @@ export default function App() {
      *
      * OCTAVE is the law of the scale, and it is a ratio law rather than a
      * linear one because that is what a meter is. A band at twice its own
-     * average moves 0.35 of the scale, a band at half moves 0.35 down, so
-     * the eight cells span about +-1.4 octaves of deviation either side of
-     * normal -- roughly 17dB, a VU's worth. Linear normalisation was tried
+     * average amplitude (+6dB) moves 0.25 of the scale, a band at half
+     * moves 0.25 down, so the eight cells span two doublings either side
+     * of normal -- +-12dB, a VU's worth. Linear normalisation was tried
      * first and measured: it put four of the six rings inside a ONE cell
      * range, because a +-20% swing in band energy is only +-0.1 of a
      * linear scale. Ratios are how loudness moves; the scale has to agree.
+     * It was 0.35 (+-8.6dB) for a while, and on a real master that is too
+     * tight: an intro-to-drop step is 7dB, and it held three rings at 8/8
+     * until the mean caught up.
      */
+    //
+    // THE BANDS ARE ALREADY DECIBELS, and the first version of this law
+    // forgot it. `f.bands` is the analyser's byte data, which maps -90..-10
+    // dB onto 0..1, so `log2(m / avg)` of it was not octaves of anything:
+    // it measured a 3dB swing at -85dB as more than an octave and a 12dB
+    // swing at -20dB as a quarter of one. Quiet bands -- the air on every
+    // radio master -- were hypersensitive and loud bands were numb, which
+    // is a frequency-ordered sensitivity, which is the tilt again. The
+    // deviation is now a difference, `(m - avg) * 80` dB, and a doubling
+    // is 6.02 of those: the same law features.ts already uses for
+    // `bandsRel`.
+    //
+    // TWO CLOCKS made that worse on a slow machine, and a loud track found
+    // them. The mean ran on the simulation's `dt`, which is capped at 50ms,
+    // so at 5fps four seconds of TAU took sixteen; and it was seeded
+    // from the first frame with any signal, which on a master with a soft
+    // intro is the intro. A reference that low, catching up that slowly,
+    // put the air ring at 8/8 for 62% of a sample. The mean now runs on the
+    // real frame gap, is a plain running mean until it has TAU seconds of
+    // signal in it (so the intro is outvoted within seconds rather than
+    // decayed over minutes), and starts over with each track, because a
+    // reference taken from the last song describes the last song.
     const tierAvg = new Float32Array(6)
-    const TIER_TAU = 6
+    const tierAge = new Float32Array(6) // seconds of signal the mean holds, capped at TAU
+    const TIER_TAU = 4
     const TIER_FLOOR = 0.03
-    const TIER_OCTAVE = 0.35 // scale travelled per doubling against its own mean
+    const TIER_OCTAVE = 0.25 // scale travelled per doubling against its own mean
+    const TIER_SLEW = 3 / 80 // the median's step, f.bands units per second (3dB/s)
+    const TIER_DB = 80 / 6.02 // f.bands units per doubling, inverted: (m - avg) * this = doublings
     const sectMuted = new Set<number>() // latched tier kills
     let sectSolo = -1 // spectral tier solo (stem solo lives in the deck)
     // Latched row levels, 0..2 — the mixing desk the layer rows drive.
@@ -1647,9 +1684,22 @@ export default function App() {
           // the six seconds it takes to catch up -- which is exactly what
           // the first version of this did, and it pinned the sub ring at
           // the ceiling for 67% of a twelve-second sample.
-          if (m >= TIER_FLOOR)
-            tierAvg[i] = tierAvg[i] > 0 ? tierAvg[i] + (m - tierAvg[i]) * Math.min(1, dt / TIER_TAU) : m
-          const dev = Math.log2(Math.max(1e-4, m) / Math.max(TIER_FLOOR, tierAvg[i]))
+          if (m >= TIER_FLOOR) {
+            const gap = Math.min(1, rawDt)
+            if (tierAge[i] < TIER_TAU) {
+              tierAge[i] = Math.min(TIER_TAU, tierAge[i] + gap)
+              tierAvg[i] += (m - tierAvg[i]) * Math.min(1, gap / Math.max(gap, tierAge[i]))
+            } else {
+              // past warm-up the reference is a running MEDIAN, not a mean:
+              // a peaky band (hats, air) spends most of its time below its
+              // own mean, so against a mean it read low while a smooth sub
+              // read high -- a tilt by envelope shape rather than by energy.
+              // A median is mid-scale by definition. Stepping at 3dB/s it
+              // follows a level change in seconds and ignores a beat.
+              tierAvg[i] += Math.sign(m - tierAvg[i]) * Math.min(Math.abs(m - tierAvg[i]), TIER_SLEW * gap)
+            }
+          }
+          const dev = (m - Math.max(TIER_FLOOR, tierAvg[i])) * TIER_DB
           tierLevels[i] = Math.max(0, Math.min(1, 0.5 + dev * TIER_OCTAVE))
         }
       }
@@ -2726,8 +2776,16 @@ export default function App() {
   // fig.02 · session: the star as it is right now, and only what this
   // session actually measured beside it.
   const savePoster = async () => {
-    if (posterBusy) return
+    if (posterBusyRef.current) return
+    posterBusyRef.current = true
+    window.clearTimeout(posterReceiptRef.current)
+    setPosterSaved(null)
     setPosterBusy(true)
+    // A render that lands in one frame would flash 'printing…' for 16ms,
+    // which reads as a flicker and not as work. 420ms is the sheet's own
+    // "a state change you are meant to see" step (DESIGN.md motion table).
+    const held = new Promise((r) => setTimeout(r, 420))
+    let saved: string | null = null
     try {
       const star = await new Promise<HTMLCanvasElement>((res) => { grabRef.current = res })
       const ss = sessionRef.current
@@ -2751,9 +2809,17 @@ export default function App() {
       const slug = (tube?.title ?? track?.title ?? 'session').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
       a.download = `scope-fig02-${slug || 'session'}.png`
       a.click()
+      saved = a.download
       setTimeout(() => URL.revokeObjectURL(url), 4000)
     } finally {
+      await held
+      posterBusyRef.current = false
       setPosterBusy(false)
+      // the receipt says what was written, and only when something was
+      if (saved) {
+        setPosterSaved(saved)
+        posterReceiptRef.current = window.setTimeout(() => setPosterSaved(null), 2500)
+      }
     }
   }
 
@@ -4009,8 +4075,18 @@ export default function App() {
               <button role="radio" data-ground="paper" tabIndex={theme === 'paper' ? 0 : -1} aria-checked={theme === 'paper'} className={theme === 'paper' ? 'on' : ''} onClick={() => applyTheme('paper')}>paper</button>
             </div>
             <div className="cells c1">
-              <button onClick={() => void savePoster()} disabled={posterBusy}>
-                {posterBusy ? 'printing…' : 'save a poster · fig.02'}
+              {/* aria-disabled + aria-busy, not `disabled`: a disabled
+                  button drops focus to <body> the moment it is pressed, so
+                  a keyboard user lost their place in the rail on every
+                  poster. The handler refuses a second press itself. */}
+              <button
+                className="poster-btn"
+                onClick={() => void savePoster()}
+                aria-disabled={posterBusy || undefined}
+                aria-busy={posterBusy || undefined}
+                aria-live="polite"
+              >
+                {posterBusy ? 'printing…' : posterSaved ? `saved · ${posterSaved}` : 'save a poster · fig.02'}
               </button>
             </div>
           </div>
@@ -4039,9 +4115,17 @@ export default function App() {
           <div className="rail-dock">
             <h2 className="cn-mod"><span>05 · spectrum</span><i>//24 bands_</i></h2>
             <div className="spec rail-sec" style={{ '--i': 6 } as React.CSSProperties}>
-              <canvas ref={specRef} width={400} height={144} aria-hidden="true" />
+              <canvas ref={specRef} aria-hidden="true" />
+              {/* Each label stands where its frequency is on the bars: the
+                  24 bands are log-spaced 30Hz..16kHz (features.ts), so a
+                  frequency's place on the axis is ln(f/30)/ln(16000/30).
+                  They were spread evenly by flex, which put 250 at 25%
+                  (it is 33.8%) and 12k at the right edge (95.4%): an axis
+                  that disagreed with its own bars by up to three of them. */}
               <div className="spec-hz">
-                <span>60</span><span>250</span><span>1k</span><span>4k</span><span>12k</span>
+                {SPEC_HZ.map(([hz, t]) => (
+                  <span key={t} style={{ left: `${((Math.log(hz / 30) / Math.log(16000 / 30)) * 100).toFixed(2)}%` }}>{t}</span>
+                ))}
               </div>
             </div>
             <div className="level">
@@ -4289,6 +4373,17 @@ let INK_LINE = 'rgba(141, 144, 168, 0.68)'
    GROUND_RGB is for the knockouts that lift canvas type off the star. */
 let MARK = ''
 let GROUND_RGB = '10, 10, 10'
+/* --ink-dim as a triple: the survey's secondary line (LVL, SUM, a muted
+   name) is set in the sheet's chrome tier, which is a token of its own and
+   NOT an alpha of --ink -- 0.55 of the ink measured 3.6:1 on the dark
+   ground, under the 4.5 floor, while --ink-dim itself is 6.2:1. */
+let INK_DIM_RGB = '138, 144, 163'
+const rgbTriple = (v: string) => {
+  const h = /^#([0-9a-f]{6})$/i.exec(v)
+  if (h) return [0, 2, 4].map((k) => parseInt(h[1].slice(k, k + 2), 16)).join(', ')
+  const m = /rgba?\(([^)]+)\)/.exec(v)
+  return m ? m[1].split(',').slice(0, 3).map((x) => x.trim()).join(', ') : ''
+}
 export function readAccent() {
   const cs = getComputedStyle(document.documentElement)
   const v = cs.getPropertyValue('--accent-rgb').trim()
@@ -4300,6 +4395,8 @@ export function readAccent() {
   MARK = cs.getPropertyValue('--mark').trim()
   const ground = cs.getPropertyValue('--ground-rgb').trim()
   if (ground) GROUND_RGB = ground
+  const dim = rgbTriple(cs.getPropertyValue('--ink-dim').trim())
+  if (dim) INK_DIM_RGB = dim
 }
 
 /** The browser's own chrome follows the ground: the phone's address bar was
@@ -4771,6 +4868,8 @@ function drawWave(
   g.fillRect(Math.min(px, W - rule), 0, rule, H)
 }
 
+const SURVEY_FONT = '11px "Departure Mono", ui-monospace, monospace'
+
 /**
  * The survey drawing. While the orb is dissected, each tier is annotated in
  * the language of an exploded engineering plot: the true projected ellipse
@@ -4852,6 +4951,12 @@ function drawSurvey(
   // ink, and at the dark sheet's 0.38 the rings read as pencil. On paper
   // they are engraved: the same ranking, cut 1.7x deeper.
   const eng = (al: number) => (MARK ? Math.min(1, al * 1.7) : al)
+  const dimInk = (al: number) => `rgba(${INK_DIM_RGB},${al * a})`
+  // The plates' pitch on screen: two lines and a bar need 32px and a
+  // breath between them, so under 38px they fold to one line each.
+  let pitch = Infinity
+  for (let i = 1; i < n; i++) pitch = Math.min(pitch, Math.abs(scene.surveyPoint(i, 0, 0).y - scene.surveyPoint(i - 1, 0, 0).y))
+  const compact = pitch < 38
 
   // the spine
   const top = scene.surveyPoint(n - 1, 0, 0)
@@ -4926,55 +5031,65 @@ function drawSurvey(
       g.fillRect(p.x - 1.5, p.y - 1.5, 3, 3)
     }
 
-    // the tier's data plate, in the aligned margin column
+    // THE TIER'S DATA PLATE, in the aligned margin column, and ONE plate for
+    // both sheets. The dark one used to be set in a bold 10px and a 9px
+    // JetBrains Mono that does not ship -- the browser faked the face and
+    // its bold, on neither step of the 11px ramp -- with the level line at
+    // 0.55 of the ink, 3.6:1, straight over the moving specks. Now it is
+    // the paper plate's form everywhere: Departure Mono 11px, a knockout of
+    // the ground under the text, and each line at a TOKEN (--ink, --ink-dim,
+    // the accent) with alpha only for the fade-in.
     const ctr = scene.surveyPoint(i, 0, 0)
     const lx = plateX
-    if (MARK) {
-      // PAPER. The plate is a slip of the stock: a knockout of the ground
-      // under both lines, so the specks passing behind a label never run
-      // through its letters, and the face is the sheet's own Departure Mono
-      // at 11px -- the JetBrains Mono these were set in does not ship, so the
-      // browser was faking both it and its bold. A soloed tier's name and a
-      // muted tier's state carry the mark, the paper form of the accent.
-      const l1 = `0${i + 1} · ${tiers[i].label.toUpperCase()}`
-      const l2 = muted ? 'MUTED' : soloed ? 'SOLO' : `LVL ${String(Math.round(levels[i] * 99)).padStart(2, '0')}`
-      g.font = '11px "Departure Mono", ui-monospace, monospace'
-      const w1 = g.measureText(l1).width
-      const w2 = g.measureText(l2).width
+    const lvl = String(Math.round(levels[i] * 99)).padStart(2, '0')
+    const state = muted ? 'MUTED' : soloed ? 'SOLO' : `LVL ${lvl}`
+    const name = `0${i + 1} · ${tiers[i].label.toUpperCase()}`
+    const nameFill = soloed ? accent(1) : muted ? dimInk(1) : ink(1)
+    const stateFill = soloed || muted ? accent(1) : dimInk(1)
+    g.font = SURVEY_FONT
+    if (compact) {
+      // Too tight for two lines and a bar: at the phone sheet's pitch the
+      // level bar of one tier was drawn through the number of the next. One
+      // line per tier, the level as its number, no bar.
+      const l = muted || soloed ? `${name} ${state}` : `${name} ${lvl}`
+      const w = g.measureText(l).width
       g.fillStyle = `rgba(${GROUND_RGB},${0.92 * a})`
-      g.fillRect(lx - 4, ctr.y - 15, Math.max(w1, w2, 46) + 8, 32)
-      if (soloed) {
+      g.fillRect(lx - 4, ctr.y - 8, w + 8, 16)
+      if (MARK && (soloed || muted)) {
         g.globalAlpha = a
         g.fillStyle = MARK
-        g.fillRect(lx - 3, ctr.y - 13, w1 + 6, 13)
+        g.fillRect(lx - 3, ctr.y - 7, w + 6, 14)
         g.globalAlpha = 1
       }
-      if (muted) {
-        g.globalAlpha = a
-        g.fillStyle = MARK
-        g.fillRect(lx - 3, ctr.y, w2 + 6, 13)
-        g.globalAlpha = 1
-      }
-      g.fillStyle = ink(soloed || hot ? 1 : muted ? 0.6 : 0.9)
-      g.fillText(l1, lx, ctr.y - 6)
-      g.fillStyle = ink(muted || soloed ? 1 : 0.62)
-      g.fillText(l2, lx, ctr.y + 7)
-      g.fillStyle = ink(0.85)
-      g.fillRect(lx, ctr.y + 14, Math.max(1, levels[i] * 46), 1)
+      g.fillStyle = soloed || muted ? stateFill : nameFill
+      g.fillText(l, lx, ctr.y)
       continue
     }
-    g.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace'
-    g.fillStyle = soloed ? accent(0.95) : muted ? accent(0.75) : ink(hot ? 1 : 0.9)
-    g.fillText(`0${i + 1} · ${tiers[i].label.toUpperCase()}`, lx, ctr.y - 7)
-    g.font = '9px "JetBrains Mono", ui-monospace, monospace'
-    g.fillStyle = muted ? accent(0.6) : soloed ? accent(0.7) : ink(0.55)
-    g.fillText(
-      muted ? 'MUTED' : soloed ? 'SOLO' : `LVL ${String(Math.round(levels[i] * 99)).padStart(2, '0')}`,
-      lx,
-      ctr.y + 6,
-    )
-    g.fillStyle = soloed ? accent(0.8) : ink(0.8)
-    g.fillRect(lx, ctr.y + 13, Math.max(1, levels[i] * 46), 2)
+    const w1 = g.measureText(name).width
+    const w2 = g.measureText(state).width
+    g.fillStyle = `rgba(${GROUND_RGB},${0.92 * a})`
+    g.fillRect(lx - 4, ctr.y - 15, Math.max(w1, w2, 46) + 8, 32)
+    // Paper: a soloed tier's name and a muted tier's state carry the mark,
+    // the paper form of the accent -- yellow as a field under ink, never as
+    // the letters, since yellow type on the stock is 1.01:1.
+    if (MARK && soloed) {
+      g.globalAlpha = a
+      g.fillStyle = MARK
+      g.fillRect(lx - 3, ctr.y - 13, w1 + 6, 13)
+      g.globalAlpha = 1
+    }
+    if (MARK && muted) {
+      g.globalAlpha = a
+      g.fillStyle = MARK
+      g.fillRect(lx - 3, ctr.y, w2 + 6, 13)
+      g.globalAlpha = 1
+    }
+    g.fillStyle = nameFill
+    g.fillText(name, lx, ctr.y - 6)
+    g.fillStyle = stateFill
+    g.fillText(state, lx, ctr.y + 7)
+    g.fillStyle = soloed ? accent(1) : ink(0.85)
+    g.fillRect(lx, ctr.y + 14, Math.max(1, levels[i] * 46), 1)
   }
 
   // the base compass — the master's small ellipse, like the reference's
@@ -4997,24 +5112,14 @@ function drawSurvey(
   g.fillRect(bp.x - 2, bp.y - 2, 4, 4)
   const cB = scene.projectLocal(0, yB, 0)
   if (MARK) {
-    // paper: the beat dot is a yellow square with an ink edge, and SUM is
-    // set on its own slip of the stock, in the sheet's face
+    // paper: the beat dot is a yellow square with an ink edge
     g.globalAlpha = a
     g.fillStyle = MARK
     g.fillRect(bp.x - 3, bp.y - 3, 6, 6)
     g.globalAlpha = 1
     g.strokeStyle = ink(0.9)
     g.strokeRect(bp.x - 2.5, bp.y - 2.5, 5, 5)
-    const sum = `SUM ${String(Math.round(Math.min(1, rms) * 99)).padStart(2, '0')}`
-    g.font = '11px "Departure Mono", ui-monospace, monospace'
-    g.fillStyle = `rgba(${GROUND_RGB},${0.92 * a})`
-    g.fillRect(cB.x + 8, cB.y - 8, g.measureText(sum).width + 8, 16)
-    g.fillStyle = ink(0.75)
-    g.fillText(sum, cB.x + 12, cB.y + 1)
-    return
   }
-  g.font = '9px "JetBrains Mono", ui-monospace, monospace'
-  g.fillStyle = ink(0.6)
   // ONE SCALE, and this readout is the third to learn it. features.ts
   // already returns rms compressed and enveloped into 0..1; the level
   // meter's `* 2.4` was removed for pinning at 12/12 for 90% of samples,
@@ -5023,12 +5128,21 @@ function drawSurvey(
   // above rms 0.417. Measured against the analyser on a loud track (rms
   // 0.320..0.998), that is SUM 99 for almost the whole track. A fix
   // applied to one readout is not applied to the quantity.
-  g.fillText(`SUM ${String(Math.round(Math.min(1, rms) * 99)).padStart(2, '0')}`, cB.x + 12, cB.y)
+  //
+  // Set on its own slip of the ground, in the sheet's face, at --ink-dim,
+  // on both sheets.
+  const sum = `SUM ${String(Math.round(Math.min(1, rms) * 99)).padStart(2, '0')}`
+  g.font = SURVEY_FONT
+  g.fillStyle = `rgba(${GROUND_RGB},${0.92 * a})`
+  g.fillRect(cB.x + 8, cB.y - 8, g.measureText(sum).width + 8, 16)
+  g.fillStyle = dimInk(1)
+  g.fillText(sum, cB.x + 12, cB.y)
 }
 
 /** 24 log-band bars with hanging peak caps, like the reference analyzer.
  *  Bars display an EASED value — raw analyser bins strobe; the reference's
  *  gauges glide. */
+const SPEC_HZ: [number, string][] = [[60, '60'], [250, '250'], [1000, '1k'], [4000, '4k'], [12000, '12k']]
 const peaks = new Float32Array(24)
 const shown = new Float32Array(24)
 function drawSpectrum(
@@ -5037,11 +5151,27 @@ function drawSpectrum(
   mixBand: 'low' | 'mid' | 'high' | null = null,
   mixDb = 0,
 ) {
-  const g = cv?.getContext('2d')
-  if (!cv || !g) return
-  g.clearRect(0, 0, cv.width, cv.height)
+  if (!cv) return
+  // THE BUFFER IS THE BOX, in device pixels. It was a fixed 400x144 drawn
+  // into a 296x60 box, so every bar was 12.3 buffer pixels resampled onto
+  // 12.3 CSS ones and the 2px gaps smeared into grey at every DPR. Sized
+  // here, compared first so a steady frame never writes width/height
+  // (writing either clears the canvas and reallocates it).
+  const dpr = window.devicePixelRatio || 1
+  const W = Math.max(1, Math.round(cv.clientWidth * dpr))
+  const H = Math.max(1, Math.round(cv.clientHeight * dpr))
+  if (cv.width !== W) cv.width = W
+  if (cv.height !== H) cv.height = H
+  const g = cv.getContext('2d')
+  if (!g) return
+  g.clearRect(0, 0, W, H)
   const n = bands.length
-  const bw = cv.width / n
+  // whole device pixels per bar, and ONE device pixel between them: the
+  // column edges are rounded from the exact layout so 24 bars still fill
+  // the box to its edge, and the gap is the last pixel of each column
+  const x0 = (i: number) => Math.round((i * W) / n)
+  const head = Math.round(2 * dpr) // room for the peak cap at full scale
+  const cap = Math.max(1, Math.round(2 * dpr))
   // PAPER: the held range is highlighted BEHIND its bars -- a yellow field
   // across the band's columns -- and the bars stay ink. A yellow bar on the
   // stock would be the one reading in the panel you could not see.
@@ -5050,16 +5180,23 @@ function drawSpectrum(
     const i0 = mixBand === 'low' ? 0 : mixBand === 'mid' ? 8 : 16
     g.globalAlpha = 0.35 + Math.min(0.65, Math.abs(mixDb) / 20)
     g.fillStyle = MARK
-    g.fillRect(i0 * bw, 0, 8 * bw, cv.height)
+    g.fillRect(x0(i0), 0, x0(i0 + 8) - x0(i0), H)
     g.globalAlpha = 1
   }
   for (let i = 0; i < n; i++) {
-    const raw = Math.min(1, bands[i] * 1.25)
+    // A soft knee, not a clip. `min(1, b * 1.25)` put every band above 0.8
+    // at the ceiling, and on a bass-heavy master bands 0-3 live above 0.8:
+    // four bars that read full for the whole track say nothing. The knee
+    // keeps the order of loud bands visible all the way up and only
+    // approaches the top.
+    const raw = 1 - Math.exp(-1.5 * bands[i])
     // Fast up, slow down — VU-meter ballistics.
     shown[i] += (raw - shown[i]) * (raw > shown[i] ? 0.55 : 0.18)
     const v = shown[i]
     peaks[i] = Math.max(v, peaks[i] - 0.012)
-    const bh = v * (cv.height - 4)
+    const bx = x0(i)
+    const bwI = Math.max(1, x0(i + 1) - bx - 1)
+    const bh = Math.round(v * (H - head))
     g.fillStyle = `rgba(${INK_RGB},0.88)`
     // The HELD EQ range tints red while you bend it — the analytical view
     // agreeing with the sculptural one.
@@ -5067,11 +5204,11 @@ function drawSpectrum(
       const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
       if (inBand) g.fillStyle = `rgba(${ACCENT_RGB},${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
     }
-    g.fillRect(i * bw + 1, cv.height - bh, bw - 2, bh)
+    if (bh > 0) g.fillRect(bx, H - bh, bwI, bh)
     // hanging peak cap — dimmer, falls slowly
-    const py = cv.height - peaks[i] * (cv.height - 4)
+    const py = H - Math.round(peaks[i] * (H - head))
     g.fillStyle = `rgba(${INK_RGB},0.35)`
-    g.fillRect(i * bw + 1, py - 2, bw - 2, 2)
+    g.fillRect(bx, py - cap, bwI, cap)
   }
 }
 
