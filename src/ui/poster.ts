@@ -33,7 +33,8 @@ export interface PosterInput {
   /** 0..1 */
   peakLevel: number | null
   when: Date
-  /** paper = ink on off-white #ecebe6 with #0c0c0c ink; ink = the dark sheet */
+  /** paper = the letterpress sheet (#111010 on #f0ebe0, yellow as a field
+   *  only); ink = the dark sheet */
   theme: 'ink' | 'paper'
   /** css colour, the one accent */
   accent: string
@@ -70,18 +71,25 @@ interface Palette {
   line: string
   captionBg: string
   accent: string
+  /** paper only: the yellow as a FIELD under ink type. null on the dark
+   *  sheet, where the accent is type and needs no field. */
+  mark: string | null
 }
 
 function palette(theme: PosterInput['theme'], accent: string): Palette {
   if (theme === 'paper') {
+    // the stylesheet's paper tokens, value for value (styles.css PAPER). The
+    // accent arrives as the ink -- on paper it is never a letter -- and the
+    // codes and chips it would have coloured sit on the mark instead.
     return {
-      ground: '#ecebe6',
-      ink: '#0c0c0c',
-      inkRGB: '12, 12, 12',
-      inkDim: 'rgba(12, 12, 12, 0.58)',
-      line: 'rgba(12, 12, 12, 0.32)',
-      captionBg: 'rgba(236, 235, 230, 0.82)',
+      ground: '#f0ebe0',
+      ink: '#111010',
+      inkRGB: '17, 16, 16',
+      inkDim: '#5a564e',
+      line: '#878175',
+      captionBg: 'rgba(240, 235, 224, 0.86)',
       accent,
+      mark: '#feee00',
     }
   }
   return {
@@ -92,6 +100,7 @@ function palette(theme: PosterInput['theme'], accent: string): Palette {
     line: 'rgba(141, 144, 168, 0.68)',
     captionBg: 'rgba(8, 8, 13, 0.72)',
     accent,
+    mark: null,
   }
 }
 
@@ -192,9 +201,13 @@ function drawBracketLine(
   setFont(ctx, FONT_MONO, size, TRACK_LABEL)
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
+  const codeW = ctx.measureText(code).width
+  if (pal.mark) {
+    ctx.fillStyle = pal.mark
+    ctx.fillRect(x - 6, y - size * 0.72, codeW + 8, size * 1.44)
+  }
   ctx.fillStyle = pal.accent
   ctx.fillText(code, x, y)
-  const codeW = ctx.measureText(code).width
   ctx.fillStyle = pal.inkDim
   ctx.fillText(rest, x + codeW + 12, y)
 }
@@ -426,7 +439,7 @@ function drawStrip(
     const label = '// TEMPO'
     setFont(ctx, FONT_MONO, 15, TRACK_MICRO)
     const lw = ctx.measureText(label).width + 24
-    ctx.fillStyle = pal.captionBg
+    ctx.fillStyle = pal.mark ?? pal.captionBg
     ctx.fillRect(x + w - lw, y, lw, chipH)
     ctx.fillStyle = pal.accent
     ctx.textAlign = 'right'

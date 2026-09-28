@@ -350,13 +350,20 @@ export function Onboard({
       },
     }))
 
+    // On paper the scrim is a WASH of the stock, not a dark veil: a black
+    // overlay at 0.78 turned the cream plate around the cut-out to #3b3b3a
+    // mud on the first screen a visitor meets. A sheet of the same paper laid
+    // over it fades the rest of the instrument back and lets the lit subject
+    // stand, which is what a scrim is for. Read from the token, so the wash
+    // is exactly the ground's bytes.
+    const paper = document.documentElement.dataset.theme === 'paper'
     const d: Driver = driver({
       steps,
       // the plate has no radius, and the cut-out is part of the plate
       stageRadius: 0,
       stagePadding: 8,
-      overlayColor: '#0a0a0a',
-      overlayOpacity: 0.78,
+      overlayColor: paper ? getComputedStyle(document.documentElement).getPropertyValue('--ground').trim() || '#f0ebe0' : '#0a0a0a',
+      overlayOpacity: paper ? 0.8 : 0.78,
       animate: !calm,
       duration: calm ? 0 : 240,
       smoothScroll: !calm,

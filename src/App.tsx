@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AudioEngine, type SourceKind, type TrackInfo } from './audio/graph'
 import { FingerprintTracker } from './audio/fingerprint'
 import { BeatClock } from './audio/beat'
-import { Scene } from './scope/scene'
+import { PAPER_RGB, Scene } from './scope/scene'
 import { Governor } from './scope/governor'
 import { playlist } from './data/tracks'
 import { loadPeaks, peaksFromFile, energyAhead, findDrops, nextDrop, type Drop, type TrackPeaks } from './scope/peaks'
@@ -2446,6 +2446,7 @@ export default function App() {
     else delete document.documentElement.dataset.theme
     // the canvases cache the inks as strings; re-read them for the new ground
     readAccent()
+    paintThemeColor()
     sceneRef.current?.setTheme(t)
     const pw = pipRef.current?.win.document.documentElement
     if (pw) {
@@ -2638,6 +2639,8 @@ export default function App() {
     }
   }, [stage])
   useEffect(() => { if (!started) setStage(false) }, [started])
+  // paper prints the stage star heavier, under the display type (scene.ts)
+  useEffect(() => { sceneRef.current?.setStagePrint(stage) }, [stage])
 
   // ── FULLSCREEN + WAKE LOCK ────────────────────────────────────────────
   // A second screen that dims itself after five minutes is not one. The
@@ -3699,7 +3702,7 @@ export default function App() {
               aria-expanded={sheet}
               aria-label={sheet ? 'close the console' : 'open the console'}
             >
-              {sheet ? 'star' : 'console'}
+              <span>{sheet ? 'star' : 'console'}</span>
             </button>
           </div>
 
@@ -3881,6 +3884,14 @@ let INK_RGB = '192, 198, 214'
    measured 1.9:1 and read as nothing at all. --pl-line is the line every cell
    in the plate is already drawn with, which is exactly what this is. */
 let INK_LINE = 'rgba(141, 144, 168, 0.68)'
+/* Paper only. On paper the accent is never a letter or a line -- yellow there
+   is 1.01:1 -- so --accent-rgb reads as the ink and the canvases draw every
+   accent stroke and label in ink, as the stylesheet does. --mark is the
+   yellow as a FIELD, and exists only under :root[data-theme='paper'], so it
+   reads empty on the dark sheet and every `if (MARK)` below is paper-only.
+   GROUND_RGB is for the knockouts that lift canvas type off the star. */
+let MARK = ''
+let GROUND_RGB = '10, 10, 10'
 export function readAccent() {
   const cs = getComputedStyle(document.documentElement)
   const v = cs.getPropertyValue('--accent-rgb').trim()
@@ -3889,6 +3900,17 @@ export function readAccent() {
   if (ink) INK_RGB = ink
   const line = cs.getPropertyValue('--pl-line').trim()
   if (line) INK_LINE = line
+  MARK = cs.getPropertyValue('--mark').trim()
+  const ground = cs.getPropertyValue('--ground-rgb').trim()
+  if (ground) GROUND_RGB = ground
+}
+
+/** The browser's own chrome follows the ground: the phone's address bar was
+ *  left black over a cream page. */
+export function paintThemeColor() {
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--ground').trim()
+  const meta = document.querySelector('meta[name="theme-color"]')
+  if (meta && bg) meta.setAttribute('content', bg)
 }
 
 function Reg({ className }: { className: string }) {
@@ -4122,6 +4144,14 @@ function drawWave(
   const mid = Math.round((H - rule) / 2)
   const px = Math.round(Math.max(0, Math.min(1, progress)) * W)
 
+  // Paper: the elapsed run is a yellow field under the ink rule, 6px tall,
+  // so where the track is at reads from across the room (on the dark sheet
+  // the accent playhead does that alone; paper cannot draw yellow as a line)
+  if (MARK) {
+    const band = Math.round(6 * dpr)
+    g.fillStyle = MARK
+    g.fillRect(0, mid + rule / 2 - band / 2, px, band)
+  }
   // Unplayed, then played over it: two inks, no third.
   g.fillStyle = INK_LINE
   g.fillRect(0, mid, W, rule)
@@ -4145,6 +4175,18 @@ function drawWave(
 
   // The playhead is the full height of the strip, so the hit area reads as
   // a track rather than a line someone drew across a gap.
+  // Paper: the playhead is a yellow slab with an ink edge -- the accent as a
+  // FIELD, the only way it exists on paper -- 5px wide, full height.
+  if (MARK) {
+    const e = Math.round(dpr)
+    const sw = Math.round(5 * dpr)
+    const x0 = Math.max(e, Math.min(W - sw - e, px - Math.round(sw / 2)))
+    g.fillStyle = `rgba(${INK_RGB},1)`
+    g.fillRect(x0 - e, 0, sw + 2 * e, H)
+    g.fillStyle = MARK
+    g.fillRect(x0, e, sw, H - 2 * e)
+    return
+  }
   g.fillStyle = `rgba(${ACCENT_RGB},1)`
   g.fillRect(Math.min(px, W - rule), 0, rule, H)
 }
@@ -4192,18 +4234,30 @@ function drawSurvey(
     g.stroke()
     g.setLineDash([])
     g.fillStyle = `rgba(${ACCENT_RGB},${Math.min(1, sa + 0.25)})`
+    // paper: the two arrowheads are yellow fields with an ink edge, since a
+    // yellow shape with no edge is not visible on the stock
+    if (MARK) {
+      g.fillStyle = MARK
+      g.strokeStyle = `rgba(${INK_RGB},${Math.min(1, sa + 0.25)})`
+      g.globalAlpha = Math.min(1, sa + 0.25)
+    }
     g.beginPath()
     g.moveTo(t.x - 4, t.y - 6)
     g.lineTo(t.x + 4, t.y - 6)
     g.lineTo(t.x, t.y - 13)
     g.closePath()
     g.fill()
+    if (MARK) g.stroke()
     g.beginPath()
     g.moveTo(b.x - 4, b.y + 6)
     g.lineTo(b.x + 4, b.y + 6)
     g.lineTo(b.x, b.y + 13)
     g.closePath()
     g.fill()
+    if (MARK) {
+      g.stroke()
+      g.globalAlpha = 1
+    }
   }
 
   // the chrome arrives later than the matter — rings first, then the ink
@@ -4214,6 +4268,10 @@ function drawSurvey(
   const accent = (al: number) => `rgba(${ACCENT_RGB},${al * a})`
   g.textBaseline = 'middle'
   g.lineWidth = 1
+  // Paper: an alpha of the ink over light stock is a grey, not a lighter
+  // ink, and at the dark sheet's 0.38 the rings read as pencil. On paper
+  // they are engraved: the same ranking, cut 1.7x deeper.
+  const eng = (al: number) => (MARK ? Math.min(1, al * 1.7) : al)
 
   // the spine
   const top = scene.surveyPoint(n - 1, 0, 0)
@@ -4241,7 +4299,7 @@ function drawSurvey(
     const hot = scene.hiTier === i
 
     // the ring's true projected ellipse — heats with its row
-    g.strokeStyle = soloed ? accent(0.8) : ink(hot ? 0.85 : muted ? 0.14 : 0.38)
+    g.strokeStyle = soloed ? accent(0.8) : ink(eng(hot ? 0.85 : muted ? 0.14 : 0.38))
     g.beginPath()
     for (let k = 0; k <= 48; k++) {
       const p = scene.surveyPoint(i, (k / 48) * Math.PI * 2)
@@ -4251,7 +4309,7 @@ function drawSurvey(
     g.stroke()
 
     // the nested inner ring — the drawing's concentric vocabulary
-    g.strokeStyle = soloed ? accent(0.4) : ink(muted ? 0.08 : 0.2)
+    g.strokeStyle = soloed ? accent(0.4) : ink(eng(muted ? 0.08 : 0.2))
     g.beginPath()
     for (let k = 0; k <= 36; k++) {
       const p = scene.surveyPoint(i, (k / 36) * Math.PI * 2, 0.46)
@@ -4291,6 +4349,40 @@ function drawSurvey(
     // the tier's data plate, in the aligned margin column
     const ctr = scene.surveyPoint(i, 0, 0)
     const lx = plateX
+    if (MARK) {
+      // PAPER. The plate is a slip of the stock: a knockout of the ground
+      // under both lines, so the specks passing behind a label never run
+      // through its letters, and the face is the sheet's own Departure Mono
+      // at 11px -- the JetBrains Mono these were set in does not ship, so the
+      // browser was faking both it and its bold. A soloed tier's name and a
+      // muted tier's state carry the mark, the paper form of the accent.
+      const l1 = `0${i + 1} · ${tiers[i].label.toUpperCase()}`
+      const l2 = muted ? 'MUTED' : soloed ? 'SOLO' : `LVL ${String(Math.round(levels[i] * 99)).padStart(2, '0')}`
+      g.font = '11px "Departure Mono", ui-monospace, monospace'
+      const w1 = g.measureText(l1).width
+      const w2 = g.measureText(l2).width
+      g.fillStyle = `rgba(${GROUND_RGB},${0.92 * a})`
+      g.fillRect(lx - 4, ctr.y - 15, Math.max(w1, w2, 46) + 8, 32)
+      if (soloed) {
+        g.globalAlpha = a
+        g.fillStyle = MARK
+        g.fillRect(lx - 3, ctr.y - 13, w1 + 6, 13)
+        g.globalAlpha = 1
+      }
+      if (muted) {
+        g.globalAlpha = a
+        g.fillStyle = MARK
+        g.fillRect(lx - 3, ctr.y, w2 + 6, 13)
+        g.globalAlpha = 1
+      }
+      g.fillStyle = ink(soloed || hot ? 1 : muted ? 0.6 : 0.9)
+      g.fillText(l1, lx, ctr.y - 6)
+      g.fillStyle = ink(muted || soloed ? 1 : 0.62)
+      g.fillText(l2, lx, ctr.y + 7)
+      g.fillStyle = ink(0.85)
+      g.fillRect(lx, ctr.y + 14, Math.max(1, levels[i] * 46), 1)
+      continue
+    }
     g.font = 'bold 10px "JetBrains Mono", ui-monospace, monospace'
     g.fillStyle = soloed ? accent(0.95) : muted ? accent(0.75) : ink(hot ? 1 : 0.9)
     g.fillText(`0${i + 1} · ${tiers[i].label.toUpperCase()}`, lx, ctr.y - 7)
@@ -4324,6 +4416,23 @@ function drawSurvey(
   g.fillStyle = accent(0.55 + Math.min(0.45, beat))
   g.fillRect(bp.x - 2, bp.y - 2, 4, 4)
   const cB = scene.projectLocal(0, yB, 0)
+  if (MARK) {
+    // paper: the beat dot is a yellow square with an ink edge, and SUM is
+    // set on its own slip of the stock, in the sheet's face
+    g.globalAlpha = a
+    g.fillStyle = MARK
+    g.fillRect(bp.x - 3, bp.y - 3, 6, 6)
+    g.globalAlpha = 1
+    g.strokeStyle = ink(0.9)
+    g.strokeRect(bp.x - 2.5, bp.y - 2.5, 5, 5)
+    const sum = `SUM ${String(Math.round(Math.min(1, rms) * 99)).padStart(2, '0')}`
+    g.font = '11px "Departure Mono", ui-monospace, monospace'
+    g.fillStyle = `rgba(${GROUND_RGB},${0.92 * a})`
+    g.fillRect(cB.x + 8, cB.y - 8, g.measureText(sum).width + 8, 16)
+    g.fillStyle = ink(0.75)
+    g.fillText(sum, cB.x + 12, cB.y + 1)
+    return
+  }
   g.font = '9px "JetBrains Mono", ui-monospace, monospace'
   g.fillStyle = ink(0.6)
   // ONE SCALE, and this readout is the third to learn it. features.ts
@@ -4353,6 +4462,17 @@ function drawSpectrum(
   g.clearRect(0, 0, cv.width, cv.height)
   const n = bands.length
   const bw = cv.width / n
+  // PAPER: the held range is highlighted BEHIND its bars -- a yellow field
+  // across the band's columns -- and the bars stay ink. A yellow bar on the
+  // stock would be the one reading in the panel you could not see.
+  const paperHold = !!MARK && mixBand != null
+  if (paperHold) {
+    const i0 = mixBand === 'low' ? 0 : mixBand === 'mid' ? 8 : 16
+    g.globalAlpha = 0.35 + Math.min(0.65, Math.abs(mixDb) / 20)
+    g.fillStyle = MARK
+    g.fillRect(i0 * bw, 0, 8 * bw, cv.height)
+    g.globalAlpha = 1
+  }
   for (let i = 0; i < n; i++) {
     const raw = Math.min(1, bands[i] * 1.25)
     // Fast up, slow down — VU-meter ballistics.
@@ -4363,7 +4483,7 @@ function drawSpectrum(
     g.fillStyle = `rgba(${INK_RGB},0.88)`
     // The HELD EQ range tints red while you bend it — the analytical view
     // agreeing with the sculptural one.
-    if (mixBand != null) {
+    if (mixBand != null && !paperHold) {
       const inBand = mixBand === 'low' ? i < 8 : mixBand === 'mid' ? i >= 8 && i < 16 : i >= 16
       if (inBand) g.fillStyle = `rgba(${ACCENT_RGB},${0.45 + Math.min(0.55, Math.abs(mixDb) / 30)})`
     }
@@ -4420,8 +4540,9 @@ function drawPip(
   const sx = f.x * w - sw / 2
   const sy = f.y * h - sh / 2
   const dpr = src.width / w
-  // the ground the scene's final pass maps to, so the crop's margins match
-  ctx.fillStyle = scene.theme === 'paper' ? '#ecebe6' : '#0a0a0a'
+  // the ground the scene's final pass prints on, as the same bytes, so the
+  // crop's margins match the crop
+  ctx.fillStyle = scene.theme === 'paper' ? `rgb(${PAPER_RGB.join(',')})` : '#0a0a0a'
   ctx.fillRect(0, 0, cw, ch)
   ctx.drawImage(src, sx * dpr, sy * dpr, sw * dpr, sh * dpr, 0, 0, cw, ch)
 }

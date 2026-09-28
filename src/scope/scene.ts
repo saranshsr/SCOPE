@@ -253,6 +253,14 @@ const SHELL_VERT = /* glsl */ `
   uniform float uMorph;
   uniform float uAjAmp;
   uniform float uAjPeak;
+  // paper: 1 prints the star as a stipple (see PRINT below), 0 is the ink
+  // sheet, and every paper line is inside a branch on it
+  uniform float uPaper;
+  uniform float uPrint;
+  uniform float uPrintArea;
+  uniform float uDot;
+  uniform float uGrow;
+  uniform float uBold;
   attribute vec3 aDir;
   attribute float aHash;
   varying float vGlow;
@@ -592,8 +600,41 @@ const SHELL_VERT = /* glsl */ `
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
+    // PRINT. On paper a particle is inked or it is not, so its light becomes
+    // the CHANCE that it prints: each particle holds its own fixed threshold
+    // (a hash, so it never flickers on its own account) and prints while its
+    // glow clears it. A quiet passage prints a lighter star and a loud one a
+    // denser star, and every speck that does print is a real particle moving
+    // with the body -- not a screen laid over it.
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    // THE COLUMN. Additive light on ink builds the ball for free: a line of
+    // sight through its middle crosses more matter than one grazing the
+    // limb, and the overlap adds up. A print cannot add -- a speck is inked
+    // or it is not -- so the same fact is stated directly: the chance a
+    // particle prints scales with the chord a sight line cuts through a
+    // ball of the body's rest radius at that particle's projected distance
+    // from the centre (sqrt(1 - rho^2)), a little more on the near face than
+    // the far. That is the ink sheet's own brightness rule, measured, not a
+    // light source invented for paper. It stands down in the dissection
+    // (a stack, not a ball) and in AJ (a figure).
+    float column = 1.0;
+    float chord = 1.0;
+    if (uPaper > 0.5) {
+      vec3 rv = mat3(modelViewMatrix) * p;
+      float rho = length(rv.xy) / max(1e-4, uR * 0.70 * length(modelViewMatrix[0].xyz));
+      chord = pow(max(0.0, 1.0 - min(1.0, rho * rho)), 0.6);
+      float face = rv.z / max(1e-4, length(rv));
+      column = mix((0.3 + 0.7 * chord) * (0.8 + 0.2 * face), 1.0, max(dl, uAj));
+      chord = mix(chord, 1.0, max(dl, uAj));
+    }
+    float printed = on * step(fract(aHash * 523.71), (1.0 - exp(-vGlow * uPrint)) * column * uPrintArea);
     gl_Position = projectionMatrix * mv;
+    // A point sized 0 is not a point that is not drawn: GL clamps
+    // gl_PointSize up to its minimum of 1px, so every culled particle still
+    // lands as one pixel. Additive light at zero glow hides that on ink. A
+    // print is a flat impression and would ink every one of them, so on
+    // paper an unprinted particle is moved outside the clip volume instead.
+    if (uPaper > 0.5 && printed < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     // Perspective would balloon every point as the camera closes in; the
     // zoom divisor keeps them near-crisp so detail comes from COUNT, not
     // from fatter dots.
@@ -613,11 +654,30 @@ const SHELL_VERT = /* glsl */ `
     ps = mix(ps, 0.9 + 0.5 * ajLine, uAj);
     gl_PointSize = ps * on
       * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
+    // paper: a speck is one pixel or two, never a fraction -- a print has no
+    // grey edge to hide a half-covered pixel in. ENERGY GROWS THE SPECK: a
+    // particle's glow is the chance it takes the 2px die, so the hot core
+    // prints darker and larger than the limb without ever filling solid.
+    // uDot is the buffer's own pixel ratio (a speck is a CSS pixel on every
+    // screen) and uGrow the budget's share of big specks (see render()).
+    // uBold is the budget's second lever (printBudget()): a star with more
+    // screen than the console's, or the stage, where display type sits on
+    // it, takes a size step on more of its specks, hot ones first, so it
+    // holds its presence without adding a single particle.
+    if (uPaper > 0.5) {
+      float hot = smoothstep(0.16, 0.62, vGlow) * (0.2 + 0.8 * chord);
+      float big = step(fract(aHash * 71.93), max(hot * uGrow, uBold * (0.3 + 0.7 * chord)));
+      float bigger = step(fract(aHash * 37.17), hot * uBold);
+      gl_PointSize = on * uDot * (1.0 + big + bigger);
+    }
   }
 `
 
 const SHELL_FRAG = /* glsl */ `
   precision mediump float;
+  // highp: a uniform shared with the vertex stage must match its precision
+  // or the program fails to link and the layer silently draws nothing
+  uniform highp float uPaper;
   varying float vGlow;
   varying float vHash;
   varying float vAccent;
@@ -627,6 +687,10 @@ const SHELL_FRAG = /* glsl */ `
     vec2 uv = gl_PointCoord - 0.5;
     float d = length(uv) * 2.0;
     if (d > 1.0) discard;
+    // paper: a printed speck is one flat impression with an edge, no halo.
+    // Its light already spent itself deciding WHETHER it prints.
+    // Red is the black plate (see paperShader).
+    if (uPaper > 0.5) { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); return; }
     float core = exp(-d * d * 5.0);
     float halo = smoothstep(1.0, 0.2, d) * (0.22 + vHash * 0.1);
     // noon yellow (#feee00), the one accent; zero everywhere but AJ peaks
@@ -645,6 +709,7 @@ const EJECTA_VERT = /* glsl */ `
   uniform float uDensity;
   uniform float uZoom;
   uniform float uDissect;
+  uniform float uPaper;
   attribute vec3 aDir;
   attribute vec3 aOrg;     // launch point — the surface, or a tier's ring
   attribute float aBirth;  // scene-time of launch; large negative = dead slot
@@ -665,17 +730,25 @@ const EJECTA_VERT = /* glsl */ `
     vec3 p = aOrg + aDir * dist;
 
     vFade = (1.0 - a01) * (1.0 - a01) * (0.55 + uPulse * 0.25) * (1.0 - uDissect * 0.6);
+    // paper: ejecta fade by THINNING -- the spray prints dense at launch and
+    // sheds specks as it coasts, the way a spatter dries out at its edge
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
+    // (and a dead slot is a clamped 1px point at the origin: clip it too)
+    if (uPaper > 0.5 && alive * step(fract(aHash * 523.71), vFade * 1.6) < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     gl_PointSize = (2.1 - a01 * 1.5) * alive * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
   }
 `
 
 const EJECTA_FRAG = /* glsl */ `
   precision mediump float;
+  // highp: a uniform shared with the vertex stage must match its precision
+  // or the program fails to link and the layer silently draws nothing
+  uniform highp float uPaper;
   varying float vFade;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
+    if (uPaper > 0.5) { gl_FragColor = vec4(1.0 - smoothstep(0.36, 0.48, length(uv)), 0.0, 0.0, 1.0); return; }
     float m = smoothstep(0.5, 0.12, length(uv));
     gl_FragColor = vec4(vec3(0.95) * vFade * m, 1.0);
   }
@@ -761,9 +834,16 @@ const CORE_VERT = /* glsl */ `
   uniform float uDissect;
   uniform float uKick;
   uniform float uAj;
+  uniform float uPaper;
+  uniform float uPrint;
+  uniform float uPrintArea;
+  uniform float uSpot;
+  uniform float uDot;
+  uniform float uSpotPx;
   attribute float aHash;
   attribute vec3 aSeed;
   varying float vHeat;
+  varying float vSpot;
 
   void main() {
     // the kick lands in the furnace first: it swells and flares
@@ -780,17 +860,45 @@ const CORE_VERT = /* glsl */ `
     // Dissected, there is no centre for a furnace to live in.
     vHeat = min(0.55, (1.0 - clamp(dist, 0.0, 1.0)) * (0.22 + uLow * 0.55 + uMid * 0.18 + uKick * 0.35) * (0.5 + clump)) * (1.0 - uDissect * 0.9) * (1.0 - uAj * 0.7);
     float on = step(fract(aHash * 613.0), uReveal) * step(fract(aHash * 331.7), uDensity);
+    // paper: the furnace prints at half the shell's rate. It is 2,600 points
+    // in a tenth of the body's width, and printed at full rate it is the
+    // first thing on the sheet to become a slab.
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (1.4 + vHeat * 2.4) * on * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
+    vSpot = 0.0;
+    if (uPaper > 0.5) {
+      float inked = on * step(fract(aHash * 523.71), (1.0 - exp(-vHeat * uPrint * 0.5)) * uPrintArea);
+      // THE SPOT PLATE. The furnace is the star's hottest matter by
+      // construction -- it is what the ink sheet's bloom is mostly made of.
+      // On a real drop (the classifier's own uDrop, gated in printBudget())
+      // its hot particles stop printing black and lay a soft disc into the
+      // green channel instead; the print pass sums them and cuts the sum at
+      // one level, so the yellow lands as one flat plate with a clean edge
+      // under the densest heat, and a quiet track never prints it at all.
+      vSpot = on * step(0.02, uSpot) * step(fract(aHash * 191.3), uSpot * smoothstep(0.04, 0.3, vHeat));
+      if (inked + vSpot < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+      if (vSpot > 0.5) gl_PointSize = uDot * uSpotPx;
+    }
   }
 `
 
 const CORE_FRAG = /* glsl */ `
   precision mediump float;
+  // highp: a uniform shared with the vertex stage must match its precision
+  // or the program fails to link and the layer silently draws nothing
+  uniform highp float uPaper;
+  uniform float uSpotW;
   varying float vHeat;
+  varying float vSpot;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
+    if (uPaper > 0.5) {
+      // the spot's disc is WEIGHT, not colour: it sums with its neighbours
+      float w = max(0.0, 1.0 - 4.0 * dot(uv, uv));
+      gl_FragColor = vSpot > 0.5 ? vec4(0.0, w * w * uSpotW, 0.0, 1.0) : vec4(1.0 - smoothstep(0.36, 0.48, length(uv)), 0.0, 0.0, 1.0);
+      return;
+    }
     float m = smoothstep(0.5, 0.06, length(uv));
     gl_FragColor = vec4(vec3(1.0) * vHeat * m, 1.0);
   }
@@ -808,6 +916,7 @@ const CORONA_VERT = /* glsl */ `
   uniform float uZoom;
   uniform float uDissect;
   uniform float uCoronaY;
+  uniform float uPaper;
   attribute float aTheta;
   attribute float aHash;
   varying float vA;
@@ -826,14 +935,21 @@ const CORONA_VERT = /* glsl */ `
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (1.2 + uVocal * 1.6) * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
+    // paper: the voice prints the ring as densely as it sings, and a ring
+    // with no voice is not printed at all (see the shell on clamped points)
+    if (uPaper > 0.5 && step(fract(aHash * 523.71), vA * 1.3) < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   }
 `
 
 const CORONA_FRAG = /* glsl */ `
   precision mediump float;
+  // highp: a uniform shared with the vertex stage must match its precision
+  // or the program fails to link and the layer silently draws nothing
+  uniform highp float uPaper;
   varying float vA;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
+    if (uPaper > 0.5) { gl_FragColor = vec4(1.0 - smoothstep(0.36, 0.48, length(uv)), 0.0, 0.0, 1.0); return; }
     float m = smoothstep(0.5, 0.1, length(uv));
     gl_FragColor = vec4(vec3(0.95) * vA * m, 1.0);
   }
@@ -849,6 +965,9 @@ const GROUND_VERT = /* glsl */ `
   uniform float uLow;
   uniform float uZoom;
   uniform float uGroundY;
+  uniform float uPaper;
+  uniform float uPrint;
+  uniform float uPrintArea;
   attribute vec3 aSeed; // r01, theta, hash
   varying float vA;
   __SNOISE__
@@ -864,59 +983,151 @@ const GROUND_VERT = /* glsl */ `
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = (1.0 + aSeed.z * 0.8) * step(0.02, uDissect) * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
+    // paper: the terrain prints densest under the stack, thinning outward
+    // and whole, it is not there: an undissected ground is 4,200 clamped
+    // pixels lying edge-on through the body's equator
+    if (uPaper > 0.5 && step(0.02, uDissect) * step(fract(aSeed.z * 523.71), (1.0 - exp(-vA * uPrint)) * uPrintArea) < 0.5) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
   }
 `
 
 const GROUND_FRAG = /* glsl */ `
   precision mediump float;
+  // highp: a uniform shared with the vertex stage must match its precision
+  // or the program fails to link and the layer silently draws nothing
+  uniform highp float uPaper;
   varying float vA;
   void main() {
     vec2 uv = gl_PointCoord - 0.5;
+    if (uPaper > 0.5) { gl_FragColor = vec4(1.0 - smoothstep(0.36, 0.48, length(uv)), 0.0, 0.0, 1.0); return; }
     float m = smoothstep(0.5, 0.15, length(uv));
     gl_FragColor = vec4(vec3(0.85) * vA * m, 1.0);
   }
 `
 
-/** The 'paper' theme: a final full-screen remap of the finished (additive,
- *  bloomed, after-imaged) dark-ground frame onto ink-on-paper. Additive
- *  particle light can't be relit onto a bright ground directly — so
- *  instead this reads the frame's own luminance L (0 = the #0a0a0a clear,
- *  1 = a saturated particle) and repaints PAPER..INK along that curve.
- *  Runs LAST in the composer chain, after bloom/afterimage, so the halo
- *  it maps is the real bloom halo, not a re-derived one. */
-const PAPER_SHADER = {
-  uniforms: {
-    tDiffuse: { value: null },
-    uPaper: { value: new THREE.Color(0xecebe6) },
-    uInk: { value: new THREE.Color(0x0c0c0c) },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform vec3 uPaper;
-    uniform vec3 uInk;
-    varying vec2 vUv;
-    void main() {
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
-      float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      // Measured against the real frame (not guessed): the additive shell's
-      // dim boil sits around L=0.10-0.15, the visible individual particles
-      // and streaks land in the 0.2-0.35 range, and only the densest core
-      // clusters push past that. A single smoothstep across that measured
-      // band is enough — it leaves the wide, dim boil barely tinting the
-      // paper (soft grey, not a wash) while the real particles commit fast
-      // to full ink, which is what keeps them crisp dots/strokes instead of
-      // fuzzy smudges.
-      float t = smoothstep(0.04, 0.38, L);
-      gl_FragColor = vec4(mix(uPaper, uInk, t), 1.0);
-    }
-  `,
+/** THE PAPER GROUND AND ITS INK, as the raw bytes the canvas will show.
+ *  styles.css carries the same two values as --ground and --ink under
+ *  :root[data-theme='paper']; the stage is a hole in that plate, so the GL
+ *  paper and the DOM paper must be ONE value or the hole reads as a window
+ *  onto a second sheet.
+ *
+ *  Vector3, not THREE.Color, and that is the whole fix for "two papers".
+ *  The old pass built `new THREE.Color(0xecebe6)` at MODULE LOAD, before
+ *  the constructor sets ColorManagement.enabled = false, so three converted
+ *  the hex to linear light and the pass then wrote that linear value to a
+ *  canvas declared LinearSRGB: #ecebe6 arrived as #d6d4ca, and the ink as
+ *  #010101. Raw numbers cannot be colour-managed. Exported so the PiP crop
+ *  can fill its margins with the same bytes. */
+export const PAPER_RGB = [240, 235, 224] as const
+/** The desktop console at 1440x900 spends the print budget in full: this is
+ *  its body radius in CSS pixels. A smaller star prints fewer specks, a
+ *  larger one grows more of them to 2px (see printBudget()). */
+const PRINT_R = 396
+export const PAPER_INK_RGB = [17, 16, 16] as const
+/** --pl-line, the plate's rule, for the construction ring */
+const PAPER_LINE_RGB = [135, 129, 117] as const
+
+/** The 'paper' theme: letterpress, not an inverted photograph.
+ *
+ *  The old pass read the finished (bloomed, after-imaged) dark frame and
+ *  repainted it with `smoothstep(0.04, 0.38, L)`. Only a third of the
+ *  input range carried any tone, so everything above L 0.38 was one flat
+ *  black: 51% of the star box on the stage, 91% on the phone sheet, a disc
+ *  at a drop. The bloom halo that is invisible on black became grey pepper,
+ *  and the afterimage trails that read as light on black read as pen
+ *  scratches. On ink the hottest part of the star is the brightest; on
+ *  that paper it was a hole.
+ *
+ *  So in paper the bloom and the afterimage do not run (see setTheme), and
+ *  the particles themselves decide the print (SHELL_VERT, PRINT): each one
+ *  is inked or it is not, its glow is the chance that it is, and its glow
+ *  again is the chance it prints at 2px instead of 1. Density and speck
+ *  size build the form; the budget in render() keeps any size of star from
+ *  flooding. This pass only has to lay the plates down, in order:
+ *
+ *   paper -> the construction ring -> the yellow spot plate -> the black.
+ *
+ *  The frame arrives as PLATES, not as light: red is the black plate, green
+ *  the yellow spot. The spot survives only where its discs have merged into
+ *  a field (the neighbourhood test), which is what confines it to the
+ *  hottest CLUSTER rather than dotting every hot particle.
+ *
+ *  THE CONSTRUCTION RING is a reading, not an ornament: the body's live
+ *  radius (uR at the bass-driven photosphere, R_BASE's 0.60 term) projected
+ *  to the buffer, drawn as a chain line with a centre cross -- how a
+ *  draughtsman would state "this is a sphere, this big". It gives the flat
+ *  stipple back its limb. It sits under every speck, in the plate's rule
+ *  colour at a fraction, and stands down as the body is dissected (the
+ *  survey draws its own rings) or dives.
+ *
+ *  The ink is one flat value, the plate's own --ink, and the yellow the
+ *  plate's own --mark. The paper's tooth is the DOM's (.grain), laid over
+ *  the stage and the plate alike so the two stay one sheet. */
+function paperShader() {
+  return {
+    uniforms: {
+      tDiffuse: { value: null },
+      uPaper: { value: new THREE.Vector3(PAPER_RGB[0] / 255, PAPER_RGB[1] / 255, PAPER_RGB[2] / 255) },
+      uInk: { value: new THREE.Vector3(PAPER_INK_RGB[0] / 255, PAPER_INK_RGB[1] / 255, PAPER_INK_RGB[2] / 255) },
+      uMark: { value: new THREE.Vector3(254 / 255, 238 / 255, 0) },
+      uLine: { value: new THREE.Vector3(PAPER_LINE_RGB[0] / 255, PAPER_LINE_RGB[1] / 255, PAPER_LINE_RGB[2] / 255) },
+      // one buffer pixel, in uv: the neighbourhood is measured in PIXELS so
+      // a speck is a speck at any resolution
+      uTexel: { value: new THREE.Vector2(1 / 1024, 1 / 1024) },
+      // the ring: centre x, y and radius in buffer pixels; its strength;
+      // and the buffer's pixel ratio, so the line is one CSS pixel
+      uRing: { value: new THREE.Vector3(0, 0, 0) },
+      uRingA: { value: 0 },
+      uDot: { value: 1 },
+      // the spot plate's cut: the summed weight of hot discs a pixel needs
+      uSpotT: { value: 0.35 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D tDiffuse;
+      uniform vec3 uPaper;
+      uniform vec3 uInk;
+      uniform vec3 uMark;
+      uniform vec3 uLine;
+      uniform vec2 uTexel;
+      uniform vec3 uRing;
+      uniform float uRingA;
+      uniform float uDot;
+      uniform float uSpotT;
+      varying vec2 vUv;
+      void main() {
+        vec2 c = texture2D(tDiffuse, vUv).rg;
+        vec3 col = uPaper;
+        // the construction ring and its centre cross, in CSS pixels
+        if (uRingA > 0.001) {
+          vec2 px = (vUv / uTexel - uRing.xy) / uDot;
+          float r = uRing.z / uDot;
+          float d = length(px);
+          // a chain line: long dash, gap, short dash, gap -- 18px a period,
+          // walked in arc length so the dashes hold their size at any radius
+          float s = mod((atan(px.y, px.x) + 3.14159265) * r, 18.0);
+          float chain = step(s, 10.0) + step(13.0, s) * step(s, 15.0);
+          float ring = step(abs(d - r), 0.5) * chain;
+          // the centre: a cross of 9px arms with the middle left open
+          vec2 a = abs(px);
+          float cross = (step(a.y, 0.5) * step(a.x, 9.0) + step(a.x, 0.5) * step(a.y, 9.0)) * step(2.5, max(a.x, a.y));
+          col = mix(col, uLine, clamp(max(ring, cross), 0.0, 1.0) * uRingA);
+        }
+        // the spot plate: the hot particles' soft discs summed into a
+        // density field, cut at one level -- a flat plate with a clean edge
+        // wherever the hottest matter crowds, and nowhere else
+        if (c.y > uSpotT) col = uMark;
+        // the black plate, last: a speck prints over everything under it
+        if (c.x > 0.5) col = uInk;
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  }
 }
 
 /** Critically-damped smoother — fast attack, settle without overshoot. */
@@ -941,6 +1152,8 @@ export class Scene {
   private bloom: UnrealBloomPass
   private after!: AfterimagePass
   private paper!: ShaderPass
+  /** the constellation, which paper does not print (see setTheme) */
+  private links!: THREE.LineSegments
   private _theme: 'ink' | 'paper' = 'ink'
   /** Owner dial, 0.25..2: scales the drift/spin rate. */
   spinDial = 1
@@ -1135,6 +1348,29 @@ export class Scene {
       uBands: { value: new Float32Array(24) },
       // Onset counter rotates which constellations arm.
       uOnsetN: { value: 0 },
+      // PAPER. 0 is the ink sheet and every paper line in every shader sits
+      // behind a branch on it. uPrint turns a particle's light into the
+      // chance it prints: 1 - exp(-glow * uPrint).
+      uPaper: { value: 0 },
+      uPrint: { value: 9 },
+      // THE PRINT BUDGET. The same 60,000 points land in whatever area the
+      // body covers, so a small star (the phone sheet, the standby cell)
+      // has several times as many particles per pixel as the desktop one,
+      // and printed at the same rate it floods. This is the body's area on
+      // screen against the desktop console's, capped at 1 and set per frame,
+      // so every size of star prints at the same density of specks.
+      uPrintArea: { value: 1 },
+      // a speck's side in buffer pixels (the buffer's pixel ratio), the
+      // share of hot specks that print at twice that, and the spot plate's
+      // gate (0 = the star is pure black)
+      uDot: { value: 1 },
+      uGrow: { value: 0.5 },
+      uBold: { value: 0 },
+      uSpot: { value: 0 },
+      // the spot plate's disc (CSS px) and its weight, which falls with the
+      // disc's area so the cut in the print pass means the same density
+      uSpotPx: { value: 72 },
+      uSpotW: { value: 0.25 * (22 / 72) ** 2 },
     }
 
     // --- the shell: fibonacci sphere ----------------------------------------
@@ -1292,7 +1528,8 @@ export class Scene {
         depthWrite: false,
         depthTest: false,
       })
-      this.cluster.add(new THREE.LineSegments(geo, mat))
+      this.links = new THREE.LineSegments(geo, mat)
+      this.cluster.add(this.links)
     }
 
     // --- the corona --------------------------------------------------------
@@ -1356,7 +1593,7 @@ export class Scene {
     // makes EffectComposer skip it outright (see EffectComposer.render()),
     // so the 'ink' theme is not just visually unchanged but literally the
     // same draw calls as before this pass existed.
-    this.paper = new ShaderPass(PAPER_SHADER)
+    this.paper = new ShaderPass(paperShader())
     this.paper.enabled = false
     this.composer.addPass(this.paper)
     // Without this the uniform keeps its initial 1 and the whole reserve
@@ -1380,13 +1617,100 @@ export class Scene {
     this.uniforms.uOnsetN.value = (this.uniforms.uOnsetN.value + 1) % 4096
   }
 
-  /** Ink-black particles on an off-white ground, same grain — a final
-   *  remap of the finished frame, not a relit particle material (additive
-   *  light on white can't work). 'ink' is today's look, exactly, at zero
-   *  extra cost: the pass is disabled outright. */
+  /** THE PRINT BUDGET, per frame, and the plates' registration.
+   *
+   *  The same 60,000 points land in whatever area the body covers, so a
+   *  small star (the phone sheet, the standby cell) has several times as
+   *  many particles per pixel as the desktop one and, printed at the same
+   *  rate, floods; a large one (the stage) spreads them thin and thins to
+   *  dust. `cov` is the body's area on screen against the desktop
+   *  console's, in CSS pixels. Below 1 it cuts the COUNT; above 1 the count
+   *  is already whole, so it grows the SPECK instead (uBold): more specks
+   *  take the 2px die and the hot ones the 3px, saturating
+   *  (cap * (1 - exp(-x / cap))) so a big star gains presence and never
+   *  fills. The stage asks for the same lever (setStagePrint).
+   *
+   *  The ring is the body's live photosphere (uR x (0.60 + the bass term),
+   *  the shader's own radius before displacement), projected from the
+   *  cluster's centre along the camera's right axis. */
+  private printBudget() {
+    const rt = this.composer.renderTarget1
+    const dot = Math.max(1, Math.round(rt.height / Math.max(1, this.lastH)))
+    const d = Math.max(0.2, this.dolly)
+    const rCss = 0.88 * (this.lastH / 2) * (this.zoom / d)
+    const cov = (rCss / PRINT_R) ** 2
+    const u = this.uniforms
+    u.uDot.value = dot
+    // the stage sets display type over the star: there the count is lifted
+    // toward whole as well as the speck grown, so it keeps its presence
+    // behind the title instead of thinning to dust
+    this.stageW += (this.stageGo - this.stageW) * 0.08
+    u.uPrintArea.value = Math.min(1, Math.max(0.03, cov * (1 + 0.8 * this.stageW)))
+    const extra = Math.max(0, cov - 1)
+    u.uBold.value = Math.min(1, Math.max(0.55 * (1 - Math.exp(-extra / 0.8)), 0.6 * this.stageW))
+    // the spot plate's gate: a real drop, or an AJ figure at its peak --
+    // exactly the two moments the ink sheet puts yellow into the star
+    const aj = u.uAj.value as number
+    u.uSpot.value = Math.max((u.uDrop.value as number) * (1 - aj), aj * (u.uAjPeak.value as number)) * (1 - this.dissect)
+    const pu = this.paper.uniforms as {
+      uRing: { value: THREE.Vector3 }
+      uRingA: { value: number }
+      uDot: { value: number }
+      uTexel: { value: THREE.Vector2 }
+    }
+    pu.uDot.value = dot
+    pu.uTexel.value.set(1 / Math.max(1, rt.width), 1 / Math.max(1, rt.height))
+    this.cluster.updateMatrixWorld()
+    const k = this.cluster.matrixWorld.getMaxScaleOnAxis()
+    const R = (u.uR.value as number) * (0.6 + (u.uLow.value as number) * 0.16) * k
+    this.cluster.getWorldPosition(this._ringC)
+    this._ringE.setFromMatrixColumn(this.camera.matrixWorld, 0).multiplyScalar(R).add(this._ringC)
+    this._ringC.project(this.camera)
+    this._ringE.project(this.camera)
+    const cx = (this._ringC.x * 0.5 + 0.5) * rt.width
+    const cy = (this._ringC.y * 0.5 + 0.5) * rt.height
+    const ex = (this._ringE.x * 0.5 + 0.5) * rt.width
+    const ey = (this._ringE.y * 0.5 + 0.5) * rt.height
+    pu.uRing.value.set(cx, cy, Math.hypot(ex - cx, ey - cy))
+    // stands down as the body is dissected (the survey draws its own
+    // rings), in AJ (a figure, not a sphere), and while the camera dives
+    pu.uRingA.value = 0.55 * (1 - Math.min(1, this.dissect * 2)) * (1 - aj) * Math.min(1, Math.max(0, (d - 0.5) / 0.3))
+  }
+  private stageGo = 0
+  private stageW = 0
+  /** Paper only: the stage sets display type over the star, so the print
+   *  carries more weight there (uBold). Eased, so the change of weight is
+   *  not a cut. The dark sheet ignores it. */
+  setStagePrint(on: boolean) {
+    this.stageGo = on ? 1 : 0
+  }
+  private _ringC = new THREE.Vector3()
+  private _ringE = new THREE.Vector3()
+
+  /** Ink specks on uncoated paper -- a print of the raw particle frame, not
+   *  a relit particle material (additive light on white can't work).
+   *
+   *  Paper does not glow and does not smear, so on paper the bloom and the
+   *  afterimage stand down and the clear goes to true zero energy: the
+   *  print pass wants the particles and nothing but the particles.
+   *  'ink' restores exactly what the constructor built -- the same passes,
+   *  the same #0a0a0a clear -- and the print pass is disabled outright, so
+   *  the dark sheet is the same draw calls as before paper existed. */
   setTheme(t: 'ink' | 'paper') {
     this._theme = t
-    this.paper.enabled = t === 'paper'
+    const paper = t === 'paper'
+    this.paper.enabled = paper
+    this.bloom.enabled = !paper
+    this.after.enabled = !paper
+    this.renderer.setClearColor(paper ? 0x000000 : 0x0a0a0a, 1)
+    this.uniforms.uPaper.value = paper ? 1 : 0
+    // The constellation's chords include every index-delta-1 pair, and on a
+    // fibonacci lattice those sit a golden angle apart: long horizontal
+    // strokes across the whole body. As light on black they are a faint
+    // lattice; printed, they are pen scratches through the stipple. The
+    // snare still reads on paper -- it cracks the shell into veins, which
+    // print as runs of heavier specks.
+    this.links.visible = !paper
   }
 
   get theme() {
@@ -2069,6 +2393,7 @@ export class Scene {
       const calm = this.calm ? 0.35 : 1
       this.uniforms.uSimAmt.value = SIM_AMT * this.simDial * calm * (1 - Math.min(1, this.bootRev)) * this.uniforms.uReveal.value
     }
+    if (this._theme === 'paper') this.printBudget()
     this.composer.render()
   }
 }

@@ -3212,27 +3212,259 @@ body.pip {
 .deck-drop dd.armed { color: var(--accent); }
 
 
-/* ══ PAPER ═════════════════════════════════════════════════════════════
-   The second ground: ink on off-white, same grain, same hairlines. The
-   star is remapped by the scene's final pass; this is the sheet around it.
-   Two inks still, and still one accent -- but not noon's yellow as TYPE:
-   yellow on paper measures 1.2:1 and would erase every module header. It
-   is taken down to a deep mustard of the same hue (#6f6300, 5.2:1 on the
-   ground), and accent fills carry the paper ground as their type. */
+
+
+/* ══ PAPER · LETTERPRESS ════════════════════════════════════════════════
+   The second ground is a print, not a negative. Uncoated stock, one dense
+   black ink, and noon yellow as the only other colour on the press -- laid
+   down as a FILL, the way a highlighter or a second plate would lay it,
+   and never as a letter or a line.
+
+   Why yellow is a fill here and nothing else. Yellow on this paper is
+   1.01:1: as type or as a 1px rule it is simply not there. As a field it is
+   the most saturated thing on the sheet, and ink type on it measures
+   15.8:1, the same as ink on paper. So every job the accent does as TYPE or
+   as a LINE on the dark sheet is restated in ink (the leading ones as ink
+   on a yellow mark), and every job it does as a FILL stays a yellow fill
+   carrying ink type, inside the plate's own ink-bounded cells. The old
+   paper answered "yellow can't be text" with "yellow can't be used", and
+   put an olive in its place that measured quieter than the dim ink.
+
+   Measured on this ground (#f0ebe0), WCAG relative luminance:
+     --ink      #111010   15.98:1   content, values, controls, every accent
+                                    letter and line
+     --ink-dim  #5a564e    6.14:1   the chrome tier: //labels_, captions
+     --pl-line  #878175    3.25:1   every cell border, every control border
+     --mark     #feee00    1.01:1   fill only; ink on it 15.8:1
+   One warm hue family on one warm paper: the dim ink and the line are the
+   black let down with the paper's own warmth, not a cool grey from another
+   drawer. The GL ground is the same bytes (scene.ts PAPER_RGB), so the
+   stage is a hole in this sheet and not a window onto a second one. */
 :root[data-theme='paper'] {
-  --bg: #ecebe6;
-  --ground: #ecebe6;
-  --ground-rgb: 236, 235, 230;
-  --ink: #0c0c0c;
-  --ink-rgb: 12, 12, 12;
-  --ink-dim: #55585f;
-  --pl-line: rgba(12, 12, 12, 0.34);
-  --accent: #6f6300;
-  --accent-rgb: 111, 99, 0;
-  --accent-hot: #857700;
-  --on-accent: #ecebe6;
+  color-scheme: light;
+  --bg: #f0ebe0;
+  --ground: #f0ebe0;
+  --ground-rgb: 240, 235, 224;
+  --ink: #111010;
+  --ink-rgb: 17, 16, 16;
+  --ink-dim: #5a564e;
+  --pl-line: #878175;
+  /* every accent-as-type and accent-as-line becomes the ink */
+  --accent: #111010;
+  --accent-rgb: 17, 16, 16;
+  --accent-hot: #111010;
+  --on-accent: #f0ebe0;
+  /* the yellow, which on paper exists only as a field under ink */
+  --mark: #feee00;
 }
-/* the vignette and the scanline residue were dark-on-dark; on paper they
-   read as dirt, so they lift to a whisper of the same texture */
-:root[data-theme='paper'] .scanlines { opacity: 0.25; }
-:root[data-theme='paper'] .grain { mix-blend-mode: multiply; opacity: 0.14; }
+
+/* ── the texture: paper tooth, over everything ──────────────────────────
+   The scanlines and the vignette are a CRT's, and on paper they read as a
+   ruled, photocopied sheet: 5.8 levels of banding against 1.2 on ink. They
+   go. The grain stays, as the stock's own tooth: static (paper fibres do
+   not move), grey-centred and soft-light blended so it lifts and sinks the
+   ground by the same couple of levels and never shifts its mean, and laid
+   OVER the plate as well as the stage -- it used to sit under the plate's
+   z-index and texture only the canvas, which is exactly how the stage came
+   to look like a dirtier sheet than the cells around it. */
+:root[data-theme='paper'] .scanlines { display: none; }
+:root[data-theme='paper'] .grain {
+  z-index: 5;
+  opacity: 1;
+  mix-blend-mode: multiply;
+  animation: none;
+  /* two scales of the same stock, both warm and both only ever DARKENING
+     the sheet a few levels (multiply over white is a no-op): a fine fibre
+     tooth, the pits of an uncoated surface, cut from the noise's upper tail
+     so most of the sheet is untouched and the rest is flecked; and a slow
+     mottle, the way uncoated stock takes up its sizing unevenly. Measured
+     on the bare ground: mean down about 4 levels, sd 4 (it was 0.4). */
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='t' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.26 0 0 0 0 0.2 1.3 0 0 0 -0.8'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23t)'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='3' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.5 0 0 0 0 0.4 0.12 0 0 0 -0.05'/%3E%3C/filter%3E%3Crect width='600' height='600' filter='url(%23m)'/%3E%3C/svg%3E");
+}
+
+/* ── the mark: ink type on a yellow field ───────────────────────────────
+   For the readouts that LEAD on the dark sheet by being yellow: the
+   identity codes, the module heads, and every armed value (a locked tempo,
+   a drop in its last seconds, a rate off unity, a pitch off centre). The
+   field is extended past the glyphs with padding and taken back with an
+   equal negative margin, so marking a word never moves it by a pixel. */
+:root[data-theme='paper'] .stage-code,
+:root[data-theme='paper'] .deck-meta .deck-bpm.locked,
+:root[data-theme='paper'] .deck-drop dd.armed,
+:root[data-theme='paper'] .cn-hdr .armed span,
+:root[data-theme='paper'] .titleblock .armed dd,
+:root[data-theme='paper'] .transport .dial-pitch data.armed,
+:root[data-theme='paper'] .layer-muted .layer-name,
+:root[data-theme='paper'] .sig-silent,
+:root[data-theme='paper'] .tube-step b,
+:root[data-theme='paper'] .pip-cap b,
+:root[data-theme='paper'] .plate-tour .driver-popover-progress-text {
+  color: var(--ink);
+  background: var(--mark);
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+/* THE TAB. A module head and the identity code are not values inside a
+   line, they are the first cell of their row -- so on paper they are a
+   cell: the yellow runs to the row's hairlines top, bottom and left, the
+   way a tab is cut into an index. The padding that was the row's is taken
+   over by the tab (and handed back by the same negative margin), so the
+   glyphs do not move and the row keeps its height to the pixel. */
+:root[data-theme='paper'] .cn-mod > span:first-child,
+:root[data-theme='paper'] .pl-hdr b {
+  color: var(--ink);
+  background: var(--mark);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin: -8px 0 -8px -12px;
+}
+:root[data-theme='paper'] .cn-mod.sub > span:first-child { margin-left: -24px; padding-left: 24px; }
+:root[data-theme='paper'] .cn-mod.sub::before { border-color: var(--ink); z-index: 1; }
+/* already a boxed readout: it only changes its ground */
+:root[data-theme='paper'] .ret-label:not(:empty) { color: var(--ink); background: var(--mark); box-shadow: 0 0 0 1px var(--ink); }
+/* the legend's group heads are whole rows: the row is the field */
+:root[data-theme='paper'] .tour-leg > b { color: var(--ink); background: var(--mark); }
+/* the one armed row in the signal chain -- where the visuals tap in -- is
+   the chain's filled cell */
+:root[data-theme='paper'] .pl-prow.sub .nm { color: var(--ink); background: var(--mark); }
+:root[data-theme='paper'] .pl-prow.sub .nm::before { border-color: var(--ink); }
+
+/* ── the fills: every yellow block on the dark sheet stays a yellow block ─
+   carrying ink type, inside cells whose hairlines are already ink. */
+:root[data-theme='paper'] .pl-act .power,
+:root[data-theme='paper'] .layer-btn-m.on,
+:root[data-theme='paper'] .transport .t-mute.on,
+:root[data-theme='paper'] .tuner-chips button.on,
+:root[data-theme='paper'] .cn-tool.on,
+:root[data-theme='paper'] .plate-tour .driver-popover-navigation-btns button:last-child:hover {
+  color: var(--ink);
+  background: var(--mark);
+  border-color: var(--ink);
+}
+:root[data-theme='paper'] .pl-act .power,
+:root[data-theme='paper'] .cn-tool.on { box-shadow: inset 0 0 0 1px var(--ink); }
+/* The phone's CONSOLE / STAR toggle is yellow TYPE on the dark sheet, not a
+   yellow cell, so on paper it is ink on a mark around the word: a full-width
+   yellow bar under the sheet outweighed everything on it. The cell stays
+   paper and presses to ink like every other button in the row. */
+:root[data-theme='paper'] .cn-mini .cn-mini-sheet { color: var(--ink); }
+:root[data-theme='paper'] .cn-mini .cn-mini-sheet > span {
+  background: var(--mark);
+  padding: 4px 6px;
+  margin: -4px -6px;
+  box-shadow: 0 0 0 1px var(--ink);
+}
+:root[data-theme='paper'] .cn-mini .cn-mini-sheet:active > span { background: none; box-shadow: none; }
+/* POWER ON cannot brighten -- yellow is already at the paper's ceiling --
+   so its hover and its rev are an impression instead: an ink keyline set
+   inside the field, the way a ticket's border is printed inside its edge */
+:root[data-theme='paper'] .pl-act .power:hover,
+:root[data-theme='paper'] .plate.rev .pl-act .power {
+  background: var(--mark);
+  outline: 1px solid var(--ink);
+  outline-offset: -6px;
+}
+/* the state pills and the contextual chips: filled tags with an ink rim */
+:root[data-theme='paper'] .pl-pills .pill.on,
+:root[data-theme='paper'] .plate.rev .pl-pills .pill,
+:root[data-theme='paper'] .chip {
+  color: var(--ink);
+  background: var(--mark);
+  border-color: var(--ink);
+}
+/* the ground selector says which ground it is on. `.cells` had no `.on`
+   at all, so the only thing reporting the choice was the //ground_ row. */
+/* ONE SELECTED STATE. On the dark sheet a chosen cell is filled with the
+   ink, and inverted onto paper that reads as black -- which on paper is
+   already the colour of PRESSING (every hover and press is an ink fill) and
+   of the one forward action. So on paper "this is the one that is on" is
+   always the same object: a yellow cell, ink type, a 1px ink edge set
+   inside it so it holds its shape against the warm stock. Black means you
+   are touching it; yellow means it is on. */
+:root[data-theme='paper'] .rail-src button.on,
+:root[data-theme='paper'] .layer-btn.on,
+:root[data-theme='paper'] .cells button.on {
+  color: var(--ink);
+  background: var(--mark);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+:root[data-theme='paper'] .layer-btn.on { border-color: var(--ink); }
+:root[data-theme='paper'] .cells button.on:hover { color: var(--ground); background: var(--ink); }
+/* small marks: a yellow square is only a square if something draws its
+   edge, so each carries a 1px ink rim */
+/* a 9px square with a 1px rim is 7px of yellow, which on warm stock
+   vanished; the leaders' squares grow to 12px behind a 2px rim */
+:root[data-theme='paper'] .pl-leads .dot { width: 12px; height: 12px; background: var(--mark); box-shadow: inset 0 0 0 2px var(--ink); }
+:root[data-theme='paper'] .listening-dot::before { background: var(--mark); box-shadow: inset 0 0 0 1px var(--ink); }
+:root[data-theme='paper'] .app.mixing .ret-dot { background: var(--mark); box-shadow: 0 0 0 1px var(--ink); }
+:root[data-theme='paper'] .app.mixing .reticle .ret-h,
+:root[data-theme='paper'] .app.mixing .reticle .ret-v { background: var(--ink); }
+:root[data-theme='paper'] .layer-muted .layer-meter b { background: var(--mark); border-color: var(--ink); }
+:root[data-theme='paper'] ::selection { background: var(--mark); color: var(--ink); }
+
+/* ── standby ─────────────────────────────────────────────────────────── */
+/* The checker strip beside the wordmark is a print's colour bar: yellow
+   patches on the stock, framed by an ink rule, which is exactly what sits
+   at the edge of every proof sheet. */
+:root[data-theme='paper'] .pl-checks {
+  /* a yellow band ruled in ink at 45 degrees, bounded by an ink rim -- the
+     hazard band on a machine plate, and heavy enough to stand beside the
+     POWER ON block it points at. Two whole tiles tall; the diagonal's
+     period is the tile's, so it meets itself at every edge. */
+  height: 32px;
+  background:
+    repeating-linear-gradient(-45deg, var(--ink) 0 1.5px, transparent 1.5px 8px),
+    var(--mark);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+/* The filler under the pills was ink-dim checks at 0.3, which on paper is
+   the "transparent image" grid of every photo editor: a missing asset. It
+   is a section hatch instead -- the draughtsman's mark for "material here,
+   nothing to read", in graphite, the same diagonal the band beside the
+   wordmark is ruled with. Pattern, so it renders no value (law 3). */
+:root[data-theme='paper'] .pl-strip {
+  background: repeating-linear-gradient(45deg, var(--ink-dim) 0 1px, transparent 1px 6px);
+  opacity: 0.5;
+}
+/* the figure's keyline breathes between the rule and the ink, not between
+   two strengths of an accent that paper cannot show as a line */
+:root[data-theme='paper'] .pl-fig { border-color: var(--pl-line); animation-name: paper-frame-breathe; }
+:root[data-theme='paper'] .plate.rev .pl-fig { border-color: var(--ink); }
+@keyframes paper-frame-breathe {
+  0%, 100% { border-color: var(--pl-line); }
+  50% { border-color: var(--ink); }
+}
+
+/* ── type over the star ─────────────────────────────────────────────────
+   The stage title is the same ink as the specks it sits on, so where the
+   two overlap they fused into one mass. It gets a trap: a hard knockout of
+   the paper around every glyph, zero blur -- a register gap, not a shadow.
+   The small type beside it is lifted onto a paper slip of its own. */
+:root[data-theme='paper'] .stage-title,
+:root[data-theme='paper'] .announce-title {
+  text-shadow:
+    4px 0 var(--ground), -4px 0 var(--ground), 0 4px var(--ground), 0 -4px var(--ground),
+    3px 3px var(--ground), -3px 3px var(--ground), 3px -3px var(--ground), -3px -3px var(--ground);
+}
+:root[data-theme='paper'] .stage-code { justify-self: start; width: fit-content; }
+:root[data-theme='paper'] .stage-meta {
+  justify-self: start;
+  width: fit-content;
+  background: var(--ground);
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+
+/* the tour card is a paper slip over a paper wash (Onboard.tsx), so its
+   edge is drawn in ink rather than in the rule it would vanish against */
+:root[data-theme='paper'] .driver-popover.plate-tour { border-color: var(--ink); }
+
+/* a speck is a speck: when the governor renders the star below the screen's
+   pixel ratio, the browser's smooth upscale turned every 1px impression into
+   a grey 2px blur (on the phone almost no pixel measured under 60).
+   Nearest-neighbour keeps each one a hard black square. */
+:root[data-theme='paper'] canvas.stage { image-rendering: pixelated; }

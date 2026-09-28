@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import App, { readAccent } from './App'
+import App, { paintThemeColor, readAccent } from './App'
 import '@fontsource/archivo-black'
 import './styles.css'
 
@@ -14,6 +14,8 @@ try {
   /* private mode: the default ground */
 }
 readAccent()
+// and the browser's own bar, which index.html can only say one colour for
+paintThemeColor()
 
 // No StrictMode: the app owns one AudioContext and one rAF loop in a
 // mount-once effect; double-invoked effects would build two audio graphs.
