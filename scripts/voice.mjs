@@ -187,7 +187,7 @@ if (tourSteps < 2) {
 
 // ---- the sweep ------------------------------------------------------------
 // Every source paints its own branch copy, and the picker is the rail's
-// radiogroup -- NOT anything inside a tabbed strip. The first draft of this
+// source group (aria-pressed buttons) -- NOT anything inside a tabbed strip. The first draft of this
 // check guessed `.src-pick button` and silently matched nothing, so a planted
 // em dash in the mic branch passed clean; the second draft was re-pointed at
 // `.srcs button`, which was dome.html's name for it and matched nothing
@@ -202,7 +202,7 @@ if (srcs.length < 4) {
   await die(`voice: found ${srcs.length} source buttons at \`${SRC}\`, and the console ships four (radio / file / tab / tube). The per-source copy was never rendered and this run proves nothing.`)
 }
 
-const selected = () => p.evaluate(sel => [...document.querySelectorAll(sel)].findIndex(b => b.getAttribute('aria-checked') === 'true'), SRC)
+const selected = () => p.evaluate(sel => [...document.querySelectorAll(sel)].findIndex(b => b.getAttribute('aria-pressed') === 'true'), SRC)
 const stackOpen = () => p.evaluate(() => !!document.querySelector('.railfold.open .layers'))
 
 // The old cross product was sources x `.strip button`, a tabbed panel strip

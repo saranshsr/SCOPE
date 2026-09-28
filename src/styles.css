@@ -493,6 +493,10 @@ body {
   background: var(--pl-line); /* 1px grid-gap dividers */
   border: 1px solid var(--pl-line);
 }
+/* Three sources where the browser cannot capture a tab: one row of three,
+   still no holes. Two columns would leave the fourth cell empty, which in a
+   gap:1px grid is a slab of line colour. */
+.rail-src.three { grid-template-columns: repeat(3, 1fr); }
 
 .rail-src button {
   padding: 8px 0;
@@ -3134,6 +3138,13 @@ a:focus-visible {
   pointer-events: none;
 }
 .tube-host iframe { display: block; width: 640px; height: 360px; border: 0; }
+
+/* A FAULT: what went wrong with a source, on its own status row. Full ink,
+   not the dim of the other hints -- it is the one hint that is news -- and
+   no accent: yellow is for armed and locked, and an error is neither. */
+.cn-hint.fault { color: var(--ink); }
+/* between SKIP and the next track the old track's readings are not readings */
+.deck-meta.tuning-next dd { color: var(--ink-dim); }
 
 .tube-listen { border-bottom: 1px solid var(--pl-line); }
 /* granted but silent is a fault state, so it takes the accent — and no

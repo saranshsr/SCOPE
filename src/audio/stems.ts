@@ -88,10 +88,24 @@ export class StemDeck {
     this.duration = Math.max(...this.stems.map((s) => s.buffer.duration))
   }
 
-  async load(files: File[]) {
+  /**
+   * Decode a dropped stem set. Every file is decoded independently, so one
+   * corrupt stem costs that stem and not the set: the deck plays whatever
+   * survived as long as at least two did (two parts are still a mix; one is
+   * just a file). Fewer than two rejects, and the deck is left empty rather
+   * than holding rows for stems that never decoded.
+   *
+   * @returns how many of the files would not decode.
+   */
+  async load(files: File[]): Promise<number> {
     this.disposeStems()
-    for (const f of files) {
-      const buffer = await this.ctx.decodeAudioData(await f.arrayBuffer())
+    this.soloRole = null
+    const decoded = await Promise.allSettled(
+      files.map(async (f) => ({ f, buffer: await this.ctx.decodeAudioData(await f.arrayBuffer()) })),
+    )
+    const ok = decoded.flatMap((d) => (d.status === 'fulfilled' ? [d.value] : []))
+    if (ok.length < 2) throw new Error(ok.length ? 'only one stem decoded' : 'no stem decoded')
+    for (const { f, buffer } of ok) {
       const gain = this.ctx.createGain()
       const tap = this.ctx.createAnalyser()
       tap.fftSize = 256
@@ -106,6 +120,7 @@ export class StemDeck {
       })
     }
     this.duration = Math.max(...this.stems.map((s) => s.buffer.duration))
+    return files.length - ok.length
   }
 
   /** Sample-locked start: one timestamp for every source. */
@@ -262,6 +277,10 @@ export class StemDeck {
       s.tap.disconnect()
     }
     this.stems = []
+    // no stems, nothing sounding: a deck emptied by a failed load must not
+    // go on claiming 'playing' to the transport and the header dot
+    this._playing = false
+    this.offset = 0
   }
 
   dispose() {
