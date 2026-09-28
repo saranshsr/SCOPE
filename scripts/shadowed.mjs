@@ -246,7 +246,12 @@ const scan = ({ WATCH, OURS }) => {
           const w = want.split(/\s+/), g = got.split(/\s+/)
           return w.length === 1 ? g[0] === w[0] : w.every((v, i) => g[i] === v)
         })()
-        const same = got === want || gapSame ||
+        // `display: -webkit-box` with -webkit-line-clamp computes to
+        // `flow-root` in current Chrome (the standard line-clamp model): the
+        // rule applied and the clamp works; the engine renamed the box.
+        const clampBox = prop === 'display' && want === '-webkit-box' && got === 'flow-root' &&
+          getComputedStyle(el).getPropertyValue('-webkit-line-clamp').trim() !== 'none'
+        const same = got === want || gapSame || clampBox ||
           (prop === 'display' && got === want.replace(/^inline-/, '').replace(/^inline$/, 'block'))
         if (same) { applied = true; break }
       }
