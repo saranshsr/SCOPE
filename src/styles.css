@@ -2589,6 +2589,12 @@ a:focus-visible {
   .vibe, .rail-src { min-height: 44px; }
   .rail-src button { min-height: 44px; }
   .layer-btn { min-width: 44px; min-height: 44px; }
+  /* and the row's tracks grow with it. A 44px button in a 28px track
+     overflows its cell: S ran 16px under M, and M ran through the row's
+     12px of padding onto the plate's own edge, so the rail's right side
+     was two hairlines drawn 1px apart. Sized to the floor, both are whole
+     cells again, clear of each other and of the edge. */
+  .layer { grid-template-columns: 74px 1fr 44px 44px; }
   .rail-help { min-width: 44px; }
   /* .vibe's second track is a hardcoded 34px, so a min-width on the button
      inside it could never win. The TRACK has to grow. */
