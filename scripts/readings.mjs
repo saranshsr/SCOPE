@@ -228,15 +228,16 @@ const rmsAtTiers = tierRms.slice().sort((a, c) => a - c)[Math.floor(tierRms.leng
 // ── DEAD CONTROLS MUST LOOK DEAD (DESIGN.md) ───────────────────────────
 // In jukebox mode YouTube owns the sound, so the tier faders and their
 // solo/mute buttons are `disabled`. They must SAY so. The styling rule is
-// `.layer input:disabled`, which needs a `.layer` ancestor -- when the rows
+// `.layer .trim[aria-disabled]`, which needs a `.layer` ancestor -- when the rows
 // were `.mix-row` six faders sat at full opacity with a default cursor
 // while the buttons beside them faded. Controls that claim to work and do
 // nothing, next to controls that admit it.
 await p.evaluate(() => [...document.querySelectorAll('.rail-src button')].find(b => b.textContent.trim() === 'jukebox')?.click())
 await new Promise(r => setTimeout(r, 2500))
 const dead = await p.evaluate(() => {
-  const ctrls = [...document.querySelectorAll('.layer input, .layer-btn')]
-  const off = ctrls.filter(e => e.disabled)
+  // the faders are trims now (role=slider, aria-disabled), the buttons native
+  const ctrls = [...document.querySelectorAll('.layer .trim, .layer-btn')]
+  const off = ctrls.filter(e => e.disabled || e.getAttribute('aria-disabled') === 'true')
   // Not `return null`. An empty set here means the check never reached its
   // subject, and a correct assertion over an empty set passes in green --
   // which is how `voice` passed twice over copy it never rendered and how

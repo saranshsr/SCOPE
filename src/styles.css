@@ -674,12 +674,13 @@ body {
   .app button, .app a { cursor: pointer !important; }
   .app input { cursor: text !important; }
   .app .deck-wave { cursor: crosshair !important; }
-  .app .pl-dial { cursor: ew-resize !important; }
+  .app .trim { cursor: ew-resize !important; }
   .app.cursor-armed, .app.cursor-armed * { cursor: auto !important; }
   .app.cursor-armed button, .app.cursor-armed a { cursor: pointer !important; }
   .app.cursor-armed input { cursor: text !important; }
   .app.cursor-armed .deck-wave { cursor: crosshair !important; }
-  .app.cursor-armed .pl-dial { cursor: ew-resize !important; }
+  .app.cursor-armed .trim { cursor: ew-resize !important; }
+  .app .trim[aria-disabled='true'] { cursor: not-allowed !important; }
 }
 
 /* Grabbing the instrument: the reticle's dot swells while spinning.
@@ -781,7 +782,6 @@ body {
 .transport button:active { transform: translateY(1px); }
 /* `.vol` had its own flex row here; `.transport .vol` below sets the grid
    that actually runs it, and .vol never renders outside .transport. */
-.vol span { color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); }
 
 .tuning {
   margin-top: var(--gap-sep);
@@ -790,34 +790,7 @@ body {
      padding: 0`, so the grid never formed and the gap spaced nothing. The
      rows share edges instead — see the note at .cn-plate .nowplaying. */
 }
-.dial {
-  display: grid;
-  grid-template-columns: 74px 1fr 30px;
-  align-items: center;
-  gap: var(--gap-related);
-}
-.dial span { color: var(--ink-dim); font-size: var(--t-micro); letter-spacing: var(--track-caps-label); text-transform: uppercase; }
-.dial data { color: var(--ink); font-size: var(--t-micro); text-align: right; font-variant-numeric: tabular-nums; }
 
-/* brutalist range inputs: hairline track, square white thumb */
-input[type='range'] {
-  font-size: var(--t-micro);
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 12px;
-  background: transparent;
-  margin: 0;
-  touch-action: none;
-}
-input[type='range']::-webkit-slider-runnable-track { height: 1px; background: var(--pl-line); }
-input[type='range']::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 8px; height: 8px; margin-top: -3.5px;
-  background: var(--ink); border: none; border-radius: 0;
-}
-input[type='range']::-moz-range-track { height: 1px; background: var(--pl-line); }
-input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var(--ink); border: none; border-radius: 0; }
 
 /* the fuller rail scrolls on short screens rather than clipping */
 /* the rail scrolls; its bar is styled with every other scroll surface at
@@ -934,7 +907,9 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
    `--lift` is the sheet's own hover ground (`.pl-prow:hover` uses it), and
    a background cannot disturb the seam, which here is a 1px grid gap
    showing the container through. */
-.layer-hot { background: var(--lift); }
+/* layered on the ground: a bare tint here showed the gap grid's line
+   colour through and greyed the whole row out */
+.layer-hot { background: linear-gradient(var(--lift), var(--lift)), var(--ground); }
 .layer-name {
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-body);
@@ -949,10 +924,17 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   border: 1px solid var(--pl-line);
 }
 .layer-meter b.on { background: var(--ink); border-color: var(--ink); }
-.layer input[type='range'] {
-  width: 100%;
-  margin: 0;
+/* the ring's fader: a bare trim in the row's second column. The row owns
+   the padding and the ground; the trim only needs a hit area. */
+.layer .trim.bare {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  min-height: 28px;
+  background: none;
 }
+.layer .trim.bare:hover,
+.layer .trim.bare:focus-visible { background: none; }
 .layer-btn {
   font: inherit;
   font-size: var(--t-micro);
@@ -1130,8 +1112,6 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
 .deck-meta dt { color: var(--ink-dim); }
 .deck-meta dd { margin: 0; color: var(--ink); text-align: right; }
 .deck-meta .deck-bpm.locked { color: var(--accent); }
-.deck-meta a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--pl-line); }
-.deck-meta a:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ── first-contact calibration ──────────────────────────────────────────
    The tour is driver.js wearing the plate. Everything the library ships
@@ -1445,55 +1425,12 @@ input[type='range']::-moz-range-thumb { width: 8px; height: 8px; background: var
   background: var(--accent);
   border-color: var(--accent);
 }
-.transport .vol {
-  grid-column: 1 / 3;
-  display: grid;
-  /* 48px, shared by VOL and PITCH so their tracks begin at one x, and wide
-     enough for the longest label at the ramp's 11px. It was 28px on one row
-     and 30px on the other — fitted to JetBrains Mono at 9px, where PITCH
-     measured about 31px. Departure Mono at 11px measures it at 45, so the
-     label overran its track by 15px and sat ON the slider. A track sized to
-     a face is a track that breaks when the face changes; this one is sized
-     to the scale with room to spare. */
-  grid-template-columns: 48px 1fr;
-  align-items: center;
-  gap: var(--gap-related);
-  font-size: var(--t-micro);
-  letter-spacing: var(--track-caps-body);
-  text-transform: uppercase;
-  /* a cell in the shared-border grid, not something floating on the line */
-  background: var(--ground);
-  padding: 8px 12px;
-  min-height: 40px;
-}
-/* A SLIDER NEEDS TRAVEL, and this one never had any. Measured at 1440x900
-   the pitch input was 20px wide and 34px at best on a phone: a 0.5..1.5
-   range at 0.01 steps is a hundred values, and twenty pixels cannot hold
-   them. It was taking one column of a three-column row inside a 320px rail,
-   less a 30px label and a 24px readout, so there was nothing left.
-   Both continuous controls take the row to themselves now. The buttons keep
-   their three columns -- a button only has to be hit, not aimed. */
-.transport .vol,
-.transport .dial-pitch { grid-column: 1 / -1; }
-.transport .dial-pitch {
-  display: grid;
-  /* matches .vol above: one label track, so the two sliders start together */
-  grid-template-columns: 48px 1fr 24px;
-  align-items: center;
-  /* --gap-related, matching .vol. With --gap-tight here the two rows shared a
-     label track and still began their sliders 4px apart, which is the kind of
-     near-miss that reads as sloppiness without ever looking like a bug. */
-  gap: var(--gap-related);
-  background: var(--ground);
-  padding: 8px 12px;
-  min-height: 40px;
-  font-size: var(--t-micro);
-}
-.transport .dial-pitch data.armed { color: var(--accent); }
-/* with the pitch dial gone, vol takes the whole row rather than leaving
-   column 3 unfilled — in a gap:1px grid an empty cell paints the line
-   colour through, reading as a gap in the plate. */
-.transport.no-pitch .vol { grid-column: 1 / -1; }
+/* VOL and PITCH are trims (see .trim): each takes the row to itself, a
+   cell in the shared-border grid rather than something on the line. The
+   buttons keep their three columns -- a button only has to be hit, a
+   continuous control has to be aimed, and a trim gets the full width. */
+.transport .t-trim { grid-column: 1 / -1; background: var(--ground); }
+.trim > b.armed { color: var(--accent); }
 .transport.two { grid-template-columns: 1fr 1fr; }
 
 /* contextual chips: states speak only while non-default */
@@ -1882,6 +1819,10 @@ a:focus-visible {
   padding: 8px 12px;
   min-height: 40px;
   font-size: var(--t-micro);
+  /* the trim carries its own voice, so it reads the same in any parent */
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: var(--track-caps-body);
 }
 .trim-track { width: 100%; height: 16px; display: block; overflow: visible; }
 .trim-track line { stroke: currentColor; stroke-width: 1; opacity: 0.35; vector-effect: non-scaling-stroke; }
@@ -2069,7 +2010,7 @@ a:focus-visible {
    Turnable on the landing page: drag vertically, arrow keys, double-click
    to reset. The cursor stays the page reticle, so the affordance has to be
    visual — the face lifts and the needle arms on hover and focus. */
-.pl-dial {
+.trim {
   touch-action: none; /* the drag must not scroll the sheet on a phone */
   transition: background 140ms var(--ease), color 140ms var(--ease);
 }
@@ -2082,16 +2023,16 @@ a:focus-visible {
    same thing as the source buttons and the tuner chips.
    The focus RING stays red, because an outline is a keyline and that is
    exactly the job §1 gives the accent. */
-.pl-dial:hover,
-.pl-dial:focus-visible { background: linear-gradient(var(--lift), var(--lift)), var(--ground); color: var(--ink); }
-.pl-dial:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.trim:hover,
+.trim:focus-visible { background: linear-gradient(var(--lift), var(--lift)), var(--ground); color: var(--ink); }
+.trim:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 /* the ruler arms with the face: unlit ticks come up, so the travel left
    is readable while the hand is on it */
-.pl-dial:hover .trim-track line,
-.pl-dial:focus-visible .trim-track line { opacity: 0.6; }
-.pl-dial:hover .trim-track line.lit,
-.pl-dial:focus-visible .trim-track line.lit { opacity: 1; }
-.pl-dial:active { background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground); }
+.trim:hover .trim-track line,
+.trim:focus-visible .trim-track line { opacity: 0.6; }
+.trim:hover .trim-track line.lit,
+.trim:focus-visible .trim-track line.lit { opacity: 1; }
+.trim:active { background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground); }
 /* the lift is a tint; over the console's gap grid a bare tint showed the
    LINE colour through it and swallowed the needle */
 
@@ -2334,8 +2275,6 @@ a:focus-visible {
    holding its fold open at 40px even when closed — a control visible in a
    mode where it does nothing. (0,2,0) beats the (0,1,0) floors above. */
 .railfold:not(.open) > * { min-height: 0; }
-input[type='range'] { height: 32px; }
-.layer input[type='range'] { height: 28px; }
 
 @media (pointer: coarse) {
   /* the parent grid sizes the row, so the floor goes on the container too */
@@ -2353,10 +2292,7 @@ input[type='range'] { height: 32px; }
   .vibe button,
   .cells button,
   .diag-toggle { min-height: 44px; }
-  input[type='range'] { height: 44px; }
-  .layer input[type='range'] { height: 40px; }
-  input[type='range']::-webkit-slider-thumb { width: 16px; height: 16px; }
-  input[type='range']::-moz-range-thumb { width: 16px; height: 16px; }
+  .layer .trim.bare { min-height: 40px; }
 }
 
 /* ══ THE CONSOLE PLATE ═════════════════════════════════════════════════
@@ -2893,7 +2829,7 @@ input[type='range'] { height: 32px; }
 
 /* Dead controls must look dead. The meters beside them stay at full
    strength because they are real analyser readings. */
-.layer input:disabled,
+.layer .trim[aria-disabled='true'],
 .layer-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ══ WATCH ═════════════════════════════════════════════════════════════
@@ -3295,7 +3231,7 @@ body.pip {
 :root[data-theme='paper'] .deck-drop dd.armed,
 :root[data-theme='paper'] .cn-hdr .armed span,
 :root[data-theme='paper'] .titleblock .armed dd,
-:root[data-theme='paper'] .transport .dial-pitch data.armed,
+:root[data-theme='paper'] .trim > b.armed,
 :root[data-theme='paper'] .layer-muted .layer-name,
 :root[data-theme='paper'] .sig-silent,
 :root[data-theme='paper'] .tube-step b,
@@ -3468,3 +3404,7 @@ body.pip {
    a grey 2px blur (on the phone almost no pixel measured under 60).
    Nearest-neighbour keeps each one a hard black square. */
 :root[data-theme='paper'] canvas.stage { image-rendering: pixelated; }
+
+/* the trim's detent is an accent LINE, and on paper a yellow line is
+   1.0:1 against the stock -- it vanishes. Paper draws it in ink. */
+:root[data-theme='paper'] .trim-track .trim-home { stroke: var(--ink); }

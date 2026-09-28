@@ -3096,15 +3096,10 @@ export default function App() {
                 {track.artist && (
                   <div>
                     <dt>//artist_</dt>
-                    <dd>
-                      {track.link ? (
-                        <a href={track.link} target="_blank" rel="noopener noreferrer">
-                          {track.artist.replace(' · audius', '')}
-                        </a>
-                      ) : (
-                        track.artist.replace(' · audius', '')
-                      )}
-                    </dd>
+                    {/* a reading, not a link: the audius profile it pointed at
+                        opened nothing useful, and a row that looks pressable
+                        and goes nowhere is worse than one that just says */}
+                    <dd>{track.artist.replace(' · audius', '')}</dd>
                   </div>
                 )}
               </dl>
@@ -3224,31 +3219,39 @@ export default function App() {
                 >
                   {muted ? 'muted' : 'mute'}
                 </button>
-                <div className="vol">
-                  <span>vol</span>
-                  <input
-                    type="range" min={0} max={1} step={0.01} value={volume}
-                    onChange={(ev) => {
-                      const v = Number(ev.target.value)
-                      setVolume(v)
-                      // in jukebox mode our gain is 0, so drive the player
-                      // that actually sounds
-                      if (engineRef.current?.kind === 'tube') tubeRef.current?.setVolume(v)
-                    }}
-                    aria-label="volume"
-                  />
-                </div>
+                {/* the same trim as 04 · visuals: one ruler vocabulary for
+                    every continuous control on the plate */}
+                <Trim
+                  className="t-trim"
+                  cap="vol"
+                  label="volume"
+                  v={volume}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  fmt={(n) => String(Math.round(n * 100))}
+                  onChange={(f) => setVolume((prev) => {
+                    const nv = f(prev)
+                    // in jukebox mode our gain is 0, so drive the player
+                    // that actually sounds
+                    if (engineRef.current?.kind === 'tube') tubeRef.current?.setVolume(nv)
+                    return nv
+                  })}
+                />
                 {source !== 'tube' && source !== 'aj' && (
-                  <label className="dial dial-pitch">
-                    <span>pitch</span>
-                    <input
-                      type="range" min={0.5} max={1.5} step={0.01} value={rate}
-                      onChange={(ev) => setRate(Number(ev.target.value))}
-                      onDoubleClick={() => setRate(1)}
-                      aria-label="pitch (playback speed, bends like vinyl)"
-                    />
-                    <data className={rate !== 1 ? 'armed' : ''}>{Math.round(rate * 100)}</data>
-                  </label>
+                  <Trim
+                    className="t-trim"
+                    cap="pitch"
+                    label="pitch (playback speed, bends like vinyl)"
+                    v={rate}
+                    min={0.5}
+                    max={1.5}
+                    step={0.01}
+                    home={1}
+                    armed={rate !== 1}
+                    fmt={(n) => String(Math.round(n * 100))}
+                    onChange={(f) => setRate((prev) => f(prev))}
+                  />
                 )}
               </div>
             </div>
@@ -3557,12 +3560,20 @@ export default function App() {
                       ))}
                     </i>
                   </span>
-                  <input
-                    type="range" min={0} max={2} step={0.01} value={L.gain}
-                    onChange={(ev) => tierCtlRef.current?.gain(L.i, Number(ev.target.value))}
-                    onDoubleClick={() => tierCtlRef.current?.gain(L.i, 1)}
-                    aria-label={`${L.label} level`}
+                  {/* the row's fader is a bare trim: the ring's name and meter
+                      already sit to its left, so it needs no label of its own */}
+                  <Trim
+                    bare
+                    cap={L.label}
+                    label={`${L.label} level`}
+                    v={L.gain}
+                    min={0}
+                    max={2}
+                    step={0.01}
+                    home={1}
                     disabled={source === 'tube'}
+                    fmt={(n) => String(Math.round(n * 100))}
+                    onChange={(f) => tierCtlRef.current?.gain(L.i, f(L.gain))}
                   />
                   <button
                     className={`layer-btn${L.solo ? ' on' : ''}`}
@@ -3941,8 +3952,6 @@ function Meter() {
 const DIAL_MIN = 0.25
 const DIAL_MAX = 2
 const DIAL_STEP = 0.05
-/** every 0.05 of travel gets a tick; the round values get a long one */
-const TRIM_TICKS = Array.from({ length: Math.round((DIAL_MAX - DIAL_MIN) / DIAL_STEP) + 1 }, (_, i) => DIAL_MIN + i * DIAL_STEP)
 
 /**
  * A TRIM, not a knob. The three visual controls were 42px dials whose ring
@@ -3964,29 +3973,82 @@ function Dial({
   /** takes an updater, so held arrow keys accumulate instead of racing renders */
   onChange: (next: (prev: number) => number) => void
 }) {
+  return (
+    <Trim
+      className="pl-dial"
+      cap={cap}
+      v={v}
+      min={DIAL_MIN}
+      max={DIAL_MAX}
+      step={DIAL_STEP}
+      home={1}
+      // a tick every 0.05 from 0.25; long ones on 50 / 100 / 150 / 200
+      n={36}
+      isMajor={(i) => (i + 5) % 10 === 0}
+      fmt={(n) => String(Math.round(n * 100))}
+      onChange={onChange}
+    />
+  )
+}
+
+/** a tick every 2.5% of travel, a long one every quarter: 0..1 reads
+ *  0 / 25 / 50 / 75 / 100 and 0.5..1.5 reads 50 / 75 / 100 / 125 / 150 */
+const TRIM_N = 41
+const TRIM_MAJOR = (i: number) => i % 10 === 0
+
+function Trim({
+  v, cap, label, min, max, step, home, armed, fmt, onChange, className = '',
+  n = TRIM_N, isMajor = TRIM_MAJOR, bare = false, disabled = false,
+}: {
+  /** ruler only: for a row that already names and reads the value */
+  bare?: boolean
+  /** dead, not hidden: the row still shows where the value sits */
+  disabled?: boolean
+  /** tick count and which are long, for a range whose round values fall
+   *  elsewhere (the visual trims run 0.25..2) */
+  n?: number
+  isMajor?: (i: number) => boolean
+  v: number
+  cap: string
+  label?: string
+  min: number
+  max: number
+  step: number
+  /** the detent: drawn in the accent, where double-click and Home return */
+  home?: number
+  /** off its detent: the reading carries the accent, as the pitch always did */
+  armed?: boolean
+  fmt: (n: number) => string
+  onChange: (next: (prev: number) => number) => void
+  className?: string
+}) {
   const track = useRef<SVGSVGElement>(null)
   const held = useRef(false)
-  const clamp = (n: number) => Math.max(DIAL_MIN, Math.min(DIAL_MAX, n))
-  const nudge = (d: number) => onChange((p) => clamp(Number((p + d).toFixed(2))))
+  const clamp = (n: number) => Math.max(min, Math.min(max, n))
+  const snap = (n: number) => clamp(Number((Math.round(n / step) * step).toFixed(4)))
+  const nudge = (d: number) => onChange((p) => snap(p + d))
   const setAt = (clientX: number) => {
     const r = track.current?.getBoundingClientRect()
     if (!r || r.width <= 0) return
     const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width))
-    const raw = DIAL_MIN + f * (DIAL_MAX - DIAL_MIN)
-    onChange(() => clamp(Number((Math.round(raw / DIAL_STEP) * DIAL_STEP).toFixed(2))))
+    const next = snap(min + f * (max - min))
+    onChange(() => next)
   }
-  const x = (n: number) => ((n - DIAL_MIN) / (DIAL_MAX - DIAL_MIN)) * 200
+  const x = (n: number) => ((n - min) / (max - min)) * 200
+  const span = max - min
   return (
     <div
-      className="pl-dial trim"
+      className={`trim${bare ? ' bare' : ''} ${className}`}
       role="slider"
-      tabIndex={0}
-      aria-label={cap}
-      aria-valuemin={DIAL_MIN}
-      aria-valuemax={DIAL_MAX}
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || undefined}
+      aria-label={label ?? cap}
+      aria-valuemin={min}
+      aria-valuemax={max}
       aria-valuenow={Number(v.toFixed(2))}
-      aria-valuetext={`${cap} ${Math.round(v * 100)}`}
+      aria-valuetext={`${cap} ${fmt(v)}`}
       onPointerDown={(e) => {
+        if (disabled) return
         e.currentTarget.setPointerCapture(e.pointerId)
         held.current = true
         setAt(e.clientX)
@@ -3996,32 +4058,34 @@ function Dial({
         held.current = false
         e.currentTarget.releasePointerCapture(e.pointerId)
       }}
-      onDoubleClick={() => onChange(() => 1)}
+      onDoubleClick={() => { if (home !== undefined && !disabled) onChange(() => home) }}
       onKeyDown={(e) => {
-        const s = e.shiftKey ? 0.25 : 0.05
+        if (disabled) return
+        // arrows step 5% of the range, shift 25%: the same feel on every trim
+        const s = (e.shiftKey ? 0.25 : 0.05) * (span > 1 ? 1 : span)
         if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); nudge(s) }
         else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); nudge(-s) }
-        else if (e.key === 'Home') { e.preventDefault(); onChange(() => 1) }
+        else if (e.key === 'Home' && home !== undefined) { e.preventDefault(); onChange(() => home) }
       }}
     >
-      <span className="cap">{cap}</span>
+      {!bare && <span className="cap">{cap}</span>}
       <svg ref={track} className="trim-track" viewBox="0 0 200 16" preserveAspectRatio="none" aria-hidden="true">
-        {TRIM_TICKS.map((t) => {
-          const major = Math.abs(t * 2 - Math.round(t * 2)) < 1e-6
-          const lit = t <= v + 1e-6
+        {Array.from({ length: n }, (_, i) => {
+          const t = min + (i / (n - 1)) * span
+          const major = isMajor(i)
           return (
             <line
-              key={t}
-              className={lit ? 'lit' : ''}
+              key={i}
+              className={t <= v + 1e-6 ? 'lit' : ''}
               x1={x(t)} x2={x(t)}
               y1={major ? 4 : 9} y2={16}
             />
           )
         })}
-        <line className="trim-home" x1={x(1)} x2={x(1)} y1={0} y2={3} />
+        {home !== undefined && <line className="trim-home" x1={x(home)} x2={x(home)} y1={0} y2={3} />}
         <line className="trim-needle" x1={x(v)} x2={x(v)} y1={0} y2={16} />
       </svg>
-      <b>{Math.round(v * 100)}</b>
+      {!bare && <b className={armed ? 'armed' : ''}>{fmt(v)}</b>}
     </div>
   )
 }
