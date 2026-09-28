@@ -99,15 +99,13 @@ await p.evaluate(() => document.querySelector('.driver-popover-close-btn')?.clic
 await sleep(800)
 
 // `.deck-name` is the console's now-playing line and `.deck-meta` the plate
-// rows beneath it. Worth being exact about what the second one is: it is NOT
-// a subtitle. The engine announces the corrupt upload as
-// { title: 'file not playable', artist: 'back to the radio' }, and the title
-// is what `.deck-name` paints; the artist half only renders as a `//artist_`
-// row when the track carries a link, which a synthesised failure announce
-// does not. So in the shipped console the reason is carried by the title
-// alone. Both are read anyway, because the law is "it says something
-// legible", not "it says it in two lines", and reading only one of them
-// would make this check brittle against a layout that moves the sentence.
+// rows beneath it; `.cn-hint.fault` is the status row under 02 · FEED where
+// faults are said. The engine used to announce a corrupt upload as a fake
+// track ({ title: 'file not playable' }), so the reason took the now-playing
+// line and the 90px announce. Faults have their own channel now (engine
+// .onFault), and the deck keeps saying what actually plays -- so this reads
+// the fault row for the reason, and ALSO asserts the reason never reaches
+// the deck line, which is the regression that channel exists to prevent.
 //
 // The level is a COUNT of lit cells, 0..12, not a percentage: the shipped
 // meter is `.level-meter > i`, twelve discrete blocks lit by
@@ -115,6 +113,8 @@ await sleep(800)
 // threshold `level > 3` was read off a readout that printed percent.
 const say = () => p.evaluate(() => ({
   now: document.querySelector('.deck-name')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+  fault: document.querySelector('.cn-hint.fault')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+  big: document.querySelector('.announce-title')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   sub: document.querySelector('.deck-meta')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   lit: document.querySelectorAll('.level-meter i.on').length,
   cells: document.querySelectorAll('.level-meter i').length,
@@ -177,13 +177,16 @@ await input.uploadFile(bad)
 // A slow sampler walks straight past the only window it exists in.
 let spoke = null
 let sawDecoding = false
+let leaked = null
+const FAULT = /not playable|will not|cannot|could not|failed|unsupported/i
 const spokeBy = Date.now() + 12000
 while (Date.now() < spokeBy) {
   await sleep(120)
   const s = await say()
   const line = `${s.now} ${s.sub}`
   if (/decoding/i.test(line)) sawDecoding = true
-  if (/not playable|cannot|could not|failed|unsupported/i.test(line)) { spoke = s; break }
+  if (!leaked && (FAULT.test(line) || FAULT.test(s.big))) leaked = s
+  if (FAULT.test(s.fault)) { spoke = s; break }
 }
 const fail = []
 if (!spoke) {
@@ -192,16 +195,25 @@ if (!spoke) {
   // room whose reason was swallowed by its own decode spinner.
   fail.push(sawDecoding
     ? `a file that cannot decode never gave a reason within 12s -- the room only ever said "DECODING ///" and then moved on. The spinner outlived the message it was hiding.`
-    : `a file that cannot decode produced no legible message within 12s -- the room read "${s.now}" / "${s.sub}". Silence is not a failure state.`)
+    : `a file that cannot decode produced no legible message on the fault row within 12s -- the room read "${s.now}" / "${s.sub}" / fault "${s.fault}". Silence is not a failure state.`)
 }
-// 2 · it does not get stuck
-await sleep(6000)
+// 2 · it does not get stuck. Polled rather than slept, so a fault that
+// reaches the deck or the announce a beat after the status row is caught.
+{
+  const until = Date.now() + 6000
+  while (Date.now() < until) {
+    await sleep(200)
+    const s = await say()
+    if (!leaked && (FAULT.test(`${s.now} ${s.sub}`) || FAULT.test(s.big))) leaked = s
+  }
+}
+if (leaked) fail.push(`the fault took the now-playing deck or the announce ("${leaked.now}" / "${leaked.big}"). An error is not a track: it belongs on the status row.`)
 const after = await say()
 if (/decoding|reading|loading/i.test(`${after.now} ${after.sub}`)) {
   fail.push(`the room is still saying "${after.now}" 18s after a file that will never decode -- it is stuck, and a spinner with no end is worse than an error.`)
 }
-// 3 · sound comes back on its own. graph.ts schedules playRadio() ~1800ms
-// after the announce, so this is generous by an order of magnitude on
+// 3 · sound comes back on its own. graph.ts calls playRadio() as soon as
+// it reports the fault, so this is generous by an order of magnitude on
 // purpose: the failure it is looking for is a room left dead, not a slow one.
 const back = await hear(20000)
 if (!back.ok) {
@@ -217,4 +229,4 @@ if (envErrs.length && !fail.length) {
 const heardNow = await say()
 await b.close()
 if (fail.length) { console.error('failure-states FAILED\n' + fail.map(f => '  · ' + f).join('\n')); process.exit(1) }
-console.log(`failure-states ok -- a corrupt file reads "${spoke.now}", does not stick, and the room finds sound again (${heardNow.lit}/${heardNow.cells} cells)`)
+console.log(`failure-states ok -- a corrupt file says "${spoke.fault}" on the status row (deck "${spoke.now}"), does not stick, and the room finds sound again (${heardNow.lit}/${heardNow.cells} cells)`)

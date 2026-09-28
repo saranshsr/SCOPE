@@ -16,6 +16,11 @@ export interface SplitResult {
 
 export type SplitProgress = { stage: string; pct: number }
 
+/** What the person is told: three plain stages and ONE percent for the whole
+ *  split, 0 to 100, that never goes backwards. */
+export type SplitStage = 'reading' | 'vocals' | 'parts'
+export type SplitReading = { stage: SplitStage; pct: number }
+
 const MODEL_URL =
   'https://huggingface.co/Politrees/UVR_resources/resolve/main/models/MDXNet/UVR-MDX-NET-Voc_FT.onnx'
 
@@ -108,11 +113,49 @@ export async function splitNeuralTest(onProgress: (p: SplitProgress) => void): P
   })
 }
 
+/**
+ * Fold the pipeline's own stages into one reading.
+ *
+ * The worker reports five stages, each restarting at 0% (model, fetch,
+ * decode, vocals·<backend>, analyze, render), and the button printed them
+ * raw: the number climbed to 100, fell to 0, climbed again, and ended in an
+ * execution-provider suffix nobody asked about. A progress readout that
+ * goes backwards is not reading progress. The weights below are where each
+ * stage sits in one 0-100 span; the vocal model's pass is the long one, and
+ * without it (the classical fallback) the parts stage owns the whole
+ * remainder. `max` holds both the stage and the percent monotonic.
+ */
+function progressFolder(neural: () => boolean, out: (p: SplitReading) => void) {
+  const order: SplitStage[] = ['reading', 'vocals', 'parts']
+  let pct = 0
+  let at = 0
+  return (p: SplitProgress) => {
+    const f = Math.max(0, Math.min(100, p.pct)) / 100
+    let stage: SplitStage
+    let v: number
+    if (p.stage === 'model') [stage, v] = ['reading', f * 18]
+    else if (p.stage === 'fetch') [stage, v] = ['reading', 0]
+    else if (p.stage === 'decode') [stage, v] = ['reading', 19]
+    else if (p.stage.startsWith('vocals')) [stage, v] = ['vocals', 20 + f * 45]
+    else {
+      // analyze 0..55 then render 55..100 is the worker's own split of this
+      // stage, so its pct already runs once through 0..100 across both
+      const lo = neural() ? 65 : 20
+      ;[stage, v] = ['parts', lo + f * (99 - lo)]
+    }
+    at = Math.max(at, order.indexOf(stage))
+    pct = Math.max(pct, v)
+    out({ stage: order[at], pct: Math.floor(pct) })
+  }
+}
+
 export async function splitTrack(
   src: string,
   ctx: AudioContext,
-  onProgress: (p: SplitProgress) => void,
+  report: (p: SplitReading) => void,
 ): Promise<SplitResult[]> {
+  let neural = false
+  const onProgress = progressFolder(() => neural, report)
   onProgress({ stage: 'fetch', pct: 0 })
   const [resp, model] = await Promise.all([fetch(src), fetchModel(onProgress)])
   if (!resp.ok) throw new Error(`fetch ${resp.status}`)
@@ -122,6 +165,8 @@ export async function splitTrack(
   // resamples on playback, so the deck doesn't care
   const oac = new OfflineAudioContext(2, 2, 44100)
   const buf = await oac.decodeAudioData(raw)
+  onProgress({ stage: 'decode', pct: 100 })
+  neural = !!model
 
   const ch0 = buf.getChannelData(0)
   const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : buf.getChannelData(0)
@@ -144,6 +189,7 @@ export async function splitTrack(
           sb.copyToChannel(channels[i * 2 + 1] as Float32Array<ArrayBuffer>, 1)
           return { role, buffer: sb }
         })
+        report({ stage: 'parts', pct: 100 })
         resolve(out)
       }
     }

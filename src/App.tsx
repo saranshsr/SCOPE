@@ -29,9 +29,12 @@ import type { AJState } from './audio/aj'
 
 const SOURCE_ID: Record<SourceKind, string> = { radio: '[01]', file: '[02]', tab: '[03]', stems: '[04]', tube: '[05]', aj: '[AJ]' }
 
-/** Track time the way every player on earth writes it. */
+/** Track time the way every player on earth writes it. Zero or unknown
+ *  prints as a blank reading, not a measured one: between a skip and the
+ *  next track the element reports 0 and NaN, and '0:00 / 0:00' under the
+ *  old title read as a track that had been measured at no length. */
 const fmtTime = (s: number) => {
-  if (!isFinite(s) || s < 0) return '0:00'
+  if (!isFinite(s) || s <= 0) return '-:--'
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
 
@@ -206,6 +209,27 @@ export default function App() {
   const [splitState, setSplitState] = useState<string | null>(null)
   const splitGen = useRef(0)
   const stemDeckRef = useRef<StemDeck | null>(null)
+  // The stem deck is not a fifth feed: it is the file or the radio track,
+  // taken apart. FEED keeps that cell checked while the stems play, and 03
+  // names how many parts there really are.
+  const [stemsFrom, setStemsFrom] = useState<SourceKind>('file')
+  const [stemN, setStemN] = useState(0)
+  // FAULTS: what went wrong, on a status row under the sources. Never the
+  // now-playing line and never the announce: an error is not a track. It
+  // clears on the next real track, except the track that IS the recovery
+  // ("back to the radio"), which must not erase the reason it happened.
+  const [fault, setFault] = useState<string | null>(null)
+  const faultHold = useRef(false)
+  const faultTimer = useRef(0)
+  const raiseFault = (text: string, recovering = false) => {
+    faultHold.current = recovering
+    setFault(text)
+    window.clearTimeout(faultTimer.current)
+    faultTimer.current = window.setTimeout(() => setFault(null), 12000)
+  }
+  // SKIP asks for a track that has not arrived yet; until it does the deck
+  // says so instead of holding the old title over readings of nothing.
+  const [tuningNext, setTuningNext] = useState(false)
   // THE LAYER ROWS — every ring's visible twin: name, live meter, level
   // slider, solo/mute. Nothing about the stack requires a hidden gesture.
   type LayerRow = { i: number; label: string; level: number; gain: number; muted: boolean; solo: boolean; hot: boolean }
@@ -564,18 +588,40 @@ export default function App() {
     // the shared tab stopped sharing (Chrome's own bar, or it closed): back
     // to the radio, and say why, rather than a star gone quiet for no reason
     engine.onExtEnded = () => {
+      raiseFault('the shared tab stopped · back to the radio', true)
       void engine.playRadio()
+    }
+    engine.onFault = (text, recovering) => {
+      // a file that failed has nothing left to decode
+      setDecoding(false)
+      raiseFault(text, recovering)
     }
     engine.onAJChange = (st) => setAj(st)
     engine.onTrackChange = (tr) => {
       energy.reset()
+      // The tempo belongs to the track. Without a fresh tracker a 120 BPM
+      // track after a 124 one read 124 until the old estimate decayed:
+      // a reading of the last song printed under the new one's title.
+      tracker = new FingerprintTracker()
+      // ...and the estimate is read off the analyser's onset history, not
+      // the tracker, so the last track's onsets have to go with it
+      engine.analyser.onsets.length = 0
+      setTuningNext(false)
+      if (tr) {
+        if (faultHold.current) faultHold.current = false
+        else setFault(null)
+      }
       setAj(engine.kind === 'aj' ? engine.ajState : null)
-      if (engine.kind !== 'stems' && stemDeckRef.current?.playing) {
-        stemDeckRef.current.pause()
-        stemDeckRef.current.solo(null)
+      // Leaving the stems reverts the rings whenever they still name stems,
+      // not only while the deck happened to be playing: a paused deck left
+      // the radio labelled BASS / DRUMS / VOCALS.
+      if (engine.kind !== 'stems' && (stemDeckRef.current?.playing || tiers.some((t) => t.role))) {
+        stemDeckRef.current?.pause()
+        stemDeckRef.current?.solo(null)
         scene.setVocal(0)
         applySpectralTiers()
       }
+      if (engine.kind === 'stems') setStemN(new Set(stemDeckRef.current?.info().map((x) => x.role)).size)
       setTrack(tr)
       trackRef.current = tr
       setSource(engine.kind)
@@ -614,7 +660,9 @@ export default function App() {
     // the chrome's ground reads --drop off the app root
     scene.dropCssEl = appRef.current
     if (import.meta.env.DEV) (window as unknown as { __sc?: unknown }).__sc = scene
-    const tracker = new FingerprintTracker()
+    // let, not const: onTrackChange replaces it per track (above). The frame
+    // body reads it through this binding, so it always sees the current one.
+    let tracker = new FingerprintTracker()
     const beatClock = new BeatClock()
     let lastTier = 0
 
@@ -1909,8 +1957,10 @@ export default function App() {
         stemDeckRef.current = deck
         if (import.meta.env.DEV) (window as unknown as { __deck: StemDeck }).__deck = deck
         setDecoding(true)
-        void deck.load(all).then(() => {
-          engine.enterStems(`stem deck · ${all.length} stems`)
+        setStemsFrom('file')
+        void deck.load(all).then((skipped) => {
+          engine.enterStems(`stem deck · ${all.length - skipped} stems`)
+          if (skipped) raiseFault(`${skipped} of ${all.length} stems will not decode · playing the rest`, true)
           deck.play(0)
           const p = deck.peaks()
           peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
@@ -1921,6 +1971,13 @@ export default function App() {
           sect.latched = true
           sect.t = 1
           scene.setDissect(1)
+        }).catch(() => {
+          // Fewer than two stems decoded. The deck has already emptied
+          // itself; if it was the thing playing, the room would be left on
+          // rows for stems that no longer exist, so go back to the radio.
+          setDecoding(false)
+          if (engine.kind === 'stems') void engine.playRadio()
+          raiseFault('those stems will not decode · try mp3, wav, m4a or flac', engine.kind === 'stems')
         })
         return
       }
@@ -2178,7 +2235,7 @@ export default function App() {
     } catch (e) {
       if (tubeSearchGen.current !== gen) return
       setTubeHits(null)
-      engineRef.current?.announce('search failed', (e as Error).message)
+      engineRef.current?.fault((e as Error).message)
     } finally {
       if (tubeSearchGen.current === gen) setTubeSeeking(false)
     }
@@ -2197,19 +2254,21 @@ export default function App() {
     if (eng.kind !== 'tube') setPrevSource(eng.kind as SourceKind)
     if (!tubeRef.current) {
       tubeRef.current = new Tube()
+      // Tube advances past a refused video on its own (autoAdvance); this
+      // only says why. It used to call next() as well, which skipped two
+      // rows per blocked video and reset the guard that stops a list where
+      // nothing will play.
       tubeRef.current.onError = (code) => {
-        if (code === 101 || code === 150) {
-          eng.announce('embedding blocked', 'the owner disabled it for this video')
-          tubeRef.current?.next()
-        }
+        if (code === 101 || code === 150) eng.fault('that video will not play here · skipping to the next')
       }
+      tubeRef.current.onExhausted = () => eng.fault('none of these will play here · try another search')
     }
     // Do NOT mount here: the host only exists once source === 'tube', and
     // that render has not happened yet. The effect below owns mounting.
     eng.enterTube()
     // returning visitor: listen inside this same click, while the browser
     // still counts it as the gesture the share picker requires
-    if (hasListened && !eng.capturing) void startListening()
+    if (canTab && hasListened && !eng.capturing) void startListening()
   }
 
   /**
@@ -2336,13 +2395,14 @@ export default function App() {
     const resumeAt = eng.el.currentTime || 0
     try {
       const stems = await splitTrack(eng.el.src, eng.ctx, (p) => {
-        if (splitGen.current === gen) setSplitState(`${p.stage} ${Math.round(p.pct)}%`)
+        if (splitGen.current === gen) setSplitState(`${p.stage} ${p.pct}%`)
       })
       if (splitGen.current !== gen) return
       const deck = stemDeckRef.current ?? new StemDeck(eng.ctx, eng.busHead)
       stemDeckRef.current = deck
       if (import.meta.env.DEV) (window as unknown as { __deck: StemDeck }).__deck = deck
       deck.loadBuffers(stems.map((s) => ({ role: s.role, name: `${s.role} · split`, buffer: s.buffer })))
+      setStemsFrom(eng.kind === 'file' ? 'file' : 'radio')
       eng.enterStems(`${clip(fromTitle, 22)} · split`)
       deck.play(resumeAt)
       const p = deck.peaks()
@@ -2702,6 +2762,7 @@ export default function App() {
     // without this, skip left the jukebox for the radio
     if (e.kind === 'tube') { tubeRef.current?.next(); return }
     if (e.kind === 'aj') { e.ajNext(); return }
+    setTuningNext(true)
     if (e.kind === 'radio') void e.next()
     else void e.playRadio()
   }
@@ -2809,6 +2870,10 @@ export default function App() {
   // exactly when the OS would put it to sleep. The browser drops the lock
   // whenever the tab is hidden, so it is re-taken on return.
   const canFull = typeof document !== 'undefined' && !!document.fullscreenEnabled
+  // Tab capture, the same rule as mini and full: where the browser has no
+  // getDisplayMedia (every phone, Safari on iOS) the TAB source and the
+  // jukebox's listen step are absent rather than controls that only fail.
+  const canTab = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
   const toggleFull = () => {
     if (document.fullscreenElement) void document.exitFullscreen()
     else void document.documentElement.requestFullscreen?.().catch(() => {})
@@ -2900,18 +2965,31 @@ export default function App() {
   }
   useEffect(() => () => pipRef.current?.win.close(), [])
 
-  const name = splitState
-    ? splitState.toUpperCase()
-    : decoding
+  // The title stays put during a split: the split's progress is on its own
+  // button, and replacing the most-read line with a percentage for a minute
+  // hid what was playing. No '.MP3' either: the file's container is not a
+  // reading, and was printed on WAVs and FLACs alike.
+  const name = decoding
     ? 'DECODING ///'
+    : tuningNext
+    ? 'TUNING ///'
     : track
       // clip() before toUpperCase(), and never slice(): a bare slice cuts
       // mid-word and marks nothing, so the console's most-read line rendered
       // "SEAN PAUL GET BUSY PAULY F" -- a title that looks corrupted rather
       // than shortened. text.ts was written for exactly this and was
       // imported nowhere.
-      ? `${clip(track.title, 26).toUpperCase()}${source === 'file' ? '.MP3' : ''}`
+      ? clip(track.title, 26).toUpperCase()
       : 'NO CARRIER'
+
+  // One status row, rendered where the source it concerns is operated.
+  // The live region stays mounted and only its content changes: a region
+  // that arrives already holding its text is not reliably announced.
+  const faultRow = (
+    <div className="fault-live" role="status">
+      {fault && <p className="cn-hint fault">{fault}</p>}
+    </div>
+  )
 
   // the mini star's caption: which source, and what it is hearing
   const pipName = source === 'tube' ? (tubeState?.title ? clip(tubeState.title, 26).toUpperCase() : 'JUKEBOX') : name
@@ -3160,7 +3238,9 @@ export default function App() {
             <div><b>[scope-02]</b> <span className="hlbl">console</span></div>
             <div className="k">
               //src_ <span>{SOURCE_ID[source]}</span>
-              <i className={`src-dot${playing ? ' live' : ''}`} />
+              {/* the stem deck plays outside the element, so engine.playing
+                  is false there; its transport state is `paused` */}
+              <i className={`src-dot${playing || (source === 'stems' && !paused) ? ' live' : ''}`} />
             </div>
             {source !== 'tube' && source !== 'tab' && source !== 'aj' && (
               <div className={`k cn-rate${rate !== 1 ? ' armed' : ''}`}>//rate_ <span>{rate.toFixed(2)}×</span></div>
@@ -3257,7 +3337,9 @@ export default function App() {
               rail because it is the most-used. */}
           <h2 className="cn-mod"><span>01 · now playing</span><i>//deck_</i></h2>
           <div className="nowplaying rail-sec" style={{ '--i': 1 } as React.CSSProperties}>
-            {source !== 'tube' && (
+            {/* not in tab mode either: the title there is 'another tab',
+                which //listening_ below already says, with its live state */}
+            {source !== 'tube' && source !== 'tab' && (
             <div className="pl-row cn-track">
               <span className="k">//track_</span>
               <samp className="deck-name" role="status" aria-live="polite"><Decode text={name} duration={700} /></samp>
@@ -3266,7 +3348,7 @@ export default function App() {
             {track && source !== 'tube' && (
               /* §5 phase 2: track meta as plate rows. As inline spans it
                  wrapped mid-value in a 272px rail ("BPM - /73"). */
-              <dl className="deck-meta">
+              <dl className={`deck-meta${tuningNext ? ' tuning-next' : ''}`}>
                 {source === 'aj' ? (
                   <>
                     <div><dt>//freq_</dt><dd className="deck-freq">{aj ? `${aj.freq} hz` : '--'}</dd></div>
@@ -3353,8 +3435,8 @@ export default function App() {
             )}
             {source !== 'tube' && source !== 'tab' && source !== 'aj' && (
             <div className="deck-time">
-              <data ref={cElapsedRef}>0:00</data>
-              <data ref={cTotalRef}>0:00</data>
+              <data ref={cElapsedRef}>-:--</data>
+              <data ref={cTotalRef}>-:--</data>
             </div>
             )}
             {/* ANOTHER TAB: their player owns play, skip and volume, so the
@@ -3517,9 +3599,14 @@ export default function App() {
                 />
                 <button onClick={() => void tubeSubmit()}>go</button>
               </div>
+              {/* in the jukebox the fault is about the search or a video,
+                  so it is said here, under the field, where the eye is */}
+              {source === 'tube' && faultRow}
 
               <div className="tube-listen">
-                {!listening ? (
+                {!canTab ? (
+                  <p className="cn-hint">this browser cannot share tab audio, so the star cannot hear the jukebox.</p>
+                ) : !listening ? (
                   <>
                     {/* ONE line, not three paragraphs. This module is already
                         60% of the rail, and it used to open with a privacy
@@ -3654,25 +3741,34 @@ export default function App() {
           </div>
 
           <h2 className="cn-mod"><span>02 · feed</span><i>//source_</i></h2>
-          <div className="rail-src rail-sec" role="radiogroup" aria-label="audio source" style={{ '--i': 2 } as React.CSSProperties}>
-            <button role="radio" aria-checked={source === 'radio'} className={source === 'radio' ? 'on' : ''} onClick={() => void engineRef.current?.playRadio()}>
-              <Decode text="radio" duration={380} replayOnHover />
-            </button>
-            <button role="radio" aria-checked={source === 'file'} className={source === 'file' ? 'on' : ''} onClick={() => fileRef.current?.click()}>
-              <Decode text="file" duration={380} replayOnHover />
-            </button>
-            <button role="radio" aria-checked={source === 'tab'} className={source === 'tab' ? 'on' : ''} onClick={() => void engineRef.current?.useTab()}>
-              <Decode text="tab" duration={380} replayOnHover />
-            </button>
-            <button
-              role="radio"
-              aria-checked={source === 'tube'}
-              className={source === 'tube' ? 'on' : ''}
-              onClick={() => void enterTube()}
-            >
-              <Decode text="jukebox" duration={380} replayOnHover />
-            </button>
+          {/* Buttons that act, reporting which one is live: aria-pressed in a
+              group, not radios. A radiogroup promises arrow-key selection
+              and one-always-checked, and in stems or AJ mode none of these
+              was checked at all. The stem deck is its feed taken apart, so
+              that feed's cell stays pressed while the stems play. */}
+          <div
+            className={`rail-src rail-sec${canTab ? '' : ' three'}`}
+            role="group"
+            aria-label="audio source"
+            style={{ '--i': 2 } as React.CSSProperties}
+          >
+            {(['radio', 'file', 'tab', 'tube'] as const).filter((k) => k !== 'tab' || canTab).map((k) => {
+              const on = source === k || (source === 'stems' && stemsFrom === k)
+              const act = () => {
+                const eng = engineRef.current
+                if (k === 'radio') void eng?.playRadio()
+                else if (k === 'file') fileRef.current?.click()
+                else if (k === 'tab') void eng?.useTab()
+                else void enterTube()
+              }
+              return (
+                <button key={k} aria-pressed={on} className={on ? 'on' : ''} onClick={act}>
+                  <Decode text={k === 'tube' ? 'jukebox' : k} duration={380} replayOnHover />
+                </button>
+              )
+            })}
           </div>
+          {source !== 'tube' && faultRow}
 
           {/* SET YOUR VIBE — the radio takes a prompt, not a taxonomy. The
               state line shows the interpretation: the instrument never
@@ -3729,7 +3825,7 @@ export default function App() {
           {/* 3 · LAYERS — every ring's visible twin. */}
           <h2 className="cn-mod">
             <span>03 · layers</span>
-            <i>{source === 'tube' ? '//meters only_' : '//6 rings_'}</i>
+            <i>{source === 'tube' ? '//meters only_' : source === 'stems' && stemN >= 2 ? `//${stemN} stems_` : '//6 rings_'}</i>
           </h2>
           {source === 'tube' && layerUi && (
             <p className="cn-hint">

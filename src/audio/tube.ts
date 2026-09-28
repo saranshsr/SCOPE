@@ -131,7 +131,14 @@ export async function searchTube(query: string, signal?: AbortSignal): Promise<T
     throw new Error(body?.error ?? (r.status === 404 ? 'search is not deployed' : `search failed (${r.status})`))
   }
   const d = (await r.json()) as { items?: TubeHit[] }
-  return (d.items ?? []).filter((i) => /^[A-Za-z0-9_-]{11}$/.test(i.id))
+  // Titles arrive decorated (fire, hearts, flags). The console is two inks
+  // and a mono face; an emoji renders in colour, in another font, and is not
+  // part of the name anyway. Strip it, then tidy the gap it leaves.
+  const plain = (t: string) =>
+    t.replace(/\p{Extended_Pictographic}|\u{FE0F}|\u{200D}/gu, '').replace(/\s{2,}/g, ' ').trim()
+  return (d.items ?? [])
+    .filter((i) => /^[A-Za-z0-9_-]{11}$/.test(i.id))
+    .map((i) => ({ ...i, title: plain(i.title) || i.title }))
 }
 
 /** What the IFrame API will actually tell us — and nothing more. */
@@ -234,9 +241,12 @@ export class Tube {
   private lastError: number | null = null
   private _index = 0
   private _list: TubeQueueItem[] = HINDI
-  /** How many auto-skips in a row were caused by an error, not an ENDED.
-   *  Resets on any manual navigation; once it reaches the queue length
-   *  every item has failed once and we stop rather than spin forever. */
+  /** How many videos in a row refused to play. Resets only when something
+   *  actually PLAYS (or the queue is replaced) -- not on next()/prev(),
+   *  because the old reset-on-next meant the app's own error handler, which
+   *  called next() on every block, zeroed the guard each time, skipped two
+   *  rows per blocked video, and an all-blocked list spun forever. Once it
+   *  reaches the queue length every item has failed once: stop and say so. */
   private errorSkipCount = 0
   private memory: TubeMemory = loadMemory()
   private lastPersistAt = 0
@@ -247,6 +257,9 @@ export class Tube {
 
   /** Fired when a video refuses to embed, so the UI can say so and move on. */
   onError: ((code: number) => void) | null = null
+  /** Fired once when every item in the queue has refused to play in a row;
+   *  the queue has stopped advancing rather than spin. */
+  onExhausted: (() => void) | null = null
   /** Fired whenever queue/index/current video changes. */
   onChange: (() => void) | null = null
 
@@ -308,6 +321,7 @@ export class Tube {
         },
         onStateChange: (e: { data: number }) => {
           if (e.data === 0) this.autoAdvance(false) // ENDED
+          else if (e.data === 1) this.errorSkipCount = 0 // PLAYING: the run of blocks is over
         },
         onError: (e: { data: number }) => {
           this.lastError = e.data
@@ -359,14 +373,12 @@ export class Tube {
 
   next() {
     if (!this._list.length) return
-    this.errorSkipCount = 0 // manual nav clears the error-loop guard
     this._index = (this._index + 1) % this._list.length
     this.loadCurrent()
   }
 
   prev() {
     if (!this._list.length) return
-    this.errorSkipCount = 0
     this._index = (this._index - 1 + this._list.length) % this._list.length
     this.loadCurrent()
   }
@@ -378,7 +390,13 @@ export class Tube {
     if (!this._list.length) return
     if (fromError) {
       this.errorSkipCount++
-      if (this.errorSkipCount >= this._list.length) return // whole queue has now failed once — stop
+      if (this.errorSkipCount >= this._list.length) {
+        // whole queue has now failed once: stop, and say so. A manual skip
+        // after this that lands on another block stops here again rather
+        // than starting a second full pass.
+        this.onExhausted?.()
+        return
+      }
     } else {
       this.errorSkipCount = 0
     }

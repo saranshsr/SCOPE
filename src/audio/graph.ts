@@ -62,6 +62,18 @@ export class AudioEngine {
   playlist: TrackInfo[] = []
   index = 0
   onTrackChange: ((t: TrackInfo | null) => void) | null = null
+  /**
+   * Something went wrong, said in one plain sentence. Faults used to travel
+   * through onTrackChange as fake tracks ({title: 'file not playable'}), so
+   * a bad file took the now-playing line and the 90px announce -- the one
+   * display moment -- and the deck read an error as if it were music. A
+   * fault is not a track: the app puts it on a status row and leaves the
+   * deck saying what is actually playing.
+   *
+   * `recovering` means the engine is already switching to something that
+   * plays; the announce of that recovery must not erase the reason.
+   */
+  onFault: ((text: string, recovering?: boolean) => void) | null = null
 
   constructor() {
     this.ctx = new AudioContext()
@@ -180,12 +192,13 @@ export class AudioEngine {
   private onElementError() {
     this.pendingAnnounce = null
     if (this.kind === 'file') {
-      // Undecodable upload: say why, then fall back — held long enough
-      // that the radio's own announce doesn't erase the reason. The kind
-      // flips first so UI derived from it doesn't lag the message.
+      // Undecodable upload: say why, then fall back. The reason lives on
+      // its own row now, so the radio can come straight back instead of
+      // holding 1.8s of silence to keep a fake track title on screen. The
+      // kind flips first so UI derived from it doesn't lag the message.
       this.kind = 'radio'
-      this.onTrackChange?.({ title: 'file not playable', artist: 'back to the radio', src: '' })
-      setTimeout(() => void this.playRadio(), 1800)
+      this.onFault?.('that file will not decode · try mp3, wav, m4a or flac', true)
+      void this.playRadio()
       return
     }
     if (this.kind !== 'radio') return
@@ -195,7 +208,10 @@ export class AudioEngine {
     if (this.errStreak > 3) {
       // Also the deployed reality: the radio library ships only on machines
       // that hold licensed audio — everywhere else this is the honest state.
-      this.onTrackChange?.({ title: 'radio unavailable', artist: 'drop a track anywhere', src: '' })
+      // The deck goes back to NO CARRIER: the last title it announced is a
+      // station that never played, and leaving it up is a false reading.
+      this.onTrackChange?.(null)
+      this.onFault?.('the radio is not reachable · drop a track anywhere')
       return
     }
     void this.next()
@@ -262,7 +278,8 @@ export class AudioEngine {
     // the persistent 'error' handler covers undecodable files.
     this.pendingAnnounce = {
       title: file.name.replace(/\.[^.]+$/, ''),
-      artist: 'your upload',
+      // no artist: a placeholder in the artist row is a reading nobody took
+      artist: '',
       src: url,
     }
     await this.el.play().catch(() => {})
@@ -291,8 +308,8 @@ export class AudioEngine {
     this.pendingAnnounce = null
     this.lastListenError = null
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      this.lastListenError = 'tab audio needs chrome or edge on a computer'
-      this.onTrackChange?.({ title: 'no tab capture here', artist: this.lastListenError, src: '' })
+      this.lastListenError = 'this browser cannot share tab audio'
+      this.onFault?.(this.lastListenError)
       return false
     }
     // STAY HERE. Chrome's default on sharing another tab is to switch to
@@ -333,7 +350,7 @@ export class AudioEngine {
     if (!audio.length) {
       stream.getTracks().forEach((t) => t.stop())
       this.lastListenError = 'no audio in that share. pick a tab and keep share tab audio on'
-      this.onTrackChange?.({ title: 'no audio in that share', artist: 'pick a tab and keep share tab audio on', src: '' })
+      this.onFault?.('no audio in that share · pick a tab and keep share tab audio on')
       return false
     }
     this.el.pause()
@@ -347,7 +364,7 @@ export class AudioEngine {
     const surf = (stream.getVideoTracks()[0]?.getSettings() as { displaySurface?: string } | undefined)?.displaySurface
     this.onTrackChange?.({
       title: surf === 'monitor' ? 'your screen' : surf === 'window' ? 'a window' : 'another tab',
-      artist: 'your music',
+      artist: '',
       src: '',
     })
     // Ending the share from Chrome's own bar, or closing that tab, must not
@@ -390,7 +407,7 @@ export class AudioEngine {
     this.pendingAnnounce = null
     this.lastListenError = null
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      this.lastListenError = 'tab audio needs chrome or edge'
+      this.lastListenError = 'this browser cannot share tab audio'
       return false
     }
     let stream: MediaStream
@@ -445,10 +462,11 @@ export class AudioEngine {
     this.onTrackChange?.({ title: 'jukebox', artist: 'youtube', src: '' })
   }
 
-  /** Speak through the existing announce channel — a designed failure,
-   *  never a dead click. */
-  announce(title: string, artist: string) {
-    this.onTrackChange?.({ title, artist, src: '' })
+  /** Report a fault from outside the engine (the jukebox, search) on the
+   *  same channel as the engine's own -- a designed failure, never a dead
+   *  click, and never a fake track. */
+  fault(text: string) {
+    this.onFault?.(text)
   }
 
   /** Fired when the user ends the share from the browser's own control. */
@@ -523,7 +541,7 @@ export class AudioEngine {
     this.stopTabAudio()
     this.pendingAnnounce = null
     this.kind = 'stems'
-    this.onTrackChange?.({ title, artist: 'stem deck', src: '' })
+    this.onTrackChange?.({ title, artist: '', src: '' })
   }
 
   /** Performance EQ, momentary by design: the app springs it back. dB in
