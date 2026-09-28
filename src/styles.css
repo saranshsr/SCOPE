@@ -423,24 +423,28 @@ body {
   z-index: 3;
 }
 
-/* Boot cascade: each section rises in on its own indexed delay. */
+/* Boot cascade: each section strokes in, top to bottom, in six hard steps
+   (§5 phase 3: "cells stroke-in row by row, 40ms steps"). It used to rise
+   14px on a 600ms ease at 110ms a section -- the last one landed 1.5s after
+   the console, and a sliding cell is a float, which a sheet of shared
+   borders cannot have: for 600ms every seam in the rail was misaligned.
+   420ms is the motion table's --block; seven sections at 40ms land the
+   whole rail inside 700ms. */
 .rail-brand,
 .rail-sec {
-  animation: rail-in 600ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: rail-in 420ms steps(6, end) backwards;
   /* The fallback is not decoration. `--i` is supplied per section in the
      JSX, and a section that is missed makes the whole calc invalid, which
      computes to 0s -- so the one section nobody indexed revealed FIRST,
      ahead of every section above it. `.tube` was that section. A default
      sends anything unindexed to the END of the cascade instead, which is
      the harmless direction to fail in. */
-  animation-delay: calc(var(--i, 8) * 110ms + 120ms);
+  animation-delay: calc(var(--i, 8) * 40ms);
 }
 
 @keyframes rail-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
+  from { clip-path: inset(0 0 100% 0); }
+  to { clip-path: inset(0 0 0 0); }
 }
 
 .rail-word {
@@ -1769,6 +1773,9 @@ a:focus-visible {
   background: var(--accent);
   border: 0;
   padding: 0 34px;
+  /* POWER ON's own width, held when the label is RESUME, so the band's
+     seams never move between the two */
+  min-width: 156px;
   height: 100%;
   min-height: 64px;
   cursor: pointer;
@@ -1871,7 +1878,12 @@ a:focus-visible {
   transform: translateY(-6px);
 }
 .pl-pathcap {
-  padding: 8px 12px; min-height: 32px;
+  /* A FIXED two-line cell. Its height used to follow the stage hovered --
+     one line, two, or three -- so the column below it jumped on every
+     hover, and on a short window the three-line stages pushed the pills
+     5px past the column's clip. Every stage's line in PATH is written to
+     fit two lines of the 320px column; the clip is only the backstop. */
+  padding: 8px 12px; height: 50px; overflow: hidden;
   /* prose, not a micro-label: it gets a readable size */
   color: var(--ink-dim); font-size: var(--t-micro);
   line-height: var(--leading-prose); text-transform: none; letter-spacing: var(--track-caps-body);
@@ -2088,11 +2100,19 @@ a:focus-visible {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* ...and the console at the end of the dive ARRIVES rather than cutting in.
+   It mounts at 80% of the dive, under a plate that is still blowing out,
+   and it used to be there at full strength on its first frame. One --block
+   of opacity, nothing else: the camera is doing the travelling. */
+.cn-plate { animation: cn-arrive 420ms var(--ease) backwards; }
+@keyframes cn-arrive { from { opacity: 0; } }
+
 @media (prefers-reduced-motion: reduce) {
   .plate.rev .pl-r::after,
   .plate.rev .pl-mark h1 { animation: none; }
   .plate.dive { animation: none; opacity: 0; }
   .plate.arrive { animation: none; opacity: 1; }
+  .cn-plate { animation: none; }
   /* stillness is the point here: no breath, no carrier, no scan */
   .pl-carrier,
   .pl-leads .dot,
@@ -2102,8 +2122,15 @@ a:focus-visible {
   .pl-carrier { display: none; }
 }
 
-@media (max-width: 820px) {
-  /* a poster does not cram into a phone: it scrolls */
+/* A poster does not cram into a phone: it scrolls. Nor into a phone held
+   sideways, or any window under 560px tall -- which is why this is its own
+   query and not part of the 820 block below. At 844x390 the two-column
+   sheet had 280px for a left column that needs ~300 before the figure, so
+   the image cell collapsed to 2px and its caption slid up over the morse
+   row: the one cell the sheet exists for, gone, in the most common way a
+   phone is held to watch something. The header and footer rules stay at
+   820, because a wide short window has the width for all their cells. */
+@media (max-width: 820px), (max-height: 560px) {
   .plate { position: absolute; inset: var(--edge); overflow: auto; display: block; }
   .pl-body { grid-template-columns: 1fr; }
   .pl-l { grid-template-rows: none; }
@@ -2111,14 +2138,36 @@ a:focus-visible {
      Safari `vh` resolves against the LARGEST viewport -- URL bar hidden --
      so a figure sized in vh alone is too tall for the screen you are
      actually looking at while the bar is showing, and it pushes the rest of
-     the sheet down. dvh tracks the viewport that exists right now. */
-  .pl-figwrap { height: 46vh; height: 46dvh; min-height: 260px; }
+     the sheet down. dvh tracks the viewport that exists right now.
+     The middle term is the room the rest of the first screen needs (440px:
+     header, morse, strip, leads, wordmark, rule, POWER ON), so on a tall
+     phone the figure gives that room back instead of pushing the sheet
+     down; 212px is the floor that keeps the cell itself 180px. */
+  .pl-figwrap { height: 46vh; height: clamp(212px, calc(100dvh - 440px), 46dvh); }
   .pl-figcap span:last-child { display: none; }
   .pl-wave canvas { height: 64px; }
   .pl-r { border-left: 0; border-top: 1px solid var(--pl-line); }
   .pl-r .pl-row.opt { display: none; }
-  .pl-band { grid-template-columns: 1fr; }
+  /* THE WAY IN IS ALWAYS ON SCREEN. POWER ON is the only control on the
+     sheet and it sat 56px below the fold on every phone measured -- 375x548
+     to 430x740 -- so the first thing a visitor from a shared link had to
+     do was find it. It sticks to the foot of the scrolling plate until its
+     own place in the sheet scrolls up to meet it.
+     A sticky box cannot leave its parent, and the band is its parent and is
+     itself below the fold, so the band steps out of the box tree
+     (`display: contents`) and the button's containing block becomes the
+     whole left column. The band's rule and ground go to its cells. */
+  .pl-band { display: contents; }
+  .pl-mark { border-top: 1px solid var(--pl-line); background: rgba(var(--ground-rgb), calc(0.94 - var(--drop, 0) * 0.22)); }
+  /* the checker rule's 12px margin was the band's ground; an outline
+     paints exactly that ring without touching the pattern */
+  .pl-checks { outline: 12px solid rgba(var(--ground-rgb), calc(0.94 - var(--drop, 0) * 0.22)); }
+  .pl-act { position: sticky; bottom: 0; z-index: 2; }
   .pl-band > * + * { border-left: 0; border-top: 1px solid var(--pl-line); }
+  .pl-act .power { width: 100%; min-height: 56px; }
+}
+
+@media (max-width: 820px) {
   /* The checker strip STAYS, and becomes a row of its own. It was hidden
      here with no reason recorded, and hiding it is what left the band
      hollow: stacked, the wordmark cell runs the full width while `SCOPE®`
@@ -2151,7 +2200,6 @@ a:focus-visible {
   .cn-hdr > .cn-rate { display: none; }
   .cn-ftr { grid-template-columns: 1fr auto; }
   .cn-ftr > *:nth-child(2) { display: none; }
-  .pl-act .power { width: 100%; min-height: 56px; }
 }
 
 /* The stamp outranks the spec line -- and so does the hint, which is why
@@ -2222,29 +2270,33 @@ a:focus-visible {
      less the chain  269px
 
    Each step therefore fires a few px BEFORE its band would fail, and
+   every threshold sits 16px higher than that arithmetic gives: the stage
+   readout is a fixed 50px now, and the 16 are the two-line cell's room
+   (they were measured at one line, so a two-line stage overflowed). Below
+   561px tall none of this applies, because the sheet scrolls there. And
    `scripts/flight.mjs` asserts the bottom of every band, which is the
    only place the sum can go wrong. If the type scale moves again, that
    check goes red and these five numbers are what to re-derive. */
-@media (min-width: 821px) and (max-height: 812px) {
+@media (min-width: 821px) and (min-height: 561px) and (max-height: 828px) {
   /* costs no reading at all: the sheet sits closer to the screen edge */
   .plate { --edge: 12px; }
 }
-@media (min-width: 821px) and (max-height: 788px) {
+@media (min-width: 821px) and (min-height: 561px) and (max-height: 804px) {
   /* //stems_ is implied by //split_ mdx-net, and was already the cell
      nominated as sacrificial by the narrow query above */
   .pl-r > .pl-row.opt { display: none; }
 }
-@media (min-width: 821px) and (max-height: 757px) {
+@media (min-width: 821px) and (min-height: 561px) and (max-height: 773px) {
   /* a drawn scale with a parked needle: honest under law 3, and the one
      cell in the column that reads nothing at all until power-on */
   .pl-r > .pl-row.pl-peak { display: none; }
 }
-@media (min-width: 821px) and (max-height: 692px) {
+@media (min-width: 821px) and (min-height: 561px) and (max-height: 708px) {
   /* the running footer already carries both, so these are echoes rather
      than readings: `/ webgl - 108k particles`, `/ audius - artist-owned` */
   .pl-r > .pl-row.dup { display: none; }
 }
-@media (min-width: 821px) and (max-height: 630px) {
+@media (min-width: 821px) and (min-height: 561px) and (max-height: 646px) {
   /* The last rung, and the largest: the signal chain is the one pure
      DIAGRAM left in the column -- eight rows that read nothing live and
      change with nothing. It goes as one block, never row by row: half a
@@ -2252,6 +2304,42 @@ a:focus-visible {
      stage` is inside .pl-path and leaves with it, which is right, because
      it is the chain's readout and has nothing to say without it. */
   .pl-r > .pl-path { display: none; }
+  /* ...and the chain's 270px pays for the rows shed above it. Once the
+     diagram is gone the column has room again, and leaving the echoes,
+     //stems_ and the scale hidden made the dither strip 58% of the column
+     at 900x600: a sheet that sheds should not end up emptier than the
+     one that keeps everything. */
+  .pl-r > .pl-row.dup,
+  .pl-r > .pl-row.opt { display: flex; }
+  .pl-r > .pl-row.pl-peak { display: grid; }
+}
+/* The motion strip gives the figure its height back on a short window: at
+   900x600 the image cell was 186px behind an 82px strip. Half the strip
+   still reads as a drum recorder, and the figure is the reason for the
+   sheet. 41px, not 40: the drawing is sized from the canvas box. The
+   figure's own inset goes from 16 to 12 in the same band -- margin before
+   content, as law 8 orders it -- which is the last 8px the cell needed to
+   stay 220px tall at 900x600. */
+@media (min-width: 821px) and (min-height: 561px) and (max-height: 700px) {
+  .pl-wave canvas { height: 41px; }
+  .pl-figwrap { padding: 12px; }
+}
+/* The footer's last divider lands on the data column's seam. Both were
+   `auto`, so the footer's cells were sized by their words and its rules
+   fell 30-odd pixels either side of the column above them -- two seams
+   where a sheet has one. From 1000px: below it a fixed 320px cell leaves
+   the middle one too little room and `/ drop a track anywhere` wraps to
+   two lines (measured at 900), so the footer keeps sizing by its words. */
+@media (min-width: 1000px) and (min-height: 561px) {
+  .plate > .pl-ftr { grid-template-columns: auto 1fr 320px; }
+}
+/* The standby spec line yields between 821 and 900 for the console's
+   reason (the 900 block above): `/ webgl · 108k-point field` is an echo of
+   the header, and with it the three cells wrapped to a two-row footer up to
+   850px wide, 880 on the scrolling sheet. Below 821 the footer is one cell
+   and has the room. */
+@media (min-width: 821px) and (max-width: 900px) {
+  .plate > .pl-ftr .pl-meta { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

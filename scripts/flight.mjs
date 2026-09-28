@@ -42,7 +42,25 @@ await new Promise(r => setTimeout(r, 2500))
 const armed = await p.evaluate(() => {
   const s = window.__sc
   if (!s) return false
-  window.__flight = { rev: [], focus: [], t0: 0 }
+  window.__flight = { rev: [], focus: [], t0: 0, labels: new Set(), widths: new Set(), lastPlate: null }
+  // The button and the sheet, every frame. The label must stay POWER ON for
+  // the whole flight (it used to decode to RESUME mid-rev, on the button
+  // just pressed), its width must not move, and the plate's last frame
+  // before it unmounts must be the END of its blow-out, not the middle.
+  const watch = () => {
+    const F = window.__flight
+    const pw = document.querySelector('.power')
+    if (pw) {
+      // only the settled label: the decode scrambles through glyphs, and a
+      // hover replays it, so an intermediate string is not a label
+      if (/^[a-z ]+$/.test(pw.textContent || '')) F.labels.add(pw.textContent)
+      F.widths.add(pw.offsetWidth)
+    }
+    const pl = document.querySelector('.plate')
+    if (pl) F.lastPlate = +getComputedStyle(pl).opacity
+    if (!document.querySelector('.app.live') || pl) requestAnimationFrame(watch)
+  }
+  window.__flight.watch = watch
   const rev = s.setRev.bind(s), foc = s.setFocus.bind(s)
   s.setRev = v => { window.__flight.rev.push([performance.now(), v]); return rev(v) }
   s.setFocus = (...a) => { window.__flight.focus.push([performance.now(), a[0], a[1], a[2]]); return foc(...a) }
@@ -54,7 +72,7 @@ const clicked = await p.evaluate(() => {
   const el = document.querySelector('.power')
   if (!el) return false
   window.__flight.t0 = performance.now()
-  el.click(); return true
+  el.click(); requestAnimationFrame(window.__flight.watch); return true
 })
 if (!clicked) { console.error('flight: no `.power` control found — nothing can start the flight.'); await b.close(); process.exit(1) }
 // Wait for the flight to END, not for a fixed sleep. Under load the whole
@@ -76,9 +94,12 @@ while (Date.now() < deadline) {
 
 const f = await p.evaluate(() => {
   const { rev, focus, t0 } = window.__flight
+  const F = window.__flight
   return { rev: rev.map(([t, v]) => [Math.round(t - t0), v]),
            focus: focus.map(([t, x, y, d]) => [Math.round(t - t0), x, y, d]),
-           started: !!document.querySelector('.app.live') }
+           started: !!document.querySelector('.app.live'),
+           labels: [...F.labels], widths: [...F.widths], lastPlate: F.lastPlate,
+           plateGone: !document.querySelector('.plate') }
 })
 
 const fail = []
@@ -122,6 +143,10 @@ const revPeak = f.rev.reduce((a, r) => (r[1] > a[1] ? r : a), [0, -1])
 const span = revStart ? revPeak[0] - revStart[0] : 0
 if (span < 1200) fail.push(`the flight spanned ${span}ms; it is authored at ~2050ms (1050 rev + 1000 dive). Under 1200ms it is a cut, not a flight.`)
 if (errs.length) fail.push(`page errors during the flight: ${errs.join(' | ')}`)
+if (f.labels.includes('resume')) fail.push(`the button said ${f.labels.map(l => `"${l}"`).join(', ')} during the flight; it is POWER ON until the sheet has gone. RESUME is for a live standby, not for the flight you just started.`)
+if (f.widths.length > 1) fail.push(`the button's width moved during the flight (${f.widths.join(', ')}px): the band's seams move with it.`)
+if (!f.plateGone) fail.push('the standby plate was still mounted after the flight ended.')
+else if (f.lastPlate != null && f.lastPlate > 0.1) fail.push(`the plate unmounted at opacity ${f.lastPlate.toFixed(2)}: its 1000ms blow-out was cut short, which reads as a cut. It must stay mounted until plate-dive finishes.`)
 
 if (fail.length) {
   console.error('flight FAILED\n' + fail.map(x => '  · ' + x).join('\n'))
@@ -151,13 +176,56 @@ if (fail.length) {
 // where the next rung fires. Testing those is not spot-checking, it is
 // complete. If the ramp moves again these are the numbers that go red,
 // and styles.css carries the arithmetic for re-deriving them.
+// ── A DOUBLE-CLICK IS NOT A SKIP ──────────────────────────────────────
+// Any input skips the flight, and the second half of a double-click on
+// POWER ON is input: it landed ~150ms into the REV and cut straight to the
+// console. The skip now ignores the first 400ms, so this must still DIVE.
+{
+  const q = await b.newPage()
+  await q.evaluateOnNewDocument(() => { try { localStorage.setItem('scope-onboard-v1', '1') } catch { /* private mode */ } })
+  await q.setViewport({ width: 1440, height: 900 })
+  await q.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await q.waitForSelector('.power', { timeout: 60000 })
+  await new Promise(r => setTimeout(r, 2000))
+  const ok = await q.evaluate(() => {
+    const s = window.__sc
+    if (!s) return false
+    window.__dbl = []
+    const rev = s.setRev.bind(s)
+    s.setRev = v => { window.__dbl.push([performance.now(), v]); return rev(v) }
+    return true
+  })
+  const box = await q.$eval('.power', e => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2] })
+  await q.mouse.click(box[0], box[1])
+  await new Promise(r => setTimeout(r, 150))
+  await q.mouse.click(box[0], box[1])
+  const until = Date.now() + 20000
+  let d = []
+  while (Date.now() < until) {
+    d = await q.evaluate(() => window.__dbl || [])
+    if (d.length > 1 && d[d.length - 1][1] === 0 && d.some(x => x[1] > 1)) break
+    await new Promise(r => setTimeout(r, 250))
+  }
+  await q.close()
+  const peakD = d.length ? Math.max(...d.map(x => x[1])) : 0
+  const s0 = d.find(x => x[1] > 0.05), pk = d.reduce((a, x) => (x[1] > a[1] ? x : a), [0, -1])
+  const spanD = s0 ? Math.round(pk[0] - s0[0]) : 0
+  if (!ok || peakD < 3 || spanD < 1500) {
+    console.error(`flight FAILED\n  · a double-click on POWER ON (150ms apart) ${peakD < 3 ? `stopped the flight at rev ${peakD.toFixed(2)}` : `ran only ${spanD}ms`}: the second click skipped it. The skip listener must ignore the first 400ms.`)
+    await b.close(); process.exit(1)
+  }
+  console.log(`  double-click ok — still dived to ${peakD.toFixed(2)} over ${spanD}ms`)
+}
+
 {
   const q = await b.newPage()
   await q.evaluateOnNewDocument(() => { try { localStorage.setItem('scope-onboard-v1', '1') } catch { /* private mode */ } })
   await q.setViewport({ width: 1280, height: 900 })
   await q.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await new Promise(r => setTimeout(r, 2500))
-  const HEIGHTS = [900, 813, 789, 758, 693, 631, 560]
+  // One above each threshold (828 / 804 / 773 / 708 / 646), and 561: below
+  // that the sheet scrolls and there is no ladder to test.
+  const HEIGHTS = [900, 829, 805, 774, 709, 647, 561]
   const spill = []
   const seen = []
   for (const h of HEIGHTS) {
@@ -179,15 +247,78 @@ if (fail.length) {
     // check failing to reach its subject -- reported, never passed.
     if (!d) { spill.push(`at 1280x${h} there is no .pl-r at all, so nothing was measured`); continue }
     if (d.kids < 4) { spill.push(`at 1280x${h} the data column had only ${d.kids} visible cells, which is not the sheet -- this check is stale and is NOT passing`); continue }
+    // Every stage of the chain, hovered: the readout under it is a fixed
+    // cell, so neither the column nor its last row may move. A three-line
+    // stage used to push the pills 5px past the clip at 1280x800.
+    const hov = []
+    for (const row of await q.$$('.pl-prow')) {
+      if (!(await row.evaluate(e => e.offsetParent !== null))) continue
+      await row.hover()
+      await new Promise(r => setTimeout(r, 60))
+      hov.push(await q.evaluate(() => {
+        const cb = document.querySelector('.pl-r').getBoundingClientRect()
+        const kids = [...document.querySelector('.pl-r').children].filter(c => getComputedStyle(c).display !== 'none')
+        return [Math.round(Math.max(...kids.map(c => c.getBoundingClientRect().bottom)) - cb.bottom), Math.round(document.querySelector('.pl-pills').getBoundingClientRect().bottom)]
+      }))
+    }
+    await q.mouse.move(1, 1)
+    const hOver = Math.max(0, ...hov.map(x => x[0]))
+    const pillYs = new Set(hov.map(x => x[1]))
+    if (hOver > 0) spill.push(`at 1280x${h} hovering a signal-chain stage pushes the column ${hOver}px past its clip: the stage readout (.pl-pathcap) grew, so a PATH line runs past two lines of the column.`)
+    if (pillYs.size > 1) spill.push(`at 1280x${h} the pills row jumps between ${[...pillYs].join(', ')}px as the chain is hovered: the stage readout must be a fixed height.`)
     seen.push(`${h}:${d.kids}cells${d.over > 0 ? ` OVER ${d.over}` : ''}`)
     if (d.over > 0) spill.push(`at 1280x${h} the data column overflows its own cell by ${d.over}px (${d.worst.join(', ')}). .pl-r is overflow:hidden, so that content is CUT, not scrolled. The shedding ladder in styles.css fires too late for this band -- re-derive its five thresholds against the column's current need.`)
+  }
+  // 900x600: the last rung. Shedding the chain frees 270px, so the rows
+  // shed above it come back, and the figure keeps a real frame. Measured
+  // before: dither 58% of the column, the image cell 186px.
+  await q.setViewport({ width: 900, height: 600 })
+  await new Promise(r => setTimeout(r, 260))
+  const sm = await q.evaluate(() => {
+    const col = document.querySelector('.pl-r')?.getBoundingClientRect()
+    const strip = document.querySelector('.pl-strip')?.getBoundingClientRect()
+    const fig = document.querySelector('.pl-fig')?.getBoundingClientRect()
+    return col && strip && fig ? { pct: Math.round((strip.height / col.height) * 100), fig: Math.round(fig.height) } : null
+  })
+  if (!sm) spill.push('at 900x600 the column, strip or figure was missing, so nothing was measured')
+  else {
+    if (sm.pct >= 35) spill.push(`at 900x600 the dither strip is ${sm.pct}% of the data column: the sheet shed rows it had room for. The last rung restores the echoes, //stems_ and the scale.`)
+    if (sm.fig < 220) spill.push(`at 900x600 the image cell is ${sm.fig}px tall (floor 220): the motion strip and figure inset are meant to give it the room.`)
+    seen.push(`900x600:strip${sm.pct}%/fig${sm.fig}`)
+  }
+
+  // THE PHONES, and a phone held sideways. POWER ON is the only way in, so
+  // it has to be on the first screen without scrolling: it sticks to the
+  // foot of the scrolling plate. At 844x390 the two-column sheet collapsed
+  // the figure to 2px and its caption slid over the morse row.
+  for (const [w, h] of [[375, 548], [390, 664], [375, 667], [430, 740], [844, 390]]) {
+    await q.setViewport({ width: w, height: h })
+    await new Promise(r => setTimeout(r, 260))
+    const m = await q.evaluate(() => {
+      const plate = document.querySelector('.plate')
+      if (!plate) return null
+      plate.scrollTop = 0
+      const pr = plate.getBoundingClientRect()
+      const b = document.querySelector('.power').getBoundingClientRect()
+      const cap = document.querySelector('.pl-figcap').getBoundingClientRect()
+      const morse = document.querySelector('.pl-morse').getBoundingClientRect()
+      const top = Math.max(pr.top, 0), bot = Math.min(pr.bottom, innerHeight)
+      return { inside: b.top >= top - 0.5 && b.bottom <= bot + 0.5, pb: Math.round(b.bottom), vb: Math.round(bot),
+        fig: Math.round(document.querySelector('.pl-fig').getBoundingClientRect().height),
+        overlap: Math.max(0, Math.min(cap.bottom, morse.bottom) - Math.max(cap.top, morse.top)) }
+    })
+    if (!m) { spill.push(`at ${w}x${h} there is no standby plate, so nothing was measured`); continue }
+    if (!m.inside) spill.push(`at ${w}x${h} POWER ON sits outside the visible plate (its bottom ${m.pb}px, the plate's visible bottom ${m.vb}px): the only way in is below the fold.`)
+    if (m.fig < 180) spill.push(`at ${w}x${h} the image cell is ${m.fig}px tall (floor 180).`)
+    if (m.overlap > 0) spill.push(`at ${w}x${h} the figure caption overlaps the morse row by ${Math.round(m.overlap)}px: the image cell has collapsed.`)
+    seen.push(`${w}x${h}:fig${m.fig}`)
   }
   await q.close()
   if (spill.length) {
     console.error('flight FAILED\n' + spill.map(x => '  · ' + x).join('\n'))
     await b.close(); process.exit(1)
   }
-  console.log(`  column ok — no clipping at 1280x{${seen.join(' ')}}, the shortest height in each rung of the shedding ladder`)
+  console.log(`  column ok — no clipping or hover jump at the shortest height of each rung, POWER ON on the first screen of every phone: ${seen.join(' ')}`)
 }
 
 if (process.env.FLIGHT_DUMP) console.log(JSON.stringify(f, null, 1))

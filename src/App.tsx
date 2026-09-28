@@ -138,6 +138,15 @@ export default function App() {
   const [boot, setBoot] = useState<'rev' | 'dive' | null>(null)
   const bootRef = useRef<'rev' | 'dive' | null>(null)
   const bootRaf = useRef(0)
+  /** when the flight began: the skip listener ignores input for 400ms after
+   *  it, so the second half of a double-click cannot cut the flight short */
+  const bootAt = useRef(0)
+  /** this flight is RESUME's (a dive from a live standby), so the button
+   *  keeps saying what was pressed until the sheet has gone */
+  const [resuming, setResuming] = useState(false)
+  /** the engine's real sample rate, for the standby's //rate pill (law 3):
+   *  null until the AudioContext exists, and the pill is absent until then */
+  const [sampleRate, setSampleRate] = useState<number | null>(null)
   const [rate, setRate] = useState(1)
   const [ambient, setAmbient] = useState(false)
   /** WATCH: the chrome recedes on its own after WATCH_IDLE_MS without a
@@ -377,7 +386,15 @@ export default function App() {
   // you cannot interrupt is a cinematic people learn to resent
   useEffect(() => {
     if (!boot) return
-    const skip = () => endBoot()
+    // ...but not input that is still the click that started it. A
+    // double-click on POWER ON lands its second pointerdown ~150ms into the
+    // REV, and that used to skip straight to the console: the one moment
+    // the product is built around, lost to a normal double-click. 400ms is
+    // past any double-click interval and well before the DIVE.
+    const skip = () => {
+      if (performance.now() < bootAt.current + 400) return
+      endBoot()
+    }
     window.addEventListener('pointerdown', skip)
     window.addEventListener('keydown', skip)
     return () => {
@@ -467,6 +484,7 @@ export default function App() {
 
     const engine = new AudioEngine()
     engineRef.current = engine
+    setSampleRate(engine.ctx.sampleRate)
     if (import.meta.env.DEV) (window as unknown as { __scope?: unknown }).__scope = engine
     engine.setPlaylist(playlist)
     // Radio priority: the owner's local library (dev machine only), then
@@ -2278,8 +2296,12 @@ export default function App() {
    * — the camera accelerates in and passes through the particle shell — and
    * you arrive inside, where the console fades up and the star eases back
    * out to full size. Any input skips it; reduced-motion never sees it.
+   *
+   * `from: 'dive'` is RESUME from a live standby: the machine is already
+   * running, so there is nothing to rev, but going back in is still the
+   * same gesture as the first time, not a cut.
    */
-  const runBoot = () => {
+  const runBoot = ({ from: beat = 'rev' }: { from?: 'rev' | 'dive' } = {}) => {
     const scene = sceneRef.current
     const w = window.innerWidth
     const h = window.innerHeight
@@ -2295,8 +2317,19 @@ export default function App() {
       y: (cell.top + cell.height / 2) / h,
       d: Math.max(1, (h / cell.height) * 0.92),
     }
+    // The sheet rushes past from the APERTURE, not from the middle of the
+    // screen. plate-dive scales the plate to 1.5 about its transform-origin,
+    // and at 50% 50% the image cell (which sits left of centre, above the
+    // band) slid off towards the corner while the camera was diving into
+    // it -- the hole and the thing seen through it parted company.
+    const plate = document.querySelector<HTMLElement>('.plate')
+    if (plate) {
+      const pr = plate.getBoundingClientRect()
+      plate.style.transformOrigin =
+        `${(cell.left + cell.width / 2 - pr.left).toFixed(1)}px ${(cell.top + cell.height / 2 - pr.top).toFixed(1)}px`
+    }
     const toX = w > 720 ? (320 + (w - 320) / 2) / w : 0.5
-    const t0 = performance.now()
+    const t0 = performance.now() - (beat === 'dive' ? REV : 0)
     const step = () => {
       if (!bootRef.current) return
       const e = performance.now() - t0
@@ -2312,10 +2345,17 @@ export default function App() {
       // cubic ease-in: the lunge accelerates the whole way in
       const p = Math.min(1, (e - REV) / DIVE)
       const k = p * p * p
-      scene.setRev(1 + k * 2.5)
+      // The aim stays ON the aperture for the first 60% of the dive and only
+      // then swings to the console's stage. Lerping x/y on the same k as the
+      // dolly slid the star out of its frame while you were still flying at
+      // it; the dive reads as going IN only if the target holds still.
+      const kxy = Math.max(0, (p - 0.6) / 0.4) ** 2
+      // RESUME has no rev to hand over from: the machine is already running
+      // at rest, so the dive ramps from 0 rather than jumping to 1.
+      scene.setRev(beat === 'dive' ? k * 3.5 : 1 + k * 2.5)
       scene.setFocus(
-        from.x + (toX - from.x) * k,
-        from.y + (0.5 - from.y) * k,
+        from.x + (toX - from.x) * kxy,
+        from.y + (0.5 - from.y) * kxy,
         from.d + (0.16 - from.d) * k,
         true,
       )
@@ -2326,6 +2366,20 @@ export default function App() {
       }
       if (p < 1) {
         bootRaf.current = requestAnimationFrame(step)
+        return
+      }
+      // Land when the SHEET has finished leaving, not when the camera has.
+      // The plate's 1000ms exit starts a frame after the dive does and the
+      // console's mount costs the main thread a frame or two on the way, so
+      // ending on the camera's clock unmounted the plate at ~0.4 opacity --
+      // a cut, at the one moment the flight is a blow-out. The 300ms cap is
+      // for a tab whose animations are not being ticked.
+      const exit = document.querySelector<HTMLElement>('.plate.dive')
+        ?.getAnimations().find((a) => (a as CSSAnimation).animationName === 'plate-dive')
+      if (exit && exit.playState === 'running') {
+        void Promise.race([exit.finished, new Promise((r) => setTimeout(r, 300))])
+          .catch(() => {})
+          .then(() => { if (bootRef.current) endBoot() })
         return
       }
       endBoot()
@@ -2447,6 +2501,8 @@ export default function App() {
     setEverStarted(true)
     // sound first: the machine revs WITH audio, not after it
     bootRef.current = 'rev'
+    bootAt.current = performance.now()
+    setResuming(false)
     setBoot('rev')
     runBoot()
     sceneRef.current?.powerOn()
@@ -2464,6 +2520,17 @@ export default function App() {
       setQuery(saved)
       void setVibe(saved, false)
     }
+  }
+
+  /** RESUME: back in from a live standby. The music never stopped, so
+   *  there is nothing to rev -- the flight starts at the DIVE. */
+  const resume = () => {
+    if (startedRef.current || bootRef.current) return
+    bootRef.current = 'dive'
+    bootAt.current = performance.now()
+    setResuming(true)
+    setBoot('dive')
+    runBoot({ from: 'dive' })
   }
 
   // ── THE GROUND ────────────────────────────────────────────────────────
@@ -2818,7 +2885,12 @@ export default function App() {
           (DESIGN.md §5 phase 1, round 2). Every element is a bordered cell
           sharing edges with its neighbours; the image cell is a hole in the
           sheet, so the live star burns through it, framed and fitted. */}
-      {!started && (
+      {/* Mounted until the DIVE ends, not until the handover. The console
+          takes the screen at 80% of the dive, and unmounting the plate
+          there cut its 1000ms exit at 800ms: the sheet vanished at 55%
+          opacity mid-rush instead of blowing out. It is pointer-events:none
+          for those last 200ms, so nothing can be clicked through it. */}
+      {(!started || boot === 'dive') && (
         <div className={`plate${boot ? ` ${boot}` : ''}${arrive ? ' arrive' : ''}`}>
           <header className="pl-hdr">
             <div><b>[scope-01]</b> <span className="hlbl">polar audio instrument</span></div>
@@ -2889,8 +2961,12 @@ export default function App() {
                       instrument has run, the sheet is a live standby you
                       came back to, so the button is a way back rather
                       than a way in, and it says so. */}
-                  <button className="power" onClick={everStarted ? endBoot : power}>
-                    <Decode text={everStarted ? 'resume' : 'power on'} duration={520} replayOnHover />
+                  {/* Not `everStarted` alone: that flips the moment POWER ON
+                      is pressed, so the label used to decode to RESUME
+                      halfway through the rev, on the button you had just
+                      pressed. The label is whichever flight is running. */}
+                  <button className="power" onClick={everStarted && !boot ? resume : power}>
+                    <Decode text={everStarted && (!boot || resuming) ? 'resume' : 'power on'} duration={520} replayOnHover />
                   </button>
                 </div>
               </div>
@@ -2954,7 +3030,10 @@ export default function App() {
               <div className="pl-pills">
                 <span className="pill on">( {everStarted ? 'live' : 'idle'} )</span>
                 <span className="pill">( ready )</span>
-                <span className="pill">( 44.1k )</span>
+                {/* the context's real rate, never an assumed 44.1k: most
+                    machines run 48k, and the pill said otherwise to all
+                    of them (law 3) */}
+                {sampleRate && <span className="pill">( {Math.round(sampleRate / 100) / 10}k )</span>}
               </div>
               <div className="pl-strip" aria-hidden="true" />
             </div>
@@ -2962,7 +3041,7 @@ export default function App() {
 
           <footer className="pl-ftr">
             <span>
-              <span className="pl-meta">/ webgl · 108k particles</span>
+              <span className="pl-meta">/ webgl · 108k-point field</span>
               <span className="pl-by">
                 <NoonMark /> made by noon
               </span>
@@ -3852,13 +3931,13 @@ const MORSE = (() => {
 
 /** scope's actual graph, in order (src/audio/graph.ts). */
 const PATH: { ix: string; n: string; d: string; i: string; sub?: boolean }[] = [
-  { ix: '01', n: 'src', d: 'radio · file · tab', i: 'the audio you feed it: radio, a file, or your own music playing in another tab' },
+  { ix: '01', n: 'src', d: 'radio · file · tab', i: 'what you feed it: radio, a file, or your own music playing in another tab' },
   { ix: '02', n: 'eq', d: '3 shelves', i: 'three shelves, the ones the orb bends when you grab it' },
   { ix: '03', n: 'tiers', d: '6 peaking', i: 'six peaking filters, one per dissection ring' },
   { ix: '04', n: 'filter', d: 'hp / lp', i: 'the colour sweep: high-pass left, low-pass right' },
   { ix: '05', n: 'echo', d: 'parallel loop', i: 'a tempo-locked delay with feedback, sent in parallel' },
   { ix: '06', n: 'analyser', d: '24 bands', i: '24 log bands: everything the star sees' },
-  { ix: '', n: 'star', d: 'visuals tap here', sub: true, i: 'the visuals read the analyser, never the output: mute keeps the star dancing' },
+  { ix: '', n: 'star', d: 'visuals tap here', sub: true, i: 'the visuals read the analyser, not the output: mute keeps the star dancing' },
   { ix: '07', n: 'out', d: 'master gain', i: 'master gain, and the node that mute silences' },
 ]
 
