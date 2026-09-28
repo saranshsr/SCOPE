@@ -90,6 +90,9 @@ export default function App() {
   /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
+  /** the standby strip's reading: how much the star's core scanline changed
+   *  on the last rendered frame (written by the frame loop, read by the strip) */
+  const motionProbeRef = useRef(0)
   /** the plate's peak readout, written imperatively at chrome rate */
   const peakRef = useRef<HTMLSpanElement>(null)
   /** the rail's scrolling half — watched so the dock seam can say "more" */
@@ -400,7 +403,10 @@ export default function App() {
     let peak = 0
     const tick = () => {
       const sc = sceneRef.current
-      peak = Math.max(peak, sc ? sc.readMotion() : 0)
+      // readMotion still runs: it differentiates the pointer for the //peak_
+      // row's neighbours, and the pointer is part of what the star does
+      const hand = sc ? sc.readMotion() : 0
+      peak = Math.max(peak, motionProbeRef.current, (hand - 0.2) * 0.6)
       const now = performance.now()
       // a stalled tab can owe many slots; write them all (the gap is real
       // time) but cap the catch-up at one full strip
@@ -1455,6 +1461,8 @@ export default function App() {
       }
       // Same task as the render, or the drawing buffer is already cleared.
       if (pipRef.current) drawPip(pipRef.current, canvas, scene, w, h)
+      // standby only: scan the star's core for the MOTION strip
+      if (!startedRef.current && posterWaveRef.current) motionProbeRef.current = probeStar(canvas, scene, w, h)
       if (grabRef.current) {
         const done = grabRef.current
         grabRef.current = null
@@ -4134,19 +4142,61 @@ function fmtHz(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)}k` : `${Math.round(hz)}hz`
 }
 
-const MOTION_HZ = 40
-const MOTION_SECONDS = 12
+/**
+ * THE STAR'S CORE, SCANNED. One thin line through the body is copied out of
+ * the frame just rendered and compared with the last one: the mean change
+ * in its ink is the reading. 108,000 particles churning through a scanline
+ * is a genuinely jagged signal -- it spikes when the field is disturbed and
+ * crackles at rest -- where the old source was a slow sine breath, which no
+ * honest drawing could make sharp. The value is scaled against its own
+ * recent maximum, so the drum uses its height whatever the scene.
+ */
+const SCAN_W = 96
+let scanCv: HTMLCanvasElement | null = null
+let scanPrev: Float32Array | null = null
+let scanMax = 0.02
+function probeStar(src: HTMLCanvasElement, scene: Scene, w: number, h: number): number {
+  if (!scanCv) {
+    scanCv = document.createElement('canvas')
+    scanCv.width = SCAN_W
+    scanCv.height = 2
+  }
+  const g = scanCv.getContext('2d', { willReadFrequently: true })
+  if (!g || w <= 0 || h <= 0) return 0
+  const f = scene.focusNow
+  const r = 0.88 * (h / 2) * (scene.zoomLevel / f.d)
+  const dpr = src.width / w
+  const sx = (f.x * w - r * 0.8) * dpr
+  const sy = f.y * h * dpr
+  g.drawImage(src, sx, sy, r * 1.6 * dpr, 2 * dpr, 0, 0, SCAN_W, 2)
+  const d = g.getImageData(0, 0, SCAN_W, 1).data
+  const cur = new Float32Array(SCAN_W)
+  let diff = 0
+  for (let i = 0; i < SCAN_W; i++) {
+    cur[i] = (d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2]) / 765
+    if (scanPrev) diff += Math.abs(cur[i] - scanPrev[i])
+  }
+  scanPrev = cur
+  const v = diff / SCAN_W
+  // the gain follows the signal's own recent ceiling, decaying over ~8 s
+  scanMax = Math.max(v, scanMax * 0.998, 0.004)
+  return Math.min(1, v / scanMax)
+}
+
+const MOTION_HZ = 60
+const MOTION_SECONDS = 8
 
 /**
- * THE MOTION STRIP, drawn as a drum recorder rather than a texture.
+ * THE MOTION STRIP, drawn as a drum recorder rather than a texture: crisp
+ * spikes, one per sample of the star's scanned core (probeStar).
  *
  * It was 240 samples (four seconds) stretched over 1400px, each column
  * given a random alpha, a sin*cos "jag" and random speckle on top -- a grey
  * fuzz where most of what you saw was the drawing inventing detail. Texture
  * never lies (DESIGN.md), and that one did. Every mark here is a reading:
  *
- *   · the envelope is the star's motion, mirrored on a hairline baseline:
- *     an ink wash, edged by a crisp trace
+ *   · each spike is one sample of the scan, mirrored on a hairline baseline;
+ *     the jaggedness is the field's own churn, not a drawn texture
  *   · older time dims toward the left edge, the way ink dries on a drum
  *   · the ticks under it are seconds, and they travel with the paper; the
  *     long one is every fifth
@@ -4181,30 +4231,12 @@ function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head:
     if (back >= have) return 0
     return hist[(head - 1 - back + n * 4) % n]
   }
-  // v^0.7: the resting breath (about 0.2) reaches a third of the drum
-  // instead of a sixth, and the order of every value is kept
-  const y = (v: number) => Math.max(0.5, Math.pow(Math.min(1, Math.max(0, v)), 0.7) * amp)
+  const y = (v: number) => Math.max(0.5, Math.min(1, Math.max(0, v)) * amp)
 
-  // the envelope: one closed path, top edge left to right, bottom back
-  const edge = (sign: 1 | -1, reverse: boolean) => {
-    const ks = Array.from({ length: n }, (_, i) => (reverse ? n - 1 - i : i))
-    ks.forEach((k, j) => {
-      const px = k * step
-      const py = mid - sign * y(at(k))
-      if (j === 0) (reverse ? g.lineTo(px, py) : g.moveTo(px, py))
-      else g.lineTo(px, py)
-    })
-  }
-  g.beginPath()
-  edge(1, false)
-  edge(-1, true)
-  g.closePath()
-  g.fillStyle = `rgba(${INK_RGB},0.07)`
-  g.fill()
-
-  // one hairline per sample: the drum's ruling IS the data, 40 a second
+  // SPIKES: one hairline per sample, mirrored on the baseline, and nothing
+  // else -- no wash, no rounded outline. The jaggedness is the reading.
   g.lineWidth = 1
-  g.strokeStyle = `rgba(${INK_RGB},0.3)`
+  g.strokeStyle = `rgba(${INK_RGB},0.88)`
   g.beginPath()
   for (let k = 0; k < n; k++) {
     const px = Math.round(k * step) + 0.5
@@ -4213,16 +4245,6 @@ function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head:
     g.lineTo(px, mid + a)
   }
   g.stroke()
-
-  // the trace, both edges, one hairline
-  g.lineWidth = 1
-  g.lineJoin = 'round'
-  g.strokeStyle = `rgba(${INK_RGB},0.9)`
-  for (const sign of [1, -1] as const) {
-    g.beginPath()
-    edge(sign, false)
-    g.stroke()
-  }
 
   // the baseline, in the plate's own line
   g.strokeStyle = INK_LINE
