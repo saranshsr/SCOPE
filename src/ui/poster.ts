@@ -230,25 +230,26 @@ function drawHeader(ctx: Ctx2D, x0: number, x1: number, y0: number, pal: Palette
   hline(ctx, x0, x1, y0 + HDR_H, pal.line)
 }
 
-/** cover-fit an arbitrary source into `rect`, centred, clipped. */
-function drawCover(
+
+
+function drawContain(
   ctx: Ctx2D,
   src: CanvasImageSource,
   sw: number,
   sh: number,
   rect: { x: number; y: number; w: number; h: number },
 ) {
-  const scale = Math.max(rect.w / sw, rect.h / sh)
+  const scale = Math.min(rect.w / sw, rect.h / sh)
   const dw = sw * scale
   const dh = sh * scale
-  const dx = rect.x + (rect.w - dw) / 2
-  const dy = rect.y + (rect.h - dh) / 2
-  ctx.save()
-  ctx.beginPath()
-  ctx.rect(rect.x, rect.y, rect.w, rect.h)
-  ctx.clip()
-  ctx.drawImage(src, dx, dy, dw, dh)
-  ctx.restore()
+  ctx.drawImage(src, rect.x + (rect.w - dw) / 2, rect.y + (rect.h - dh) / 2, dw, dh)
+}
+
+/** the crop's corner pixel: the ground the scene printed on, byte for byte */
+function cropGround(src: HTMLCanvasElement | ImageBitmap): string | null {
+  if (!(src instanceof HTMLCanvasElement)) return null
+  const d = src.getContext('2d')?.getImageData(1, 1, 1, 1).data
+  return d ? `rgb(${d[0]},${d[1]},${d[2]})` : null
 }
 
 function drawImageCell(
@@ -262,7 +263,15 @@ function drawImageCell(
 
   const sw = o.star.width
   const sh = o.star.height
-  if (sw > 0 && sh > 0) drawCover(ctx, o.star, sw, sh, inner)
+  // CONTAIN, not cover, and above the caption bar: the crop is already
+  // framed on the measured star, so cover's trim could only cut the body,
+  // and centring on the whole cell sat it low behind the caption. The
+  // letterbox takes the crop's own ground, so the seam cannot show.
+  if (sw > 0 && sh > 0) {
+    ctx.fillStyle = cropGround(o.star) ?? pal.ground
+    ctx.fillRect(inner.x, inner.y, inner.w, inner.h)
+    drawContain(ctx, o.star, sw, sh, { x: inner.x, y: inner.y, w: inner.w, h: inner.h - 40 })
+  }
 
   // keyline frame (primitive 10) — the accent dimmed, at most one per view
   ctx.save()
@@ -366,10 +375,12 @@ function drawHatch(ctx: Ctx2D, x: number, y: number, w: number, h: number, color
   ctx.restore()
 }
 
-/** The glitch strip (primitive 11): the measured level curve as layered
- *  vertical hairlines with a dithered falloff, the measured tempo curve (if
- *  any) laid over it as a thin accent trace — two real readings sharing one
- *  cell rather than one texture pretending to be both. */
+/** The session strip, drawn as the standby MOTION drum is: every mark a
+ *  reading. The level runs as one hairline per measured bin (each bin the
+ *  PEAK of the samples in it, so nothing loud is averaged away) with its
+ *  envelope traced crisp over a hairline baseline. The tempo gets a lane
+ *  of its own under it -- it used to run through the level as a stepped
+ *  accent scribble, crossing the label and reading as neither. */
 function drawStrip(
   ctx: Ctx2D,
   rect: { x: number; y: number; w: number; h: number },
@@ -377,71 +388,107 @@ function drawStrip(
   pal: Palette,
 ) {
   const { x, y, w, h } = rect
+  const chipH = 30
+  const hasTempo = o.tempoCurve.length > 1
+  const laneH = hasTempo ? 26 : 0
+  const top = y + chipH + 4
+  const bot = y + h - laneH - 6
+  const mid = Math.round((top + bot) / 2) + 0.5
+  const amp = (bot - top) / 2
+
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(x, y, w, h)
+  ctx.clip()
+
   if (o.levelCurve.length === 0) {
     drawHatch(ctx, x, y, w, h, pal.inkDim)
   } else {
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(x, y, w, h)
-    ctx.clip()
+    const PITCH = 4
+    const bins = Math.max(2, Math.floor((w - 24) / PITCH))
     const n = o.levelCurve.length
-    const mid = y + h / 2
-    const iw = Math.ceil(w)
-    for (let i = 0; i < iw; i++) {
-      const v = clamp01(o.levelCurve[Math.min(n - 1, Math.floor((i / w) * n))])
-      const jag = 0.6 + 0.4 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
-      const amp = Math.max(1, v * jag * (h * 0.42))
-      const lit = 0.22 + 0.72 * Math.pow(v, 0.6)
-      const alpha = lit * (0.45 + Math.random() * 0.55)
-      ctx.fillStyle = `rgba(${pal.inkRGB}, ${alpha.toFixed(3)})`
-      ctx.fillRect(x + i, mid - amp, 1, amp * 2)
+    const val = new Float32Array(bins)
+    for (let i = 0; i < bins; i++) {
+      const a0 = Math.floor((i / bins) * n)
+      const a1 = Math.max(a0 + 1, Math.floor(((i + 1) / bins) * n))
+      let m = 0
+      for (let j = a0; j < a1 && j < n; j++) m = Math.max(m, clamp01(o.levelCurve[j]))
+      val[i] = m
     }
-    ctx.restore()
+    const bx = (i: number) => Math.round(x + 12 + i * ((w - 24) / (bins - 1))) + 0.5
+    const by = (v: number) => Math.max(1, Math.pow(v, 0.8) * amp)
+    ctx.lineWidth = 1
+    // the wash
+    ctx.beginPath()
+    for (let i = 0; i < bins; i++) (i ? ctx.lineTo(bx(i), mid - by(val[i])) : ctx.moveTo(bx(i), mid - by(val[i])))
+    for (let i = bins - 1; i >= 0; i--) ctx.lineTo(bx(i), mid + by(val[i]))
+    ctx.closePath()
+    ctx.fillStyle = `rgba(${pal.inkRGB}, 0.08)`
+    ctx.fill()
+    // the ruling: one line per bin
+    ctx.strokeStyle = `rgba(${pal.inkRGB}, 0.34)`
+    ctx.beginPath()
+    for (let i = 0; i < bins; i++) {
+      ctx.moveTo(bx(i), mid - by(val[i]))
+      ctx.lineTo(bx(i), mid + by(val[i]))
+    }
+    ctx.stroke()
+    // the trace
+    ctx.strokeStyle = `rgba(${pal.inkRGB}, 0.92)`
+    ctx.lineJoin = 'round'
+    for (const sign of [1, -1]) {
+      ctx.beginPath()
+      for (let i = 0; i < bins; i++) {
+        const py = mid - sign * by(val[i])
+        if (i) ctx.lineTo(bx(i), py)
+        else ctx.moveTo(bx(i), py)
+      }
+      ctx.stroke()
+    }
+    hline(ctx, x, x + w, mid, pal.line)
   }
 
-  if (o.tempoCurve.length > 0) {
+  if (hasTempo) {
+    // its own lane: a hairline rule and the tempo as a stepped trace in it
     let lo = Infinity
     let hi = -Infinity
-    for (const t of o.tempoCurve) {
-      if (t < lo) lo = t
-      if (t > hi) hi = t
-    }
+    for (const t of o.tempoCurve) { if (t < lo) lo = t; if (t > hi) hi = t }
     const span = Math.max(1, hi - lo)
     const n = o.tempoCurve.length
-    ctx.save()
+    const ly0 = y + h - laneH + 6
+    const ly1 = y + h - 6
+    hline(ctx, x, x + w, y + h - laneH, pal.line)
     ctx.beginPath()
-    ctx.rect(x, y, w, h)
-    ctx.clip()
-    ctx.beginPath()
-    for (let i = 0; i < w; i++) {
-      const v = (o.tempoCurve[Math.min(n - 1, Math.floor((i / w) * n))] - lo) / span
-      const py = y + h - 8 - v * (h - 16)
-      if (i === 0) ctx.moveTo(x + i, py)
-      else ctx.lineTo(x + i, py)
+    const iw = Math.floor(w - 24)
+    for (let i = 0; i <= iw; i++) {
+      const v = (o.tempoCurve[Math.min(n - 1, Math.floor((i / iw) * n))] - lo) / span
+      const py = Math.round(ly1 - v * (ly1 - ly0)) + 0.5
+      if (i === 0) ctx.moveTo(x + 12 + i, py)
+      else ctx.lineTo(x + 12 + i, py)
     }
-    ctx.strokeStyle = pal.accent
-    ctx.globalAlpha = 0.82
-    ctx.lineWidth = 1.4
+    // on paper the accent is never a line (1.0:1): the tempo draws in ink
+    ctx.strokeStyle = pal.mark ? pal.ink : pal.accent
+    ctx.lineWidth = 1.5
     ctx.stroke()
-    ctx.restore()
   }
+  ctx.restore()
 
   // label chips, top corners of the strip — .pl-wave .wlbl treatment
   setFont(ctx, FONT_MONO, 15, TRACK_MICRO)
   ctx.textBaseline = 'top'
-  const chipH = 30
-  ctx.fillStyle = pal.captionBg
-  ctx.fillRect(x, y, 190, chipH)
-  ctx.fillStyle = pal.inkDim
   ctx.textAlign = 'left'
+  ctx.fillStyle = pal.inkDim
   ctx.fillText(o.levelCurve.length ? '// LEVEL · MEASURED' : '// LEVEL · NO READING', x + 12, y + 8)
-  if (o.tempoCurve.length > 0) {
-    const label = '// TEMPO'
-    setFont(ctx, FONT_MONO, 15, TRACK_MICRO)
+  if (hasTempo) {
+    const bpmLo = Math.round(Math.min(...o.tempoCurve))
+    const bpmHi = Math.round(Math.max(...o.tempoCurve))
+    const label = bpmLo === bpmHi ? `// TEMPO · ${bpmLo}` : `// TEMPO · ${bpmLo}–${bpmHi}`
     const lw = ctx.measureText(label).width + 24
-    ctx.fillStyle = pal.mark ?? pal.captionBg
-    ctx.fillRect(x + w - lw, y, lw, chipH)
-    ctx.fillStyle = pal.accent
+    if (pal.mark) {
+      ctx.fillStyle = pal.mark
+      ctx.fillRect(x + w - lw, y, lw, chipH)
+    }
+    ctx.fillStyle = pal.mark ? pal.ink : pal.accent
     ctx.textAlign = 'right'
     ctx.fillText(label, x + w - 12, y + 8)
   }

@@ -389,13 +389,28 @@ export default function App() {
   // resize and are torn down the moment the instrument powers on.
   useEffect(() => {
     if (started) return
-    const hist = new Float32Array(240)
+    // A FIXED CLOCK, so the strip's time ticks are true: MOTION_HZ slots a
+    // second, MOTION_SECONDS of them. readMotion() runs every frame (it
+    // differentiates the pointer), and a slot keeps the PEAK of the frames
+    // that fell in it, so a flick shorter than a slot still lands.
+    const hist = new Float32Array(MOTION_HZ * MOTION_SECONDS)
     let head = 0
     let raf = 0
+    let slotEnd = performance.now() + 1000 / MOTION_HZ
+    let peak = 0
     const tick = () => {
       const sc = sceneRef.current
-      hist[head % hist.length] = sc ? sc.readMotion() : 0
-      head++
+      peak = Math.max(peak, sc ? sc.readMotion() : 0)
+      const now = performance.now()
+      // a stalled tab can owe many slots; write them all (the gap is real
+      // time) but cap the catch-up at one full strip
+      for (let k = 0; now >= slotEnd && k < hist.length; k++) {
+        hist[head % hist.length] = peak
+        head++
+        slotEnd += 1000 / MOTION_HZ
+        peak = 0
+      }
+      if (now >= slotEnd) slotEnd = now + 1000 / MOTION_HZ
       drawMotionStrip(posterWaveRef.current, hist, head)
       // //peak_ said IDLE unconditionally, which was true on a cold load
       // and a lie the moment the sheet could be returned to with the music
@@ -1446,7 +1461,10 @@ export default function App() {
         const cv = document.createElement('canvas')
         cv.width = 1080
         cv.height = 1080
-        drawPip({ win: window, cv }, canvas, scene, w, h, 1080, 1080)
+        // the poster frames the star by MEASURING it, not by the camera
+        // estimate the mini star uses -- that guess drifted with zoom,
+        // dissect and focus, so no two posters sat the same way
+        if (!cropStar(cv, canvas, scene)) drawPip({ win: window, cv }, canvas, scene, w, h, 1080, 1080)
         done(cv)
       }
 
@@ -4116,6 +4134,25 @@ function fmtHz(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)}k` : `${Math.round(hz)}hz`
 }
 
+const MOTION_HZ = 40
+const MOTION_SECONDS = 12
+
+/**
+ * THE MOTION STRIP, drawn as a drum recorder rather than a texture.
+ *
+ * It was 240 samples (four seconds) stretched over 1400px, each column
+ * given a random alpha, a sin*cos "jag" and random speckle on top -- a grey
+ * fuzz where most of what you saw was the drawing inventing detail. Texture
+ * never lies (DESIGN.md), and that one did. Every mark here is a reading:
+ *
+ *   · the envelope is the star's motion, mirrored on a hairline baseline:
+ *     an ink wash, edged by a crisp trace
+ *   · older time dims toward the left edge, the way ink dries on a drum
+ *   · the ticks under it are seconds, and they travel with the paper; the
+ *     long one is every fifth
+ *   · the write head is the only accent: the pen at the value just written,
+ *     and its hairline down the drum
+ */
 function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head: number) {
   if (!cv) return
   const g = cv.getContext('2d')
@@ -4129,20 +4166,117 @@ function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head:
   }
   g.setTransform(d, 0, 0, d, 0, 0)
   g.clearRect(0, 0, w, h)
-  const mid = h / 2
+
   const n = hist.length
-  for (let i = 0; i < w; i++) {
-    // oldest sample at the left edge, newest at the right: the trace scrolls
-    const v = hist[(head + Math.floor((i / w) * n)) % n]
-    const jag = 0.62 + 0.38 * Math.sin(i * 0.7) * Math.cos(i * 0.13)
-    const a = Math.max(0.5, v * jag * (h * 0.46))
-    const lit = 0.28 + 0.72 * Math.pow(v, 0.6)
-    g.fillStyle = `rgba(${INK_RGB},${(lit * (0.4 + Math.random() * 0.6)).toFixed(3)})`
-    g.fillRect(i, mid - a, 1, a * 2)
-    if (Math.random() < v * 0.5) {
-      g.fillStyle = `rgba(${INK_RGB},${(lit * 0.5).toFixed(3)})`
-      g.fillRect(i, mid - a * 1.5, 1, a * 0.4)
-    }
+  const have = Math.min(n, head)
+  const HEAD = 16 // the write head sits this far in from the right edge
+  const hx = w - HEAD
+  const TICKS = 9 // room under the drum for the second ticks
+  const mid = Math.round((h - TICKS) / 2) + 0.5
+  const amp = mid - 5
+  const step = hx / (n - 1)
+  // sample k of the visible window, 0 = oldest; unwritten history is empty
+  const at = (k: number) => {
+    const back = n - 1 - k
+    if (back >= have) return 0
+    return hist[(head - 1 - back + n * 4) % n]
+  }
+  // v^0.7: the resting breath (about 0.2) reaches a third of the drum
+  // instead of a sixth, and the order of every value is kept
+  const y = (v: number) => Math.max(0.5, Math.pow(Math.min(1, Math.max(0, v)), 0.7) * amp)
+
+  // the envelope: one closed path, top edge left to right, bottom back
+  const edge = (sign: 1 | -1, reverse: boolean) => {
+    const ks = Array.from({ length: n }, (_, i) => (reverse ? n - 1 - i : i))
+    ks.forEach((k, j) => {
+      const px = k * step
+      const py = mid - sign * y(at(k))
+      if (j === 0) (reverse ? g.lineTo(px, py) : g.moveTo(px, py))
+      else g.lineTo(px, py)
+    })
+  }
+  g.beginPath()
+  edge(1, false)
+  edge(-1, true)
+  g.closePath()
+  g.fillStyle = `rgba(${INK_RGB},0.07)`
+  g.fill()
+
+  // one hairline per sample: the drum's ruling IS the data, 40 a second
+  g.lineWidth = 1
+  g.strokeStyle = `rgba(${INK_RGB},0.3)`
+  g.beginPath()
+  for (let k = 0; k < n; k++) {
+    const px = Math.round(k * step) + 0.5
+    const a = y(at(k))
+    g.moveTo(px, mid - a)
+    g.lineTo(px, mid + a)
+  }
+  g.stroke()
+
+  // the trace, both edges, one hairline
+  g.lineWidth = 1
+  g.lineJoin = 'round'
+  g.strokeStyle = `rgba(${INK_RGB},0.9)`
+  for (const sign of [1, -1] as const) {
+    g.beginPath()
+    edge(sign, false)
+    g.stroke()
+  }
+
+  // the baseline, in the plate's own line
+  g.strokeStyle = INK_LINE
+  g.beginPath()
+  g.moveTo(0, mid)
+  g.lineTo(w, mid)
+  g.stroke()
+
+  // seconds, travelling with the paper
+  const base = h - 0.5
+  g.beginPath()
+  for (let k = 0; k < n; k++) {
+    const idx = head - (n - 1 - k)
+    if (idx < 0 || idx % MOTION_HZ !== 0) continue
+    const px = Math.round(k * step) + 0.5
+    const long = (idx / MOTION_HZ) % 5 === 0
+    g.moveTo(px, base)
+    g.lineTo(px, base - (long ? 7 : 3))
+  }
+  g.stroke()
+
+  // older time dries toward the left: a real fade of real marks
+  g.save()
+  g.globalCompositeOperation = 'destination-out'
+  const fade = g.createLinearGradient(0, 0, w * 0.55, 0)
+  fade.addColorStop(0, 'rgba(0,0,0,0.88)')
+  fade.addColorStop(1, 'rgba(0,0,0,0)')
+  g.fillStyle = fade
+  g.fillRect(0, 0, w * 0.55, h)
+  g.restore()
+
+  // the write head: its hairline, and the pen at the value just written
+  const v = at(n - 1)
+  const py = Math.round(mid - y(v)) + 0.5
+  g.strokeStyle = `rgba(${INK_RGB},0.35)`
+  g.setLineDash([2, 3])
+  g.beginPath()
+  g.moveTo(hx + 0.5, 0)
+  g.lineTo(hx + 0.5, h - TICKS)
+  g.stroke()
+  g.setLineDash([])
+  // the pen's leader: the value carried to the drum's edge
+  g.strokeStyle = MARK ? `rgba(${INK_RGB},0.9)` : `rgba(${ACCENT_RGB},0.9)`
+  g.beginPath()
+  g.moveTo(hx, py)
+  g.lineTo(w, py)
+  g.stroke()
+  // on paper the accent is a FIELD, never a line: a yellow pen with an ink
+  // keyline. On ink it is the accent itself.
+  g.fillStyle = MARK || `rgb(${ACCENT_RGB})`
+  g.fillRect(hx - 2, py - 2.5, 5, 5)
+  if (MARK) {
+    g.strokeStyle = `rgba(${INK_RGB},1)`
+    g.strokeRect(hx - 2, py - 2.5, 5, 5)
   }
 }
 
@@ -4573,6 +4707,90 @@ function drawSpectrum(
  * A copy of the star, not a second render: two cameras would be two stars,
  * and the one in the corner of your screen would not be the one you mixed.
  */
+/**
+ * THE POSTER'S CROP, found in the pixels.
+ *
+ * The frame just rendered is downsampled, every pixel that differs from the
+ * ground is counted, and the star's box is taken between the 1st and 99th
+ * percentile of that ink on each axis -- so a few ejected particles or a
+ * trail cannot drag the frame off the body. A square around the box, with
+ * a fixed margin, is copied out at full resolution. Wherever the star is
+ * on screen, however zoomed or pulled apart, it lands centred and at the
+ * same proportion of the poster's cell. Returns false when the frame holds
+ * no star to find (the caller falls back to the camera estimate).
+ */
+function cropStar(out: HTMLCanvasElement, src: HTMLCanvasElement, scene: Scene): boolean {
+  const SW = src.width
+  const SH = src.height
+  if (SW < 8 || SH < 8) return false
+  const s = Math.min(1, 360 / Math.max(SW, SH))
+  const tw = Math.max(1, Math.round(SW * s))
+  const th = Math.max(1, Math.round(SH * s))
+  const probe = document.createElement('canvas')
+  probe.width = tw
+  probe.height = th
+  const pc = probe.getContext('2d', { willReadFrequently: true })
+  if (!pc) return false
+  pc.drawImage(src, 0, 0, tw, th)
+  const px = pc.getImageData(0, 0, tw, th).data
+  const ground = scene.theme === 'paper' ? PAPER_RGB : [10, 10, 10]
+  const colN = new Float64Array(tw)
+  const rowN = new Float64Array(th)
+  let total = 0
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      const i = (y * tw + x) * 4
+      const dv = Math.max(Math.abs(px[i] - ground[0]), Math.abs(px[i + 1] - ground[1]), Math.abs(px[i + 2] - ground[2]))
+      if (dv < 24) continue
+      colN[x]++
+      rowN[y]++
+      total++
+    }
+  }
+  if (total < 40) return false
+  const span = (arr: Float64Array) => {
+    let acc = 0
+    let lo = 0
+    let hi = arr.length - 1
+    for (let i = 0; i < arr.length; i++) { acc += arr[i]; if (acc >= total * 0.01) { lo = i; break } }
+    acc = 0
+    for (let i = arr.length - 1; i >= 0; i--) { acc += arr[i]; if (acc >= total * 0.01) { hi = i; break } }
+    return [lo, hi + 1] as const
+  }
+  const [x0, x1] = span(colN)
+  const [y0, y1] = span(rowN)
+  // back to source pixels; the square holds the body with a 14% margin a side
+  const cx = ((x0 + x1) / 2) / s
+  const cy = ((y0 + y1) / 2) / s
+  let side = Math.max(x1 - x0, y1 - y0) / s * 1.28
+  let sx = cx - side / 2
+  let sy = cy - side / 2
+  // ZOOMED PAST THE SCREEN: the ink runs off an edge, so the "box" is only
+  // the viewport and the poster got a small rectangle of it. Take the
+  // largest square the frame holds, centred on the star as far as the
+  // frame allows: a close-up that fills the cell, edge to edge.
+  const edge = 2
+  if (x0 <= edge || y0 <= edge || x1 >= tw - edge || y1 >= th - edge) {
+    side = Math.min(SW, SH)
+    sx = Math.max(0, Math.min(SW - side, cx - side / 2))
+    sy = Math.max(0, Math.min(SH - side, cy - side / 2))
+  }
+  const g = out.getContext('2d')
+  if (!g) return false
+  g.fillStyle = `rgb(${ground.join(',')})`
+  g.fillRect(0, 0, out.width, out.height)
+  // copy only the part of the square that exists; the rest stays ground,
+  // so a star near the screen's edge is placed true instead of stretched
+  const ix0 = Math.max(0, sx)
+  const iy0 = Math.max(0, sy)
+  const ix1 = Math.min(SW, sx + side)
+  const iy1 = Math.min(SH, sy + side)
+  if (ix1 <= ix0 || iy1 <= iy0) return false
+  const k = out.width / side
+  g.drawImage(src, ix0, iy0, ix1 - ix0, iy1 - iy0, (ix0 - sx) * k, (iy0 - sy) * k, (ix1 - ix0) * k, (iy1 - iy0) * k)
+  return true
+}
+
 function drawPip(
   pip: { win: Window; cv: HTMLCanvasElement },
   src: HTMLCanvasElement,
