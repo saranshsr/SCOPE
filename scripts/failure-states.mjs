@@ -114,7 +114,8 @@ await sleep(800)
 // `round(min(1, rms * 2.4) * 12)`, with no numeral anywhere. The old
 // threshold `level > 3` was read off a readout that printed percent.
 const say = () => p.evaluate(() => ({
-  now: document.querySelector('.deck-name')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
+  // the words, not the scramble beside them (Decode's live face)
+  now: (document.querySelector('.deck-name .sr-only') ?? document.querySelector('.deck-name'))?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   sub: document.querySelector('.deck-meta')?.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   lit: document.querySelectorAll('.level-meter i.on').length,
   cells: document.querySelectorAll('.level-meter i').length,

@@ -17,12 +17,16 @@ export function Decode({
   duration = 650,
   className,
   replayOnHover = false,
+  live = false,
 }: {
   text: string
   duration?: number
   className?: string
   /** Controls re-run their decode on pointer enter — the hover interaction. */
   replayOnHover?: boolean
+  /** Inside a live region: the scramble is for eyes only, the words are
+   *  what a screen reader hears. */
+  live?: boolean
 }) {
   const [shown, setShown] = useState(text)
   const [nonce, setNonce] = useState(0)
@@ -55,12 +59,23 @@ export function Decode({
     return () => cancelAnimationFrame(raf)
   }, [text, duration, nonce])
 
+  // Two faces when live. Inside a live region (the deck name, the stage
+  // title) every rAF frame was a text mutation, so a screen reader heard
+  // 35-39 strings of `:=+xX#` per track change. The scramble is hidden from
+  // it; the words sit beside it, visually hidden, changing once per text.
+  // Everywhere else one face: a control's name is read on focus, not
+  // streamed, and its textContent stays the plain word.
   return (
     <span
       className={className}
       onPointerEnter={replayOnHover ? () => setNonce((n) => n + 1) : undefined}
     >
-      {shown}
+      {live ? (
+        <>
+          <span aria-hidden="true">{shown}</span>
+          <span className="sr-only">{text}</span>
+        </>
+      ) : shown}
     </span>
   )
 }

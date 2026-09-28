@@ -205,6 +205,18 @@ export default function App() {
   // SPLIT: the playing track being separated into stems, in-browser.
   const [splitState, setSplitState] = useState<string | null>(null)
   const splitGen = useRef(0)
+  /** the rooms the keyboard reads without re-binding its listener: Esc
+   *  unwinds them one layer at a time, and WATCH will not enter while the
+   *  machine is busy (a split, a decode, a search, a vibe loading) --
+   *  the plate is where that progress is said, so it has to stay up. */
+  const modesRef = useRef({ stage: false, ambient: false, sheet: false, onboard: false })
+  modesRef.current = { stage, ambient, sheet, onboard }
+  const busyRef = useRef(false)
+  useEffect(() => {
+    busyRef.current = !!splitState || decoding || tubeSeeking || tuning2 === 'loading'
+  }, [splitState, decoding, tubeSeeking, tuning2])
+  /** ambient's way back: a pointer moving shows the exit, like the stage */
+  const [ambientExit, setAmbientExit] = useState(false)
   const stemDeckRef = useRef<StemDeck | null>(null)
   // THE LAYER ROWS — every ring's visible twin: name, live meter, level
   // slider, solo/mute. Nothing about the stack requires a hidden gesture.
@@ -1952,9 +1964,33 @@ export default function App() {
       // below, whose preventDefault() suppressed the button's own
       // activation — MUTE, SKIP, SPLIT, the sources, GO, the layer s/m
       // pair and the tour's NEXT all toggled playback instead of firing.
-      if ((e.target as Element)?.closest?.(
-        'input, textarea, select, button, a[href], [role="slider"], [contenteditable]',
-      )) return
+      // But it only owns the keys it USES: returning on every key for a
+      // button meant one click on INK, MUTE or RADIO (which leaves focus
+      // there) silently killed d, s, p, n and the rest until you clicked
+      // the empty glass. Text fields own everything; buttons, links and
+      // sliders own activation and movement; letters, digits, [ ] \ and
+      // Esc always reach the console.
+      const tgt = e.target as Element | null
+      if (tgt?.closest?.('input:not([type=range]):not([type=button]), textarea, select, [contenteditable]')) return
+      if (
+        tgt?.closest?.('button, a[href], [role="slider"], input[type=range], input[type=button]') &&
+        /^(Space|Enter|NumpadEnter|Arrow(Up|Down|Left|Right)|Home|End|PageUp|PageDown)$/.test(e.code)
+      ) return
+      // Esc unwinds ONE layer per press, outermost first: stage, ambient,
+      // the phone's sheet, a latched dissect. The tour owns Esc while open.
+      if (e.key === 'Escape') {
+        const m = modesRef.current
+        if (m.onboard || !startedRef.current) return
+        if (m.stage) setStage(false)
+        else if (m.ambient) setAmbient(false)
+        else if (m.sheet) setSheet(false)
+        else if (sect.latched) {
+          sect.latched = false
+          sect.t = 0
+          sceneRef.current?.setDissect(0)
+        }
+        return
+      }
       if (!startedRef.current) {
         if (e.code === 'Space' || e.code === 'Enter') {
           e.preventDefault()
@@ -2731,7 +2767,15 @@ export default function App() {
       const a = document.activeElement
       const typing = !!a?.closest?.('input[type="text"], input[type="search"], input:not([type]), textarea')
       const holding = appRef.current?.classList.contains('mixing')
-      if (!playingRef.current || typing || holding) return arm()
+      // a keyboard user parked on a control is still operating it: fading
+      // the plate out from under a visible focus ring loses their place
+      const parked = !!a?.closest?.('.cn-plate') && !!a?.matches?.(':focus-visible')
+      // and a machine mid-job says its progress ON the plate
+      // the stem deck is the transport in stems mode; the engine's own
+      // element sits paused under it, so `playing` alone never let a split
+      // track's room go quiet
+      const deckOn = engineRef.current?.kind === 'stems' && !!stemDeckRef.current?.playing
+      if (!(playingRef.current || deckOn) || typing || holding || parked || busyRef.current) return arm()
       setWatching(true)
     }
     const wake = (e: Event) => {
@@ -2751,11 +2795,23 @@ export default function App() {
       if (e.type === 'pointerdown' && appRef.current?.classList.contains('watching')) {
         e.stopPropagation()
         appRef.current.classList.remove('watching')
+        // ...and stopping the pointerdown did not stop the CLICK that
+        // follows it, which landed on whatever the chrome put back under
+        // the finger: on a phone, a tap on the sleeping glass pressed the
+        // mini deck's skip. Swallow the one click this press makes.
+        const swallow = (c: Event) => { c.preventDefault(); c.stopPropagation() }
+        window.addEventListener('click', swallow, { capture: true, once: true })
+        window.setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 600)
       }
+      // a key wakes synchronously too, so the Tab it carries lands on a
+      // plate that is already visible again (visibility gates focus)
+      if (e.type === 'keydown') appRef.current?.classList.remove('watching')
       setWatching(false)
       arm()
     }
-    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+    // focusin: Tab on a sleeping screen moves focus into the hidden plate;
+    // the chrome has to come back with it, or the ring is invisible
+    const evs = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'focusin'] as const
     for (const ev of evs) window.addEventListener(ev, wake, { capture: true, passive: true })
     arm()
     return () => {
@@ -2789,15 +2845,36 @@ export default function App() {
       clearTimeout(t)
       t = window.setTimeout(() => setStageExit(false), 2500)
     }
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setStage(false) }
+    // Esc itself is the console's (onKey unwinds one layer per press); any
+    // key here shows the exit, so a keyboard user can Tab to it too
     window.addEventListener('pointermove', show, { passive: true })
-    window.addEventListener('keydown', key)
+    window.addEventListener('keydown', show)
     return () => {
       clearTimeout(t)
       window.removeEventListener('pointermove', show)
-      window.removeEventListener('keydown', key)
+      window.removeEventListener('keydown', show)
     }
   }, [stage])
+  // ── AMBIENT ───────────────────────────────────────────────────────────
+  // Latched like the stage, and it hid the cursor with no way back but a
+  // key nobody on a TV remote has. A hand moving shows the exit cell and
+  // the cursor for 2.5s; the star stays live under it.
+  useEffect(() => {
+    if (!ambient) { setAmbientExit(false); return }
+    let t = 0
+    const show = () => {
+      setAmbientExit(true)
+      clearTimeout(t)
+      t = window.setTimeout(() => setAmbientExit(false), 2500)
+    }
+    window.addEventListener('pointermove', show, { passive: true })
+    window.addEventListener('keydown', show)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener('pointermove', show)
+      window.removeEventListener('keydown', show)
+    }
+  }, [ambient])
   useEffect(() => { if (!started) setStage(false) }, [started])
   // paper prints the stage star heavier, under the display type (scene.ts)
   useEffect(() => { sceneRef.current?.setStagePrint(stage) }, [stage])
@@ -2952,7 +3029,7 @@ export default function App() {
   )
 
   return (
-    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}${watching ? ' watching' : ''}${stage ? ' stage' : ''}`}>
+    <div ref={appRef} className={`app${started ? ' live' : ''}${ambient ? ' ambient' : ''}${ambient && ambientExit ? ' exit-shown' : ''}${watching ? ' watching' : ''}${stage ? ' stage' : ''}`}>
       <canvas ref={canvasRef} className="stage" aria-hidden="true" />
       {/* The survey drawing — numbered markers, dashed drop-lines, tier
           labels — projected over the dissected stack. Exists only while
@@ -3153,7 +3230,7 @@ export default function App() {
           column, the stage, running footer. The star canvas stays full-bleed
           BEHIND this frame; the plate is a frame over it, not a container. */}
       {started && (
-        <div className={`cn-plate${sheet ? ' sheet' : ''}`}>
+        <div className={`cn-plate${sheet ? ' sheet' : ''}`} inert={stage || ambient}>
           {/* the brand and the src/pitch plate stop being rail children:
               both are running-header cells now (mockup, header row) */}
           <header className="pl-hdr cn-hdr">
@@ -3260,7 +3337,7 @@ export default function App() {
             {source !== 'tube' && (
             <div className="pl-row cn-track">
               <span className="k">//track_</span>
-              <samp className="deck-name" role="status" aria-live="polite"><Decode text={name} duration={700} /></samp>
+              <samp className="deck-name" role="status" aria-live="polite"><Decode text={name} duration={700} live /></samp>
             </div>
             )}
             {track && source !== 'tube' && (
@@ -3819,9 +3896,21 @@ export default function App() {
             </div>
             {/* the ground, and the one thing you take away from a session */}
             <div className="pl-row"><span className="k">//ground_</span><span className="v">{theme}</span></div>
-            <div className="cells c2" role="radiogroup" aria-label="ground">
-              <button role="radio" aria-checked={theme === 'ink'} className={theme === 'ink' ? 'on' : ''} onClick={() => applyTheme('ink')}>ink</button>
-              <button role="radio" aria-checked={theme === 'paper'} className={theme === 'paper' ? 'on' : ''} onClick={() => applyTheme('paper')}>paper</button>
+            {/* one tab stop; the arrows move the selection (APG radiogroup) */}
+            <div
+              className="cells c2"
+              role="radiogroup"
+              aria-label="ground"
+              onKeyDown={(e) => {
+                if (!/^Arrow(Up|Down|Left|Right)$/.test(e.key)) return
+                e.preventDefault()
+                const next = theme === 'ink' ? 'paper' : 'ink'
+                applyTheme(next)
+                ;(e.currentTarget.querySelector(`[data-ground="${next}"]`) as HTMLElement | null)?.focus()
+              }}
+            >
+              <button role="radio" data-ground="ink" tabIndex={theme === 'ink' ? 0 : -1} aria-checked={theme === 'ink'} className={theme === 'ink' ? 'on' : ''} onClick={() => applyTheme('ink')}>ink</button>
+              <button role="radio" data-ground="paper" tabIndex={theme === 'paper' ? 0 : -1} aria-checked={theme === 'paper'} className={theme === 'paper' ? 'on' : ''} onClick={() => applyTheme('paper')}>paper</button>
             </div>
             <div className="cells c1">
               <button onClick={() => void savePoster()} disabled={posterBusy}>
@@ -3945,7 +4034,7 @@ export default function App() {
         <div className="stage-plate" aria-live="polite">
           <span className="stage-code">[scope-02] · {SOURCE_ID[source]}</span>
           <h2 className="stage-title beat-type" ref={bindBeatType}>
-            <Decode text={source === 'tube' ? pipName : name} duration={900} />
+            <Decode text={source === 'tube' ? pipName : name} duration={900} live />
           </h2>
           {source !== 'tube' && track?.artist && (
             <span className="stage-meta">{track.artist.replace(' · audius', '')}</span>
@@ -3958,6 +4047,16 @@ export default function App() {
             ← <span>console</span> · esc
           </button>
         </div>
+      )}
+      {/* ambient's exit: the stage's cell, outside the inert plate */}
+      {started && ambient && !stage && (
+        <button
+          className={`stage-exit${ambientExit ? ' on' : ''}`}
+          onClick={() => setAmbient(false)}
+          tabIndex={ambientExit ? 0 : -1}
+        >
+          ← <span>console</span> · shift+h / esc
+        </button>
       )}
 
       {/* bottom-right: spectrum */}

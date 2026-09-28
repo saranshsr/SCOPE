@@ -836,7 +836,7 @@ body {
   visibility: hidden;
   transition: opacity 420ms var(--ease), visibility 0s linear 420ms;
 }
-.app.ambient { cursor: none; }
+.app.ambient:not(.exit-shown) { cursor: none; }
 
 /* A cell in a non-default state — the machine admitting it. */
 .titleblock .armed dt { color: rgba(var(--accent-rgb), 0.75); }
@@ -1485,13 +1485,19 @@ body {
 }
 .railfold.open { grid-template-rows: minmax(0, 1fr); }
 .railfold > * {
-  overflow: hidden;
+  /* clip with the ring's reach, the same as the fold, so a focused control
+     at a fold's edge still shows its whole ring */
+  overflow: clip;
+  overflow-clip-margin: 3px;
   min-height: 0;
   visibility: hidden;
   transition: visibility 0s 420ms;
 }
 .railfold.open > * {
-  visibility: visible;
+  /* inherit, never `visible`: visible overrode the plate's own
+     visibility:hidden in ambient, stage and watch, so every control in an
+     open fold stayed in the tab order of a room that had hidden them */
+  visibility: inherit;
   transition: visibility 0s;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -3443,7 +3449,12 @@ body.pip {
 .app.stage .announce { display: none; }
 .stage-plate {
   position: absolute;
-  inset: auto var(--edge) var(--edge) var(--edge);
+  /* the notch and the home bar: a landscape phone put the title's first
+     letters and the exit cell under the sensor housing */
+  inset: auto
+    calc(var(--edge) + env(safe-area-inset-right, 0px))
+    calc(var(--edge) + env(safe-area-inset-bottom, 0px))
+    calc(var(--edge) + env(safe-area-inset-left, 0px));
   z-index: 4;
   display: grid;
   gap: var(--gap-related);
@@ -3478,8 +3489,9 @@ body.pip {
 }
 .stage-exit {
   position: fixed;
-  top: var(--edge);
-  right: var(--edge);
+  top: calc(var(--edge) + env(safe-area-inset-top, 0px));
+  right: calc(var(--edge) + env(safe-area-inset-right, 0px));
+  z-index: 5;
   font: inherit;
   font-size: var(--t-micro);
   letter-spacing: var(--track-caps-micro);
