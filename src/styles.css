@@ -136,7 +136,10 @@
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --lift: rgba(var(--ink-rgb), 0.08);
   --lift-press: rgba(var(--ink-rgb), 0.15);
-  --font-display: 'Archivo Black', ui-sans-serif, system-ui, sans-serif;
+  /* Arial Black before the system face: until the woff2 lands, the
+     wordmark swaps in from the one common face of the same heavy, wide
+     cut, not from a regular-weight sans a third narrower. */
+  --font-display: 'Archivo Black', 'Arial Black', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Departure Mono', ui-monospace, Menlo, monospace;
 
   /* ── THE RAMP ───────────────────────────────────────────────────────
@@ -2589,6 +2592,12 @@ a:focus-visible {
   .vibe, .rail-src { min-height: 44px; }
   .rail-src button { min-height: 44px; }
   .layer-btn { min-width: 44px; min-height: 44px; }
+  /* and the row's tracks grow with it. A 44px button in a 28px track
+     overflows its cell: S ran 16px under M, and M ran through the row's
+     12px of padding onto the plate's own edge, so the rail's right side
+     was two hairlines drawn 1px apart. Sized to the floor, both are whole
+     cells again, clear of each other and of the edge. */
+  .layer { grid-template-columns: 74px 1fr 44px 44px; }
   .rail-help { min-width: 44px; }
   /* .vibe's second track is a hardcoded 34px, so a min-width on the button
      inside it could never win. The TRACK has to grow. */

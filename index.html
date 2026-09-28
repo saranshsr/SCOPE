@@ -20,6 +20,19 @@
     <meta name="twitter:title" content="SCOPE :: it listens to your music" />
     <meta name="twitter:image" content="%VITE_SITE_URL%/og-v3.png" />
     <meta name="theme-color" content="#0a0a0a" />
+    <script>
+      // The saved ground, before first paint. main.tsx does this too, but it
+      // runs after the module graph loads, and the stylesheet is
+      // render-blocking: a paper visitor got one full #0a0a0a frame first.
+      // Same key and value main.tsx and applyTheme use. The theme-color is
+      // the paper --ground, until paintThemeColor reads it from the sheet.
+      try {
+        if (localStorage.getItem('scope-theme-v1') === 'paper') {
+          document.documentElement.dataset.theme = 'paper'
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#f0ebe0')
+        }
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/png" href="%BASE_URL%favicon-v2.png" />
   </head>
   <body>
