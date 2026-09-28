@@ -136,4 +136,14 @@ function devApi(mode: string): Plugin {
 
 export default defineConfig(({ mode }) => ({
   plugins: [react(), siteUrl(mode), localMedia(), devApi(mode)],
+  // two pages: the instrument, and the 404 plate. Vercel serves dist/404.html
+  // for any path with no file, so a dead link lands on the same sheet.
+  build: {
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        notfound: path.resolve(__dirname, '404.html'),
+      },
+    },
+  },
 }))
