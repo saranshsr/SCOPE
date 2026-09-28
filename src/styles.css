@@ -1251,7 +1251,7 @@ body {
 .driver-popover.plate-tour .driver-popover-footer-btn:active,
 .driver-popover.plate-tour .driver-popover-close-btn:active {
   color: var(--ink);
-  background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground);
+  background: var(--lift-cell-press);
   border-color: var(--pl-line);
 }
 /* BACK on step 1/6 is `disabled` with `pointer-events: none`, and driver's
@@ -1279,7 +1279,7 @@ body {
 }
 .plate-tour .driver-popover-navigation-btns button:last-child:active {
   color: var(--ink);
-  background: linear-gradient(var(--lift-press), var(--lift-press)), var(--ground);
+  background: var(--lift-cell-press);
   border-color: var(--ink);
 }
 /* `display: flex !important`, and the important is earned rather than
@@ -3590,8 +3590,7 @@ body.pip {
 :root[data-theme='paper'] .layer-btn-m.on,
 :root[data-theme='paper'] .transport .t-mute.on,
 :root[data-theme='paper'] .tuner-chips button.on,
-:root[data-theme='paper'] .cn-tool.on,
-:root[data-theme='paper'] .plate-tour .driver-popover-navigation-btns button:last-child:hover {
+:root[data-theme='paper'] .cn-tool.on {
   color: var(--ink);
   background: var(--mark);
   border-color: var(--ink);
