@@ -1507,10 +1507,10 @@ body {
 }
 .railfold.open { grid-template-rows: minmax(0, 1fr); }
 .railfold > * {
-  /* clip with the ring's reach, the same as the fold, so a focused control
-     at a fold's edge still shows its whole ring */
-  overflow: clip;
-  overflow-clip-margin: 3px;
+  /* hidden, not clip: focus rings are inset 3px inside their cells, so
+     nothing needs to paint past the fold's edge, and `clip` changed how the
+     folds scroll -- jukebox controls ended up under the dock */
+  overflow: hidden;
   min-height: 0;
   visibility: hidden;
   transition: visibility 0s 420ms;
@@ -3539,6 +3539,8 @@ body.pip {
 .stage-exit.on { opacity: 1; pointer-events: auto; }
 .stage-exit:hover { color: var(--ground); background: var(--ink); }
 .stage-exit:hover span { color: var(--ground); }
+/* the exits carry the plate's own ring: inset, in the ink, like every cell */
+.stage-exit:focus-visible { outline: 1px solid var(--ink); outline-offset: -4px; }
 .app.stage, .app.stage * { cursor: default; }
 @media (max-width: 720px) {
   .cn-hdr > .cn-stagebtn { display: none; }

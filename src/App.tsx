@@ -3003,6 +3003,13 @@ export default function App() {
     }
   }, [ambient])
   useEffect(() => { if (!started) setStage(false) }, [started])
+  // leaving stage hands focus back to the control that opened it, so a
+  // keyboard user is not dropped on the body
+  const stageWas = useRef(false)
+  useEffect(() => {
+    if (stageWas.current && !stage) (document.querySelector('.cn-stagebtn') as HTMLElement | null)?.focus({ preventScroll: true })
+    stageWas.current = stage
+  }, [stage])
   // paper prints the stage star heavier, under the display type (scene.ts)
   useEffect(() => { sceneRef.current?.setStagePrint(stage) }, [stage])
 
