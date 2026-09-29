@@ -16,6 +16,10 @@ import { Tube, HINDI, parseVideoId, searchTube, type TubeState, type TubeHit } f
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 import { EnergyTracker } from './audio/energy'
 import type { AJState } from './audio/aj'
+/** AJ's state as the lo-fi generator reports it: `freq` is the CURRENT
+ *  chord's root, and tempo and chord ride along when the build has them.
+ *  Read defensively -- an older generator reports neither. */
+type AJLive = AJState & { bpm?: number; chord?: string }
 
 /**
  * scope — a polar oscilloscope made of type.
@@ -86,6 +90,13 @@ export default function App() {
   const [paused, setPaused] = useState(false)
   const [aj, setAj] = useState<AJState | null>(null)
   const ajBeatRef = useRef<HTMLElement>(null)
+  const ajBeatRowRef = useRef<HTMLDivElement>(null)
+  const ajFreqRef = useRef<HTMLElement>(null)
+  const ajBpmRef = useRef<HTMLElement>(null)
+  const ajBpmRowRef = useRef<HTMLDivElement>(null)
+  const ajChordRef = useRef<HTMLElement>(null)
+  const ajChordRowRef = useRef<HTMLDivElement>(null)
+  const ajPhaseRef = useRef<HTMLElement>(null)
   const [volume, setVolume] = useState(0.8)
   const [muted, setMuted] = useState(false)
   const [diag, setDiag] = useState(false)
@@ -1526,6 +1537,14 @@ export default function App() {
       // the typed reflexes (kick / snare / hat), sustain, the tone for AJ,
       // and the build's tension -- all measured, see features.ts / energy.ts
       scene.setVoices(f, en.tension)
+      // AJ: the plate is driven at the chord that is PLAYING, straight from
+      // the generator, rather than at whatever the pitch detector locks onto
+      // under drums and bass. Only while AJ is the source; leaving it clears
+      // the root (the setVariant effect), so the detector stands in again.
+      if (engine.kind === 'aj') {
+        const st = engine.ajState as AJLive | null
+        scene.setAJRoot(st?.freq ?? 0, st?.bpm ?? 0, st?.section ?? '')
+      }
       if (fp.tempoConfidence > 0.2 && fp.tempo > 0) engine.setEchoTime(60 / fp.tempo * (fp.tempo > 140 ? 1 : 0.75))
       if (beat.trigger) {
         beatPulse = Math.max(beatPulse, 0.4 + beat.strength * 0.6)
@@ -1870,11 +1889,21 @@ export default function App() {
         if (diagRef.current)
           diagRef.current.textContent = `fps ${Math.min(120, Math.round(1 / Math.max(1e-3, perf.ema)))} · worst ${Math.round(hitchShown * 1000)}ms · pts ${Math.round((108000 * scene.densityNow + 2600 + 3600) / 1000)}k · quality ${perf.q < 1 ? 'reduced' : 'full'}`
         setPaused(engine.kind === 'stems' ? !(stemDeckRef.current?.playing ?? false) : engine.kind === 'aj' ? false : (engineRef.current?.el.paused ?? false))
-        // AJ's binaural beat drifts inside a movement; it is read live, not
-        // from the change events, which only fire on a new root or section
-        if (engine.kind === 'aj' && ajBeatRef.current) {
-          const st = engine.ajState
-          ajBeatRef.current.textContent = st?.beat ? `${st.beat.toFixed(1)} hz` : '--'
+        // AJ's rows are read live, not from the change events: the root
+        // moves every chord, the binaural beat drifts inside a movement, and
+        // neither is promised an event. //bpm_ takes //beat_'s place when the
+        // generator states a tempo; //chord_ appears only when it names one.
+        if (engine.kind === 'aj') {
+          const st = engine.ajState as AJLive | null
+          const hasBpm = !!st?.bpm && st.bpm > 0
+          if (ajFreqRef.current) ajFreqRef.current.textContent = st?.freq ? `${Math.round(st.freq)} hz` : '--'
+          if (ajBpmRowRef.current) ajBpmRowRef.current.hidden = !hasBpm
+          if (ajBpmRef.current) ajBpmRef.current.textContent = hasBpm ? `${Math.round(st!.bpm!)}` : '--'
+          if (ajBeatRowRef.current) ajBeatRowRef.current.hidden = hasBpm
+          if (ajBeatRef.current) ajBeatRef.current.textContent = st?.beat ? `${st.beat.toFixed(1)} hz` : '--'
+          if (ajChordRowRef.current) ajChordRowRef.current.hidden = !st?.chord
+          if (ajChordRef.current) ajChordRef.current.textContent = st?.chord ?? ''
+          if (ajPhaseRef.current && st?.section) ajPhaseRef.current.textContent = st.section
         }
         // the layer rows: visible whenever stems are loaded or the stack
         // is open — top ring first, mirroring the drawing
@@ -2768,8 +2797,11 @@ export default function App() {
   useEffect(() => { sceneRef.current?.setTheme(theme) }, [started, theme])
   // AJ gets its own star: the cymatic plate, driven by the root it hears
   useEffect(() => {
-    const sc = sceneRef.current as (Scene & { setVariant?: (v: 'star' | 'aj') => void }) | null
-    sc?.setVariant?.(source === 'aj' ? 'aj' : 'star')
+    const sc = sceneRef.current
+    sc?.setVariant(source === 'aj' ? 'aj' : 'star')
+    // the root belongs to AJ; any other source hands the mode back to the
+    // pitch detector (the frame loop refills it every frame while AJ plays)
+    if (source !== 'aj') sc?.setAJRoot(0)
   }, [started, source])
 
   // ── THE POSTER ────────────────────────────────────────────────────────
@@ -3501,9 +3533,11 @@ export default function App() {
               <dl className={`deck-meta${tuningNext ? ' tuning-next' : ''}`}>
                 {source === 'aj' ? (
                   <>
-                    <div><dt>//freq_</dt><dd className="deck-freq">{aj ? `${aj.freq} hz` : '--'}</dd></div>
-                    <div><dt>//beat_</dt><dd ref={ajBeatRef}>--</dd></div>
-                    <div><dt>//phase_</dt><dd>{aj?.section ?? '--'}</dd></div>
+                    <div><dt>//freq_</dt><dd ref={ajFreqRef} className="deck-freq">{aj?.freq ? `${Math.round(aj.freq)} hz` : '--'}</dd></div>
+                    <div ref={ajBpmRowRef} hidden={!(aj as AJLive | null)?.bpm}><dt>//bpm_</dt><dd ref={ajBpmRef}>--</dd></div>
+                    <div ref={ajBeatRowRef} hidden={!!(aj as AJLive | null)?.bpm}><dt>//beat_</dt><dd ref={ajBeatRef}>--</dd></div>
+                    <div ref={ajChordRowRef} hidden={!(aj as AJLive | null)?.chord}><dt>//chord_</dt><dd ref={ajChordRef} /></div>
+                    <div><dt>//phase_</dt><dd ref={ajPhaseRef}>{aj?.section ?? '--'}</dd></div>
                   </>
                 ) : (
                   <div><dt>//bpm_</dt><dd ref={bpmRef} className="deck-bpm">--</dd></div>
