@@ -61,6 +61,14 @@ const VARIANT_GLIDE = 1.2
  *  sphere, and then morphs over PATTERN_MORPH. */
 const PATTERN_HOLD = 0.25
 const PATTERN_MORPH = 1.6
+/** The snare's ripple: seconds for its front to run pole to pole. */
+const AJ_RIPPLE_T = 0.42
+/** How much of the groove each section of an AJ piece lets through. A break
+ *  drops the drums, so the figure settles; the drop brings them back harder.
+ *  These scale the RESPONSE to hits that were measured -- they never make a
+ *  hit that was not played. */
+const AJ_SECTION_GAIN: Record<string, number> = { intro: 0.7, groove: 1, break: 0.35, drop: 1.2, outro: 0.6 }
+const AJ_SECTION_SPIN: Record<string, number> = { intro: 0.85, groove: 1, break: 0.55, drop: 1.2, outro: 0.7 }
 /** Bound until a real sim is attached. NearestFilter throughout: bilinear
  *  sampling here would silently blend one particle's offset with its
  *  neighbour's. */
@@ -253,6 +261,10 @@ const SHELL_VERT = /* glsl */ `
   uniform float uMorph;
   uniform float uAjAmp;
   uniform float uAjPeak;
+  uniform float uAjGroove;
+  uniform float uAjRip;
+  uniform float uAjRipA;
+  uniform float uAjRipDir;
   // paper: 1 prints the star as a stipple (see PRINT below), 0 is the ink
   // sheet, and every paper line is inside a branch on it
   uniform float uPaper;
@@ -392,15 +404,44 @@ const SHELL_VERT = /* glsl */ `
     // sand lies on the lines, quiet and it lifts off and drifts. A third of
     // the grains settle less firmly than the rest, so the lines read as
     // lines of sand, with sand between them, not as wire.
+    //
+    // THE GROOVE PLAYS THE PLATE. Every term below is a measured voice times
+    // uAjGroove (the section's share, 0 under reduced motion), and every one
+    // decays back to the figure, so between hits it reads as the same
+    // Chladni figure it always was:
+    //   kick  -- the plate pumps: sand jumps off the lines radially (each
+    //            grain its own height, so it reads as sand, not a scaled
+    //            shell) and the bands loosen toward their grains' homes;
+    //   snare -- a ripple runs pole to pole along the harmonic's own axis,
+    //            lifting and shoving the sand it passes;
+    //   hat   -- a re-dealt sparse set of settled grains glints.
     float ajLine = 0.0;
+    float ajRing = 0.0;
+    float ajGlint = 0.0;
+    float ajKick = 0.0;
     if (uAj > 0.001) {
       float sh = fract(aHash * 23.17);
-      float settle = uAjAmp * mix(0.45, 1.0, sh * sh);
+      ajKick = uKick * uAjGroove;
+      float settle = min(1.0, uAjAmp * mix(0.45, 1.0, sh * sh)) * (1.0 - ajKick * 0.36);
       vec3 cd = cymaProject(aDir);
       vec3 ad = normalize(mix(aDir, cd, settle) + vec3(n2, n3, n1) * (1.0 - settle) * 0.035);
       float ra = uR * 0.60 * (0.96 + 0.04 * depth);
+      ra *= 1.0 + ajKick * (0.026 + 0.060 * fract(aHash * 41.3));
+      if (uAjRip >= 0.0) {
+        // latitude measured from the pole the ripple left
+        float lat = acos(clamp(ad.y * uAjRipDir, -1.0, 1.0));
+        float fr = (lat - uAjRip) / 0.19;
+        ajRing = exp(-fr * fr) * uAjRipA;
+        // lift, and a shove toward the far pole: the tangent of -pole
+        vec3 pole = vec3(0.0, uAjRipDir, 0.0);
+        vec3 tg = -pole + ad * dot(ad, pole);
+        ad = normalize(ad + tg * ajRing * 0.035);
+        ra *= 1.0 + ajRing * 0.05;
+      }
       p = mix(p, ad * ra, uAj);
       ajLine = settle;
+      // the hat's glints: one settled grain in fourteen, re-dealt per hat
+      ajGlint = step(0.93, fract(aHash * 91.7 + uHatN * 0.618)) * uHat * uAjGroove * smoothstep(0.35, 0.7, settle);
     }
 
     // THE DISSECTION. Pulled apart, the star shears into stacked survey
@@ -595,8 +636,10 @@ const SHELL_VERT = /* glsl */ `
     // The accent is sparse on purpose -- one grain in six on a settled line,
     // and only while the level swells above its own slow mean (uAjPeak): the
     // pattern glints noon yellow at its peaks and is ink the rest of the time.
-    vGlow = mix(vGlow, (0.10 + 0.55 * ajLine) * tw * uExpo + pullHeat + hoverHeat, uAj);
-    vAccent = uAj * uAjPeak * step(0.83, fract(aHash * 13.7)) * ajLine;
+    // The hits light what they move: the kick a touch of pressure over the
+    // whole figure, the ripple its own front, the hat its glints.
+    vGlow = mix(vGlow, ((0.10 + 0.55 * ajLine) * tw * (1.0 + ajKick * 0.35) + ajRing * 0.40 + ajGlint * 1.5) * uExpo + pullHeat + hoverHeat, uAj);
+    vAccent = uAj * max(uAjPeak * step(0.83, fract(aHash * 13.7)) * ajLine, ajGlint);
     vHash = aHash;
 
     float on = step(fract(aHash * 977.0), uReveal) * step(fract(aHash * 331.7), uDensity);
@@ -651,7 +694,7 @@ const SHELL_VERT = /* glsl */ `
     // pulling its neighbours apart. Law 3 survives: nothing here invents
     // energy, it only redistributes what the passage already has.
     float ps = (1.0 + k * 1.5 + uPulse * 0.35 + uSnap * 0.4 + uKick * 0.25 + vein * 0.6 + glint * 1.3 + dl * 0.7 + scint * 0.45) * (1.0 - uTension * 0.12);
-    ps = mix(ps, 0.9 + 0.5 * ajLine, uAj);
+    ps = mix(ps, 0.9 + 0.5 * ajLine + ajRing * 0.35 + ajGlint * 1.3, uAj);
     gl_PointSize = ps * on
       * (2.75 / max(0.4, -mv.z)) / pow(uZoom, 0.78);
     // paper: a speck is one pixel or two, never a fraction -- a print has no
@@ -1186,7 +1229,20 @@ export class Scene {
   private morphT = 1
   private ajLevel = 0
   private ajSlow = 0
+  /** seconds since the last kick or snare: are drums playing */
+  private ajDrumsAgo = 99
   private ajHz = 0
+  /** what AJ says it is PLAYING: the chord root, the tempo, the section.
+   *  Root 0 = not given, and the detector's pitch stands in. */
+  private ajRoot = 0
+  private ajBpm = 0
+  private ajSection = ''
+  /** the bass against its own mean (bandsRel 0..3), for how tight the sand */
+  private ajBass = 0.5
+  private ajGrooveE = new Env()
+  /** the ripple: seconds since the snare that launched it, -1 idle */
+  private ripT = -1
+  private ripA = 0
   private aheadE = new Env()
   private dissectE = new Env()
   private dissectTarget = 0
@@ -1323,6 +1379,13 @@ export class Scene {
       uMorph: { value: 0 },
       uAjAmp: { value: 0 },
       uAjPeak: { value: 0 },
+      /* the groove on the plate: the section's share of the drums' response
+       * (0 under reduced motion), and the snare ripple -- its front as a
+       * polar angle (-1 idle), its strength, and which pole it left */
+      uAjGroove: { value: 0 },
+      uAjRip: { value: -1 },
+      uAjRipA: { value: 0 },
+      uAjRipDir: { value: 1 },
       // The vocal voice: 0 = no corona; rises with vocal-stem presence.
       uVocal: { value: 0 },
       // THE DISSECTION: 0 = one star, 1 = exploded survey stack. Spring-
@@ -1788,6 +1851,33 @@ export class Scene {
     // AJ reads: level for the settle, and the tone for the mode
     this.ajLevel = f.rms
     this.ajHz = f.pitchConf > 0.3 ? f.pitchHz : 0
+    this.ajBass = (f.bandsRel[0] + f.bandsRel[1] + f.bandsRel[2] + f.bandsRel[3]) / 4
+    if (f.kickHit || f.snareHit) this.ajDrumsAgo = 0
+    // a snare launches the ripple from the pole the last one arrived at, so
+    // a backbeat sweeps the figure down, then up. Its strength is the hit's.
+    if (f.snareHit && (u.uAj.value as number) > 0.001 && !this.calm) {
+      this.ripT = 0
+      this.ripA = Math.min(1, f.snare)
+      u.uAjRipDir.value = -(u.uAjRipDir.value as number)
+    } else if (this.ripT >= 0 && this.ripT < 0.1) {
+      // a hit's envelope can keep climbing for a frame or two after the
+      // onset fires (features.ts: "not a new hit"); the ripple is as strong
+      // as the hit turned out to be, not as its first frame
+      this.ripA = Math.max(this.ripA, Math.min(1, f.snare))
+    }
+  }
+
+  /**
+   * What AJ is actually playing, straight from its generator: the chord
+   * root in Hz (0 = none given, the detector's pitch stands in), the tempo,
+   * and the section. With drums and bass in the mix the detector's pitch
+   * flutters between the kick, the bass and the chord; the root is the
+   * honest reading of which standing wave the plate is being driven at.
+   */
+  setAJRoot(hz: number, bpm = 0, section = '') {
+    this.ajRoot = Number.isFinite(hz) && hz > 0 ? hz : 0
+    this.ajBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 0
+    this.ajSection = section || ''
   }
 
   /**
@@ -2152,6 +2242,10 @@ export class Scene {
    * C5), 396Hz Y(8,5). A tone held gives a held figure; a new tone morphs.
    * No clear tone (pitchConf < 0.3) holds the last figure and lets the sand
    * drift -- the pattern is never invented to fill a gap.
+   *
+   * The tone is the chord root AJ says it is playing (setAJRoot) whenever it
+   * gives one, so each chord change is one morph; the detector's pitch is
+   * the fallback, and the only reading under any other source.
    */
   private stepVariant(dt: number) {
     const u = this.uniforms
@@ -2162,16 +2256,46 @@ export class Scene {
     u.uAj.value = e
     if (e <= 0 && this.ajGo === 0) return
 
-    // settle: the level, sprung slow, over the range tones actually occupy
+    const hz = this.ajRoot > 0 ? this.ajRoot : this.ajHz
+    // settle: the level, sprung slow, over the range tones actually occupy,
+    // times the bass against its own mean. 0.5 is "usual", so an ordinary
+    // bar settles exactly as before; a bass note swelling pulls the loose
+    // grains onto the lines (past 1 the shader clamps each grain, so more
+    // of them sit ON the line rather than any overshooting it), a thin one
+    // lets them lift. No bass at all is no reading (bandsRel is gated to 0
+    // there), so it moves nothing: a drone keeps the figure it always had.
+    // Sprung slower than a kick lasts, so the kick in the same bands does
+    // not read as a bass swell.
     const lvl = Math.max(0, Math.min(1, (this.ajLevel - 0.04) / 0.5))
-    u.uAjAmp.value = Math.max(0, Math.min(1, this.ajAmpE.update(this.ajHz > 0 ? lvl : lvl * 0.35, dt, 2.2)))
-    // peaks: the level swelling above its own 4s mean
+    const bassF = this.ajBass > 0.02 ? 1 + 0.5 * (Math.min(1, this.ajBass) - 0.5) : 1
+    u.uAjAmp.value = Math.max(0, Math.min(1.25, this.ajAmpE.update((hz > 0 ? lvl : lvl * 0.35) * bassF, dt, 2.2)))
+    // the section's share of the groove, eased over about a bar
+    const secG = this.calm ? 0 : AJ_SECTION_GAIN[this.ajSection] ?? 1
+    u.uAjGroove.value = Math.max(0, this.ajGrooveE.update(secG, dt, 1.6))
+    // the ripple's front, pole to pole, spending itself as it goes
+    if (this.ripT >= 0) {
+      this.ripT += dt
+      const x = this.ripT / AJ_RIPPLE_T
+      if (x >= 1.15 || this.calm) {
+        this.ripT = -1
+        u.uAjRip.value = -1
+      } else {
+        u.uAjRip.value = x * Math.PI
+        u.uAjRipA.value = this.ripA * (u.uAjGroove.value as number) * Math.max(0, 1 - x * 0.75)
+      }
+    }
+    // peaks: the level swelling above its own 4s mean -- while no drums are
+    // playing. Under a groove every kick is a spike above that mean, so the
+    // yellow would pulse a beat behind each one; measured drums (a kick or a
+    // snare in the last few seconds) hand the yellow to the hat's glints
+    // instead, and a break gives it back to the tone's own swells.
     this.ajSlow += (this.ajLevel - this.ajSlow) * (1 - Math.exp(-dt / 4))
-    const peak = Math.max(0, Math.min(1, (this.ajLevel - this.ajSlow) / 0.06))
+    this.ajDrumsAgo += dt
+    const peak = Math.max(0, Math.min(1, (this.ajLevel - this.ajSlow) / 0.06)) * Math.max(0, Math.min(1, (this.ajDrumsAgo - 2) / 2))
     u.uAjPeak.value += (peak - u.uAjPeak.value) * (1 - Math.exp(-dt / 0.25))
 
-    if (this.ajHz > 0) {
-      const f = this.ajHz
+    if (hz > 0) {
+      const f = hz
       const l = Math.max(2, Math.min(14, Math.round(2 + (12 * Math.log2(f / 60)) / Math.log2(2000 / 60))))
       const lg = Math.log2(f / 261.63)
       const chroma = lg - Math.floor(lg)
@@ -2197,7 +2321,14 @@ export class Scene {
         }
       }
     }
-    if (this.morphT < 1) this.morphT = Math.min(1, this.morphT + dt / PATTERN_MORPH)
+    // THE MORPH KEEPS TIME. With a tempo, a chord change morphs over two
+    // beats -- a bar in a break, one beat in a drop -- so the figure turns
+    // over with the harmony instead of at a fixed rate beside it.
+    const beatS = this.ajBpm > 0 ? 60 / this.ajBpm : 0
+    const morphS = beatS > 0
+      ? beatS * (this.ajSection === 'break' ? 4 : this.ajSection === 'drop' ? 1 : 2)
+      : PATTERN_MORPH
+    if (this.morphT < 1) this.morphT = Math.min(1, this.morphT + dt / morphS)
     const mt = this.morphT * this.morphT * (3 - 2 * this.morphT)
     ;(u.uYa.value as THREE.Vector2).set(this.modeA.l, this.modeA.m)
     ;(u.uYb.value as THREE.Vector2).set(this.modeB.l, this.modeB.m)
@@ -2268,9 +2399,12 @@ export class Scene {
     // one audible quantity that should read as rotation rather than as a
     // hit), a build winds it up, and AJ turns at 40% so a figure can be read.
     const aj = this.uniforms.uAj.value as number
+    // AJ with a tempo turns with it: 80bpm is the old 40% rate, and the
+    // section leans on it (a break slows the plate, a drop winds it up).
+    const ajSpin = aj > 0 ? (this.ajBpm > 0 ? Math.min(1.4, Math.max(0.7, this.ajBpm / 80)) : 1) * (AJ_SECTION_SPIN[this.ajSection] ?? 1) : 1
     if (!this.calm)
       this.driftT += dt * (0.06 + this.uniforms.uPulse.value * 0.05 * (1 - aj) + (this.uniforms.uSustain.value as number) * 0.03 + (this.uniforms.uTension.value as number) * 0.06) *
-        this.spinDial * (0.75 + warp * 0.25) * (1 + this.bootRev * 5) * (1 - aj * 0.6)
+        this.spinDial * (0.75 + warp * 0.25) * (1 + this.bootRev * 5) * (1 - aj * 0.6) * (1 + (ajSpin - 1) * aj)
     this.cluster.rotation.y = this.driftT + this.ptr.x * 0.6 + this.drag.x
     // Dissected, the view settles into the surveyor's tilt — looking
     // slightly down the axis so the rings read as the drawing's ellipses.
@@ -2282,8 +2416,9 @@ export class Scene {
     // the whole sustained range, which is what makes it read as a flash
     // rather than as the music simply getting louder.
     this.bloom.strength = (0.32 + this.uniforms.uLow.value * 0.3 + this.uniforms.uPulse.value * 0.15) * this.uniforms.uExpo.value * (1 - dis * 0.28)
-      // the kick is light pressure too; the drop's flash stands down in AJ
-      + this.uniforms.uKick.value * 0.12 * (1 - aj)
+      // the kick is light pressure too; the drop's flash stands down in AJ,
+      // where the kick is a softer breath on the plate's groove share
+      + this.uniforms.uKick.value * (0.12 * (1 - aj) + 0.05 * aj * (this.uniforms.uAjGroove.value as number))
       + (this.uniforms.uDrop.value * 0.55 + this.uniforms.uStrong.value * 0.16) * (1 - aj)
     // Persistence leans with the bass: quiet = crisp, heavy = long
     // exposure. A drop adds motion blur on top, so the burst smears and
