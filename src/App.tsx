@@ -5,7 +5,7 @@ import { BeatClock } from './audio/beat'
 import { PAPER_RGB, Scene } from './scope/scene'
 import { Governor } from './scope/governor'
 import { playlist } from './data/tracks'
-import { loadPeaks, peaksFromFile, energyAhead, findDrops, nextDrop, type Drop, type TrackPeaks } from './scope/peaks'
+import { loadPeaks, peaksFromFile, peaksFromStream, streamPeaksStats, energyAhead, findDrops, nextDrop, type Drop, type TrackPeaks } from './scope/peaks'
 import { fetchAudiusRadio, fetchVibe } from './audio/audius'
 import { StemDeck, looksLikeStems, type StemInfo, type StemRole } from './audio/stems'
 import { Decode } from './scope/Decode'
@@ -305,6 +305,19 @@ export default function App() {
   // against a slow fetch landing after the track has already changed.
   const peaksRef = useRef<TrackPeaks | null>(null)
   const peaksGen = useRef(0)
+  // A streamed track's peaks are a background download + decode. Whatever
+  // bumps the generation also cancels that work, so a skip mid-download
+  // stops the download rather than finishing it for a song nobody hears.
+  const peaksAbort = useRef<AbortController | null>(null)
+  // The radio src the current peaks (or the work in flight) belong to;
+  // empty whenever they came from anywhere else.
+  const peaksFor = useRef('')
+  const nextPeaksGen = () => {
+    peaksAbort.current?.abort()
+    peaksAbort.current = null
+    peaksFor.current = ''
+    return ++peaksGen.current
+  }
 
   useEffect(() => {
     tuningRef.current = tuning
@@ -660,25 +673,60 @@ export default function App() {
       if (startedRef.current && tr) {
         setAnnounce({ text: tr.title, key: Date.now() })
       }
-      // Radio tracks ship with build-time peaks; files are decoded at drop
-      // time by their own handlers; a captured tab has no future to read. The file
-      // case must NOT touch the generation counter — this announce fires
-      // after the drop handler already started its decode, and bumping here
-      // was discarding the legitimate result.
+      // The shipped radio set has build-time peaks; a STREAMED radio track
+      // (Audius) has none, so it is fetched and decoded in the background
+      // and its forecast appears when that lands -- mid-track, if need be.
+      // Files are decoded at drop time by their own handlers; a captured
+      // tab has no future to read. The file case must NOT touch the
+      // generation counter — this announce fires after the drop handler
+      // already started its decode, and bumping here was discarding the
+      // legitimate result.
       if (engine.kind === 'file') return
-      const gen = ++peaksGen.current
+      // the same track announced twice keeps what it has, or is fetching
+      if (engine.kind === 'radio' && tr?.src && tr.src === peaksFor.current && (peaksRef.current || peaksAbort.current)) return
+      const gen = nextPeaksGen()
       peaksRef.current = null
       if (engine.kind === 'radio' && tr?.src) {
-        void loadPeaks(tr.src).then((p) => {
-          if (peaksGen.current === gen) peaksRef.current = p
+        const src = tr.src
+        peaksFor.current = src
+        void loadPeaks(src).then((p) => {
+          if (peaksGen.current !== gen) return
+          if (p || !/^https?:/.test(src)) {
+            peaksRef.current = p
+            return
+          }
+          const ac = new AbortController()
+          peaksAbort.current = ac
+          // a beat's grace so the second download never races the
+          // player's own first buffer for the same pipe
+          const wait = setTimeout(() => {
+            void peaksFromStream(src, ac.signal).then((sp) => {
+              if (peaksGen.current === gen && !ac.signal.aborted && engine.el.src === new URL(src, location.href).href) peaksRef.current = sp
+              if (peaksAbort.current === ac) peaksAbort.current = null
+            })
+          }, 800)
+          ac.signal.addEventListener('abort', () => clearTimeout(wait), { once: true })
         })
       }
     }
+    // A skip changes the element's src at once, but the announce waits for
+    // play() to resolve -- over a second on a slow Audius node. In that gap
+    // the deck would print the LAST song's forecast against the new song's
+    // clock, and a background download would keep pulling a song nobody is
+    // hearing. The element starting a new load is the moment they stop
+    // belonging, so that is when they go.
+    engine.el.addEventListener('loadstart', () => {
+      if (engine.kind !== 'radio' || !peaksFor.current) return
+      if (engine.el.src === new URL(peaksFor.current, location.href).href) return
+      nextPeaksGen()
+      peaksRef.current = null
+    })
     if (import.meta.env.DEV) {
       ;(window as unknown as { __eng: AudioEngine }).__eng = engine
       ;(window as unknown as { __splitTest: () => Promise<number> }).__splitTest = splitSelfTest
       ;(window as unknown as { __split7680: typeof split7680Test }).__split7680 = split7680Test
       ;(window as unknown as { __splitNeural: typeof splitNeuralTest }).__splitNeural = splitNeuralTest
+      ;(window as unknown as { __peaks: unknown }).__peaks = { ref: peaksRef, stats: streamPeaksStats, findDrops, loadPeaks, peaksFromStream }
     }
 
     const scene = new Scene(canvas)
@@ -2080,7 +2128,7 @@ export default function App() {
       scene.powerOn()
       engine.unlock()
       void engine.playFile(file)
-      const gen = ++peaksGen.current
+      const gen = nextPeaksGen()
       setDecoding(true)
       void peaksFromFile(file, engine.ctx).then((p) => {
         if (peaksGen.current === gen) {
@@ -4296,7 +4344,7 @@ export default function App() {
             const eng = engineRef.current
             if (eng) {
               void eng.playFile(file)
-              const gen = ++peaksGen.current
+              const gen = nextPeaksGen()
               setDecoding(true)
               void peaksFromFile(file, eng.ctx).then((p) => {
                 if (peaksGen.current === gen) {

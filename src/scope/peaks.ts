@@ -69,6 +69,303 @@ export async function peaksFromFile(file: File, ctx: AudioContext): Promise<Trac
   }
 }
 
+/**
+ * The same reduction again, for a STREAMED radio track (Audius) -- which
+ * ships no build-time peaks, so until this existed the radio never had a
+ * drop forecast at all. The machine fetches the stream a second time in the
+ * background, decodes it, and reads the whole song exactly as it reads a
+ * dropped file. Until it lands there are no peaks, and the deck shows what
+ * it shows with no peaks: nothing guessed (law 3).
+ *
+ * Off the critical path on purpose:
+ *  · decoded by an OfflineAudioContext at PEAK_RATE, mono-downmixed --
+ *    the build-time pass's own rate (scripts/generate-peaks.py), so a
+ *    streamed track is read exactly as a shipped one is. Half the memory
+ *    of a 44.1/48 kHz decode, and the resampling happens inside the
+ *    decoder, not on the main thread. Lower was measured and refused:
+ *    over the 22 shipped tracks, 22.05 kHz reproduces every build-time
+ *    drop within 0.4s; 11 kHz misses two and invents one, 8 kHz misses
+ *    three. A cheaper decode that reads the music wrong is not a saving.
+ *  · the reduction loop yields to the main thread every slice, so even a
+ *    ten-minute track never holds a frame.
+ *  · capped: a stream larger than STREAM_MAX_BYTES, or not downloaded
+ *    within STREAM_MAX_MS, is abandoned (no forecast, not a wrong one).
+ *    STREAM_PROJECT_MS into each try, a download whose own measured rate
+ *    says it cannot finish inside the cap is dropped right then and tried
+ *    again on another content node (STREAM_ATTEMPTS in all): Audius
+ *    redirects every stream to
+ *    one of its nodes, and measured from here some serve ~5 MB/s, some
+ *    ~500 KB/s, and some stall at a few KB for as long as you wait. The
+ *    retry is what turns those last into a forecast instead of nothing;
+ *    the early verdict is what keeps a dead node from costing the full
+ *    cap. Measured over 24 radio tracks: 21 read (most in 2-5s, the
+ *    retried ones in 10-24s), 3 refused after three slow nodes. A forecast
+ *    that lands 15s in is still a forecast: the earliest drop findDrops
+ *    reports is 12s in, and most land far later.
+ *  · `signal` belongs to the track's peaks generation: a skip aborts the
+ *    download or the decode mid-flight.
+ *  · skipped outright when the visitor asked the browser to save data.
+ *  · cached per track (memory, plus a small IndexedDB LRU), so a replay or
+ *    a radio loop round never fetches the same song twice.
+ */
+const PEAK_RATE = 22050
+const PEAK_PPS = 20 // pixels per second, same as build-time and peaksFromFile
+const STREAM_MAX_BYTES = 25 * 1024 * 1024
+const STREAM_MAX_MS = 25000
+const STREAM_PROJECT_MS = 3000
+const STREAM_ATTEMPTS = 3
+const SLICE_SAMPLES = 400_000 // samples touched between yields: a few ms of work
+
+/** Audius serves one track from several discovery hosts; key on the id. */
+function streamKey(url: string): string {
+  const m = url.match(/\/v1\/tracks\/([^/?#]+)\/stream/)
+  return m ? `audius:${m[1]}` : url
+}
+
+const memCache = new Map<string, TrackPeaks>()
+const MEM_MAX = 40
+function memPut(key: string, p: TrackPeaks) {
+  memCache.delete(key)
+  memCache.set(key, p)
+  while (memCache.size > MEM_MAX) memCache.delete(memCache.keys().next().value as string)
+}
+
+// IndexedDB LRU. Every touch is wrapped: private windows, blocked storage
+// and quota errors all degrade to "not cached", never to a thrown error.
+const IDB_NAME = 'scope-peaks'
+const IDB_STORE = 'p'
+const IDB_MAX = 60
+interface IdbRow { key: string; at: number; spp: number; amp: Float32Array }
+let dbP: Promise<IDBDatabase | null> | null = null
+function idb(): Promise<IDBDatabase | null> {
+  return (dbP ??= new Promise<IDBDatabase | null>((res) => {
+    try {
+      const rq = indexedDB.open(IDB_NAME, 1)
+      rq.onupgradeneeded = () => {
+        const s = rq.result.createObjectStore(IDB_STORE, { keyPath: 'key' })
+        s.createIndex('at', 'at')
+      }
+      rq.onsuccess = () => res(rq.result)
+      rq.onerror = () => res(null)
+      rq.onblocked = () => res(null)
+    } catch {
+      res(null)
+    }
+  }))
+}
+async function idbGet(key: string): Promise<TrackPeaks | null> {
+  const db = await idb()
+  if (!db) return null
+  return new Promise((res) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      const s = tx.objectStore(IDB_STORE)
+      const rq = s.get(key)
+      rq.onsuccess = () => {
+        const row = rq.result as IdbRow | undefined
+        if (!row || !(row.amp instanceof Float32Array) || !(row.spp > 0)) return res(null)
+        row.at = Date.now() // LRU touch
+        s.put(row)
+        res({ amp: row.amp, secondsPerPixel: row.spp })
+      }
+      rq.onerror = () => res(null)
+    } catch {
+      res(null)
+    }
+  })
+}
+async function idbPut(key: string, p: TrackPeaks): Promise<void> {
+  const db = await idb()
+  if (!db) return
+  try {
+    const tx = db.transaction(IDB_STORE, 'readwrite')
+    const s = tx.objectStore(IDB_STORE)
+    s.put({ key, at: Date.now(), spp: p.secondsPerPixel, amp: p.amp } satisfies IdbRow)
+    const cnt = s.count()
+    cnt.onsuccess = () => {
+      let extra = cnt.result - IDB_MAX
+      if (extra <= 0) return
+      const cur = s.index('at').openCursor()
+      cur.onsuccess = () => {
+        const c = cur.result
+        if (!c || extra-- <= 0) return
+        c.delete()
+        c.continue()
+      }
+    }
+  } catch {
+    /* not cached; the next play decodes again */
+  }
+}
+
+const yieldToMain = () => new Promise<void>((r) => setTimeout(r, 0))
+
+/** Stats from the last streamed decode -- read by the browser checks. */
+export const streamPeaksStats: { key: string; bytes: number; fetchMs: number; decodeMs: number; reduceMs: number; from: string } =
+  { key: '', bytes: 0, fetchMs: 0, decodeMs: 0, reduceMs: 0, from: '' }
+
+type Got = { data: Uint8Array<ArrayBuffer>; bytes: number } | 'slow' | 'big' | null
+
+/** Another try at the same track lands on another content node: Audius
+ *  picks the node per redirect, and the redirect for the bare URL is
+ *  edge-cached, so a retry with the same URL would meet the same slow node. */
+function reroll(url: string, n: number): string {
+  return /\/v1\/tracks\/[^/?#]+\/stream/.test(url) ? `${url}${url.includes('?') ? '&' : '?'}scope_try=${n}` : url
+}
+
+/** One download, watched. 'slow' when its own measured rate says it cannot
+ *  finish by `endAt` (or nothing has arrived STREAM_PROJECT_MS in); 'big'
+ *  past STREAM_MAX_BYTES; null when it failed or `outer` aborted it. */
+async function downloadOnce(url: string, outer: AbortSignal, endAt: number): Promise<Got> {
+  const ac = new AbortController()
+  const onAbort = () => ac.abort()
+  outer.addEventListener('abort', onAbort, { once: true })
+  const t0 = performance.now()
+  let bytes = 0
+  let declared = 0
+  let tFirst = 0
+  let firstBytes = 0
+  let slow = false
+  // The rate is measured from the first byte, not from the request: the
+  // redirect and the node's time-to-first-byte are paid once, and folding
+  // them into the rate condemned nodes that were merely slow to start.
+  const watch = setInterval(() => {
+    const now = performance.now()
+    let late = now > endAt
+    if (!late && now - t0 > STREAM_PROJECT_MS) {
+      // nothing at all, twice the grace: this node is not serving
+      if (!bytes) late = now - t0 > 2 * STREAM_PROJECT_MS
+      else if (declared && now - tFirst > 1000) {
+        const rate = (bytes - firstBytes) / (now - tFirst)
+        late = rate <= 0 || now + (declared - bytes) / rate > endAt
+      }
+    }
+    if (late) {
+      slow = true
+      ac.abort()
+    }
+  }, 250)
+  try {
+    // no-store is not about freshness. The player is reading this exact
+    // URL, and Chrome's HTTP cache lets one request per URL write at a
+    // time: measured, a second plain fetch sat at zero bytes, no response
+    // headers, until it was abandoned. Bypassing the cache bypasses the lock.
+    const r = await fetch(url, { signal: ac.signal, mode: 'cors', credentials: 'omit', cache: 'no-store' })
+    if (!r.ok || !r.body) return null
+    declared = Number(r.headers.get('content-length') ?? 0)
+    if (declared > STREAM_MAX_BYTES) return 'big'
+    const reader = r.body.getReader()
+    const chunks: Uint8Array[] = []
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!tFirst) {
+        tFirst = performance.now()
+        firstBytes = value.byteLength
+      }
+      bytes += value.byteLength
+      if (bytes > STREAM_MAX_BYTES) return 'big'
+      chunks.push(value)
+    }
+    const data = new Uint8Array(bytes)
+    let o = 0
+    for (const c of chunks) {
+      data.set(c, o)
+      o += c.byteLength
+    }
+    return { data, bytes }
+  } catch {
+    return slow && !outer.aborted ? 'slow' : null
+  } finally {
+    clearInterval(watch)
+    outer.removeEventListener('abort', onAbort)
+    ac.abort() // a 'big' return leaves the body unread; stop it downloading
+  }
+}
+
+export async function peaksFromStream(url: string, signal: AbortSignal): Promise<TrackPeaks | null> {
+  const key = streamKey(url)
+  const hit = memCache.get(key)
+  if (hit) {
+    memPut(key, hit)
+    Object.assign(streamPeaksStats, { key, bytes: 0, fetchMs: 0, decodeMs: 0, reduceMs: 0, from: 'mem' })
+    return hit
+  }
+  const stored = await idbGet(key)
+  if (signal.aborted) return null
+  if (stored) {
+    memPut(key, stored)
+    Object.assign(streamPeaksStats, { key, bytes: 0, fetchMs: 0, decodeMs: 0, reduceMs: 0, from: 'idb' })
+    return stored
+  }
+  // The visitor asked for less data: a second full download of the song
+  // is exactly what they asked us not to do.
+  const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
+  if (conn?.saveData) return null
+  if (typeof OfflineAudioContext === 'undefined') return null
+
+  const tStart = performance.now()
+  const endAt = tStart + STREAM_MAX_MS
+  let got: Got = null
+  let tries = 0
+  try {
+    while (tries < STREAM_ATTEMPTS && !signal.aborted) {
+      got = await downloadOnce(tries ? reroll(url, tries) : url, signal, endAt)
+      tries++
+      if (got !== 'slow') break
+    }
+    if (signal.aborted) return null
+    if (!got || typeof got === 'string') {
+      Object.assign(streamPeaksStats, { key, bytes: 0, fetchMs: 0, decodeMs: 0, reduceMs: 0, from: `refused: ${got === 'big' ? 'too large' : got === 'slow' ? 'too slow' : 'unreachable'} (${tries} tries)` })
+      return null
+    }
+    const { data: whole, bytes } = got
+    const fetchMs = performance.now() - tStart
+    const t1 = performance.now()
+    const oac = new OfflineAudioContext(1, 1, PEAK_RATE)
+    const buf = await oac.decodeAudioData(whole.buffer)
+    if (signal.aborted) return null
+    const decodeMs = performance.now() - t1
+
+    const t2 = performance.now()
+    const chans: Float32Array[] = []
+    for (let c = 0; c < buf.numberOfChannels; c++) chans.push(buf.getChannelData(c))
+    const nc = chans.length
+    const spp = Math.round(buf.sampleRate / PEAK_PPS)
+    const n = Math.floor(buf.length / spp)
+    const amp = new Float32Array(n)
+    const pxPerSlice = Math.max(1, Math.floor(SLICE_SAMPLES / (spp * nc)))
+    for (let i0 = 0; i0 < n; i0 += pxPerSlice) {
+      const i1 = Math.min(n, i0 + pxPerSlice)
+      for (let i = i0; i < i1; i++) {
+        let m = 0
+        const end = (i + 1) * spp
+        for (let s = i * spp; s < end; s++) {
+          // mono downmix, as the build-time ffmpeg pass does (-ac 1)
+          let v = 0
+          for (let c = 0; c < nc; c++) v += chans[c][s]
+          v = Math.abs(v / nc)
+          if (v > m) m = v
+        }
+        amp[i] = m
+      }
+      if (i1 < n) {
+        await yieldToMain()
+        if (signal.aborted) return null
+      }
+    }
+    const p: TrackPeaks = { amp, secondsPerPixel: spp / buf.sampleRate }
+    Object.assign(streamPeaksStats, { key, bytes, fetchMs, decodeMs, reduceMs: performance.now() - t2, from: tries > 1 ? `net (${tries} tries)` : 'net' })
+    memPut(key, p)
+    void idbPut(key, p)
+    return p
+  } catch {
+    // undecodable: no forecast, and nothing to say about the music
+    if (!signal.aborted) Object.assign(streamPeaksStats, { key, from: 'refused: will not decode' })
+    return null
+  }
+}
+
 /** Mean upcoming energy over the next `windowSec`, 0..1 — the pre-arm feed. */
 export function energyAhead(p: TrackPeaks, progress: number, windowSec: number): number {
   const n = p.amp.length
