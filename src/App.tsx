@@ -12,6 +12,7 @@ import { Decode } from './scope/Decode'
 import { Onboard, shouldOnboard, type TourOps } from './ui/Onboard'
 import { renderPoster } from './ui/poster'
 import { clip } from './text'
+import { pixelSwitch } from './ui/pixelSwitch'
 import { Tube, HINDI, parseVideoId, searchTube, type TubeState, type TubeHit } from './audio/tube'
 import { splitTrack, splitSelfTest, split7680Test, splitNeuralTest } from './audio/split'
 import { EnergyTracker } from './audio/energy'
@@ -100,7 +101,7 @@ export default function App() {
   const [volume, setVolume] = useState(0.8)
   const [muted, setMuted] = useState(false)
   const [diag, setDiag] = useState(false)
-  const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1 })
+  const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1, ink: 1, reg: 0 })
   /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
@@ -321,7 +322,7 @@ export default function App() {
 
   useEffect(() => {
     tuningRef.current = tuning
-    sceneRef.current?.setTuning(tuning.turb, tuning.expo, tuning.spin)
+    sceneRef.current?.setTuning(tuning.turb, tuning.expo, tuning.spin, tuning.ink, tuning.reg)
   }, [tuning])
 
   // The jukebox plate only exists while source === 'tube', so mounting is
@@ -2226,9 +2227,9 @@ export default function App() {
             return nv
           })
           break
-        case 'Digit1': setTuning({ turb: 0.6, expo: 0.8, spin: 0.5 }); break
-        case 'Digit2': setTuning({ turb: 1, expo: 1, spin: 1 }); break
-        case 'Digit3': setTuning({ turb: 1.6, expo: 1.3, spin: 1.8 }); break
+        case 'Digit1': setTuning((t) => ({ ...t, turb: 0.6, expo: 0.8, spin: 0.5 })); break
+        case 'Digit2': setTuning((t) => ({ ...t, turb: 1, expo: 1, spin: 1 })); break
+        case 'Digit3': setTuning((t) => ({ ...t, turb: 1.6, expo: 1.3, spin: 1.8 })); break
         case 'KeyR': void eng.playRadio(); break
         // shift on the three that are disruptive from a stray keystroke:
         // f opens a file picker, t opens the browser's share picker, and
@@ -2824,7 +2825,8 @@ export default function App() {
   }
 
   // ── THE GROUND ────────────────────────────────────────────────────────
-  const applyTheme = (t: 'ink' | 'paper') => {
+  // the swap itself, instant: every token, the scene, the PiP, the saved ground
+  const setGround = (t: 'ink' | 'paper') => {
     if (t === 'paper') document.documentElement.dataset.theme = 'paper'
     else delete document.documentElement.dataset.theme
     // the canvases cache the inks as strings; re-read them for the new ground
@@ -2839,6 +2841,19 @@ export default function App() {
     }
     try { localStorage.setItem('scope-theme-v1', t) } catch { /* private mode */ }
     setThemeState(t)
+  }
+  // the change a visitor sees: the new ground laid down over the old in the
+  // instrument's own cells, rippling out from whatever asked for it (see
+  // ui/pixelSwitch), with the swap made while it is fully covered
+  const applyTheme = (t: 'ink' | 'paper', from?: Element | { x: number; y: number } | null) => {
+    const now = document.documentElement.dataset.theme === 'paper' ? 'paper' : 'ink'
+    if (t === now) return
+    let origin: { x: number; y: number } | undefined
+    if (from instanceof Element) {
+      const r = from.getBoundingClientRect()
+      origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    } else if (from) origin = from
+    pixelSwitch(t, () => setGround(t), origin)
   }
   themeKeyRef.current = () => applyTheme(theme === 'paper' ? 'ink' : 'paper')
   // the scene is built after first render, so it learns the saved ground here
@@ -3384,9 +3399,9 @@ export default function App() {
               <div className="pl-row"><span className="k">//density_</span><Meter /></div>
 
               <div className="pl-dials">
-                <Dial v={tuning.turb} cap="turb" onChange={(f) => setTuning((t) => ({ ...t, turb: f(t.turb) }))} />
-                <Dial v={tuning.expo} cap="expo" onChange={(f) => setTuning((t) => ({ ...t, expo: f(t.expo) }))} />
-                <Dial v={tuning.spin} cap="spin" onChange={(f) => setTuning((t) => ({ ...t, spin: f(t.spin) }))} />
+                {visualDials(theme).map((k) => (
+                  <Dial key={k} {...DIALS[k]} v={tuning[k]} onChange={(f) => setTuning((t) => ({ ...t, [k]: f(t[k]) }))} />
+                ))}
               </div>
 
               {/* the scale is drawn; the needle stays parked until there is
@@ -4136,11 +4151,11 @@ export default function App() {
                 inputs rendering the same three parameters in a second
                 vocabulary — one product cannot hold two. */}
             <div className="pl-dials console-dials">
-              {([['turb', 'turb'], ['expo', 'expo'], ['spin', 'spin']] as const).map(([k, label]) => (
+              {visualDials(theme).map((k) => (
                 <Dial
                   key={k}
+                  {...DIALS[k]}
                   v={tuning[k]}
-                  cap={label}
                   onChange={(f) => setTuning((t) => ({ ...t, [k]: f(t[k]) }))}
                 />
               ))}
@@ -4156,12 +4171,12 @@ export default function App() {
                 if (!/^Arrow(Up|Down|Left|Right)$/.test(e.key)) return
                 e.preventDefault()
                 const next = theme === 'ink' ? 'paper' : 'ink'
-                applyTheme(next)
+                applyTheme(next, e.currentTarget.querySelector(`[data-ground="${next}"]`))
                 ;(e.currentTarget.querySelector(`[data-ground="${next}"]`) as HTMLElement | null)?.focus()
               }}
             >
-              <button role="radio" data-ground="ink" tabIndex={theme === 'ink' ? 0 : -1} aria-checked={theme === 'ink'} className={theme === 'ink' ? 'on' : ''} onClick={() => applyTheme('ink')}>ink</button>
-              <button role="radio" data-ground="paper" tabIndex={theme === 'paper' ? 0 : -1} aria-checked={theme === 'paper'} className={theme === 'paper' ? 'on' : ''} onClick={() => applyTheme('paper')}>paper</button>
+              <button role="radio" data-ground="ink" tabIndex={theme === 'ink' ? 0 : -1} aria-checked={theme === 'ink'} className={theme === 'ink' ? 'on' : ''} onClick={(e) => applyTheme('ink', e.currentTarget)}>ink</button>
+              <button role="radio" data-ground="paper" tabIndex={theme === 'paper' ? 0 : -1} aria-checked={theme === 'paper'} className={theme === 'paper' ? 'on' : ''} onClick={(e) => applyTheme('paper', e.currentTarget)}>paper</button>
             </div>
             <div className="cells c1">
               {/* aria-disabled + aria-busy, not `disabled`: a disabled
@@ -4538,30 +4553,59 @@ const DIAL_STEP = 0.05
 function Dial({
   v,
   cap,
+  label,
   onChange,
+  min = DIAL_MIN,
+  max = DIAL_MAX,
+  home = 1,
+  n = 36,
+  isMajor = (i: number) => (i + 5) % 10 === 0,
 }: {
   v: number
   cap: string
+  label?: string
   /** takes an updater, so held arrow keys accumulate instead of racing renders */
   onChange: (next: (prev: number) => number) => void
+  min?: number
+  max?: number
+  home?: number
+  n?: number
+  isMajor?: (i: number) => boolean
 }) {
   return (
     <Trim
       className="pl-dial"
       cap={cap}
+      label={label}
       v={v}
-      min={DIAL_MIN}
-      max={DIAL_MAX}
+      min={min}
+      max={max}
       step={DIAL_STEP}
-      home={1}
-      // a tick every 0.05 from 0.25; long ones on 50 / 100 / 150 / 200
-      n={36}
-      isMajor={(i) => (i + 5) % 10 === 0}
-      fmt={(n) => String(Math.round(n * 100))}
+      home={home}
+      // default: a tick every 0.05 from 0.25; long ones on 50 / 100 / 150 / 200
+      n={n}
+      isMajor={isMajor}
+      fmt={(x) => String(Math.round(x * 100))}
       onChange={onChange}
     />
   )
 }
+
+/** The visual trims, per ground. Ink shapes light: turbulence and
+ *  exposure. Paper has no light to expose and a print does not churn, so
+ *  it trades them for the press's own two: ink (how much the plate takes)
+ *  and register (how far the yellow plate has slipped off the black). */
+type DialKey = 'turb' | 'expo' | 'spin' | 'ink' | 'reg'
+const DIALS: Record<DialKey, { cap: string; label?: string; min?: number; max?: number; home?: number; n?: number; isMajor?: (i: number) => boolean }> = {
+  turb: { cap: 'turb' },
+  expo: { cap: 'expo' },
+  spin: { cap: 'spin' },
+  ink: { cap: 'ink', label: 'ink (how heavily the star prints)' },
+  // 0..1 on the trims' own ruler: 0 / 25 / 50 / 75 / 100, home at 0
+  reg: { cap: 'reg', label: 'register (slips the yellow plate off the black)', min: 0, max: 1, home: 0, n: 41, isMajor: (i) => i % 10 === 0 },
+}
+const visualDials = (theme: 'ink' | 'paper'): DialKey[] =>
+  theme === 'paper' ? ['ink', 'reg', 'spin'] : ['turb', 'expo', 'spin']
 
 /** a tick every 2.5% of travel, a long one every quarter: 0..1 reads
  *  0 / 25 / 50 / 75 / 100 and 0.5..1.5 reads 50 / 75 / 100 / 125 / 150 */

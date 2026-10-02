@@ -1123,6 +1123,13 @@ function paperShader() {
       uDot: { value: 1 },
       // the spot plate's cut: the summed weight of hot discs a pixel needs
       uSpotT: { value: 0.35 },
+      // REGISTER: the yellow plate's offset from the black, in uv; how far
+      // its tint impression has come in (0..1); and the black density at
+      // which that tint's dots reach full size (see printBudget). Zero
+      // offset and zero tint is a press in perfect register.
+      uReg: { value: new THREE.Vector2(0, 0) },
+      uRegA: { value: 0 },
+      uRegCut: { value: 0.2 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -1142,6 +1149,9 @@ function paperShader() {
       uniform float uRingA;
       uniform float uDot;
       uniform float uSpotT;
+      uniform vec2 uReg;
+      uniform float uRegA;
+      uniform float uRegCut;
       varying vec2 vUv;
       void main() {
         vec2 c = texture2D(tDiffuse, vUv).rg;
@@ -1161,10 +1171,39 @@ function paperShader() {
           float cross = (step(a.y, 0.5) * step(a.x, 9.0) + step(a.x, 0.5) * step(a.y, 9.0)) * step(2.5, max(a.x, a.y));
           col = mix(col, uLine, clamp(max(ring, cross), 0.0, 1.0) * uRingA);
         }
+        // the yellow plate is pulled from the frame at the register offset
+        // (zero in register): everything on it is read at q, not vUv
+        vec2 q = vUv - uReg;
         // the spot plate: the hot particles' soft discs summed into a
         // density field, cut at one level -- a flat plate with a clean edge
         // wherever the hottest matter crowds, and nowhere else
-        if (c.y > uSpotT) col = uMark;
+        bool yellow = texture2D(tDiffuse, q).g > uSpotT;
+        // the TINT plate, only while register is dialled in: a screened
+        // yellow impression of the black image, slipped off it. Not a copy
+        // of the specks -- that, slipped two pixels, is a yellow fringe on
+        // every speck, chromatic aberration, a fault in the file and not
+        // the press. A printer would separate the black's TONE: its density
+        // over an 11 css px disc (24 taps on a golden-angle spiral), screened
+        // as a 4 css px halftone at 0deg, the angle yellow is given because
+        // it is the colour the eye resolves least. The dots grow with the
+        // density toward 36% coverage, so the body carries a pale ground of
+        // yellow that thins out at the limb, and the slip shows where it
+        // should: a lip of yellow past the black at the down-right edge, a
+        // margin of bare paper at the top-left.
+        if (!yellow && uRegA > 0.001) {
+          float tint = 0.0;
+          float r = 11.0 * uDot;
+          for (int i = 0; i < 24; i++) {
+            float fi = float(i) + 0.5;
+            float a = fi * 2.39996323;
+            tint += texture2D(tDiffuse, q + vec2(cos(a), sin(a)) * sqrt(fi / 24.0) * r * uTexel).r;
+          }
+          float f = smoothstep(0.02, uRegCut, tint / 24.0) * 0.36 * uRegA;
+          // the screen is on the plate, so it travels with the slip
+          vec2 g = fract(q / uTexel / (4.0 * uDot)) - 0.5;
+          yellow = length(g) < sqrt(f / 3.14159265);
+        }
+        if (yellow) col = uMark;
         // the black plate, last: a speck prints over everything under it
         if (c.x > 0.5) col = uInk;
         gl_FragColor = vec4(col, 1.0);
@@ -1708,9 +1747,16 @@ export class Scene {
     // toward whole as well as the speck grown, so it keeps its presence
     // behind the title instead of thinning to dust
     this.stageW += (this.stageGo - this.stageW) * 0.08
-    u.uPrintArea.value = Math.min(1, Math.max(0.03, cov * (1 + 0.8 * this.stageW)))
+    // INK, the press's first dial: how much the plate takes. It scales the
+    // chance a particle prints (a light proof drops the faint matter
+    // first) and, past its detent, the count lifts toward whole and more
+    // specks take the bigger die -- a heavy impression, still never a fill.
+    const ink = this.dials.ink
+    u.uPrint.value = 9 * ink
+    u.uPrintArea.value = Math.min(1, Math.max(0.03, cov * (1 + 0.8 * this.stageW) * Math.min(1.5, ink)))
     const extra = Math.max(0, cov - 1)
-    u.uBold.value = Math.min(1, Math.max(0.55 * (1 - Math.exp(-extra / 0.8)), 0.6 * this.stageW))
+    const heavy = Math.max(0, ink - 1) * 0.7
+    u.uBold.value = Math.min(1, Math.max(0.55 * (1 - Math.exp(-extra / 0.8)), 0.6 * this.stageW, heavy))
     // the spot plate's gate: a real drop, or an AJ figure at its peak --
     // exactly the two moments the ink sheet puts yellow into the star
     const aj = u.uAj.value as number
@@ -1723,6 +1769,36 @@ export class Scene {
     }
     pu.uDot.value = dot
     pu.uTexel.value.set(1 / Math.max(1, rt.width), 1 / Math.max(1, rt.height))
+    // REGISTER, the second: the yellow plate slips off the black by up to
+    // 7 CSS px, down and to the right the way a sheet creeps in the press,
+    // and as it slips it prints its tint (the paper shader's TINT plate),
+    // so the slip has a shape to show. The slip breathes slowly on its
+    // own, and a transient knocks it a little further -- through its own
+    // envelope, quick out and slow home, because a plate that jumped back
+    // on the next frame would read as a glitch, not a press taking a hit.
+    // At zero it is dead still and in register, and the yellow is only
+    // the spot.
+    const reg = this.dials.reg
+    const snap = u.uSnap.value as number
+    this.regKnock += (snap - this.regKnock) * (snap > this.regKnock ? 0.3 : 0.035)
+    const rp = this.paper.uniforms as { uReg: { value: THREE.Vector2 }; uRegA: { value: number }; uRegCut: { value: number } }
+    if (reg > 0.001) {
+      const t = u.uTime.value as number
+      const kn = this.regKnock
+      const mag = reg * (7 + kn * 3) * (0.85 + 0.15 * Math.sin(t * 0.37))
+      const ang = -0.62 + 0.18 * Math.sin(t * 0.23) + kn * 0.2
+      rp.uReg.value.set((Math.cos(ang) * mag * dot) / rt.width, (Math.sin(ang) * mag * dot) / rt.height)
+      // the tint comes in over the first third of the dial, its dots
+      // growing from nothing, so 0.01 is not a whole disc of yellow
+      rp.uRegA.value = Math.min(1, reg / 0.35)
+      // its tone is the black's density, and INK moves that: the cut
+      // follows the dial so a light proof keeps its yellow and a heavy
+      // one does not saturate it -- the two plates are inked separately
+      rp.uRegCut.value = 0.2 * Math.min(1.6, Math.max(0.35, ink))
+    } else {
+      rp.uReg.value.set(0, 0)
+      rp.uRegA.value = 0
+    }
     this.cluster.updateMatrixWorld()
     const k = this.cluster.matrixWorld.getMaxScaleOnAxis()
     const R = (u.uR.value as number) * (0.6 + (u.uLow.value as number) * 0.16) * k
@@ -1767,6 +1843,7 @@ export class Scene {
     this.after.enabled = !paper
     this.renderer.setClearColor(paper ? 0x000000 : 0x0a0a0a, 1)
     this.uniforms.uPaper.value = paper ? 1 : 0
+    this.applyDials()
     // The constellation's chords include every index-delta-1 pair, and on a
     // fibonacci lattice those sit a golden angle apart: long horizontal
     // strokes across the whole body. As light on black they are a faint
@@ -1780,11 +1857,23 @@ export class Scene {
     return this._theme
   }
 
-  /** Owner tuning: turbulence / exposure / spin, each 0.25..2. */
-  setTuning(turb: number, expo: number, spin: number) {
-    this.uniforms.uTurb.value = turb
-    this.uniforms.uExpo.value = expo
+  /** Owner tuning: turbulence / exposure / spin, each 0.25..2, and the
+   *  paper's own two -- ink (0.25..2) and register (0..1). A ground uses
+   *  its own pair: paper has no light to expose and a print does not
+   *  churn, so on paper turb and expo sit at their detents, and on ink the
+   *  press dials do nothing. */
+  setTuning(turb: number, expo: number, spin: number, ink = 1, reg = 0) {
+    this.dials = { turb, expo, ink, reg }
     this.spinDial = spin
+    this.applyDials()
+  }
+  private dials = { turb: 1, expo: 1, ink: 1, reg: 0 }
+  /** the register's transient knock, enveloped (see printBudget) */
+  private regKnock = 0
+  private applyDials() {
+    const paper = this._theme === 'paper'
+    this.uniforms.uTurb.value = paper ? 1 : this.dials.turb
+    this.uniforms.uExpo.value = paper ? 1 : this.dials.expo
   }
 
   /** Adaptive quality: q<1 halves the workload twice over — fewer
