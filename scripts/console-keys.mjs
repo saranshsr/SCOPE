@@ -172,13 +172,14 @@ for (const c of cases) {
 // suppressed the button's own activation and MUTE, SKIP, SPLIT, the sources
 // and the tour's NEXT all toggled playback instead of firing.
 // The dials are 04 · VISUALS in the rail, always rendered -- .console-dials
-// holds the three Dial components, each role="slider" with aria-label={cap}.
+// holds the three Dial components, each role="slider" whose aria-label is
+// its plain-words label, "turbulence (how wild the field moves)" for turb.
 // This used to open a `.strip` tab and focus `.panel.open [role=slider]`,
 // both dome.html names, so the focus() found nothing and the arrow keys
 // went to the page instead of the control. That was the whole of this
 // check's one failure: the other eleven key cases were passing.
 const focused = await p.evaluate(() => {
-  const d = document.querySelector('.console-dials [role="slider"][aria-label="turb"]')
+  const d = document.querySelector('.console-dials [role="slider"][aria-label^="turbulence"]')
   if (!(d instanceof HTMLElement)) return false
   d.scrollIntoView({ block: 'nearest' })
   d.focus()
@@ -186,7 +187,7 @@ const focused = await p.evaluate(() => {
 })
 if (!focused) {
   console.error('console-keys: the turb dial could not be focused at ' +
-    '`.console-dials [role="slider"][aria-label="turb"]`, so the focused-control ' +
+    '`.console-dials [role="slider"][aria-label^="turbulence"]`, so the focused-control ' +
     'case was never exercised and this run proves nothing about it.')
   await b.close(); process.exit(1)
 }

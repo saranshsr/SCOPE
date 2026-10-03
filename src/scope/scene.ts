@@ -19,6 +19,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
 import { AfterimagePass } from 'three/examples/jsm/postprocessing/AfterimagePass.js'
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 import { ParticleSim } from './sim'
 import type { Features } from '../audio/features'
 
@@ -1130,6 +1131,9 @@ function paperShader() {
       uReg: { value: new THREE.Vector2(0, 0) },
       uRegA: { value: 0 },
       uRegCut: { value: 0.2 },
+      // the black's tone for the tint, measured at quarter area by
+      // TintDensityPass (bound in the Scene constructor)
+      tDensity: { value: null as THREE.Texture | null },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -1152,6 +1156,7 @@ function paperShader() {
       uniform vec2 uReg;
       uniform float uRegA;
       uniform float uRegCut;
+      uniform sampler2D tDensity;
       varying vec2 vUv;
       void main() {
         vec2 c = texture2D(tDiffuse, vUv).rg;
@@ -1190,15 +1195,17 @@ function paperShader() {
         // yellow that thins out at the limb, and the slip shows where it
         // should: a lip of yellow past the black at the down-right edge, a
         // margin of bare paper at the top-left.
-        if (!yellow && uRegA > 0.001) {
-          float tint = 0.0;
-          float r = 11.0 * uDot;
-          for (int i = 0; i < 24; i++) {
-            float fi = float(i) + 0.5;
-            float a = fi * 2.39996323;
-            tint += texture2D(tDiffuse, q + vec2(cos(a), sin(a)) * sqrt(fi / 24.0) * r * uTexel).r;
-          }
-          float f = smoothstep(0.02, uRegCut, tint / 24.0) * 0.36 * uRegA;
+        //
+        // The density itself is NOT measured here. 24 taps a pixel, on
+        // every pixel of a 2x buffer, more than doubled paper's frame (2.9
+        // ms at REG 0 against 6.4-7.1 with the tint in, feel audit) -- for
+        // a field that is a blur over 11 css px and cannot change inside 2.
+        // TintDensityPass measures it once per 2x2 css px, the same 24-tap
+        // spiral, and this reads it back with one filtered tap. And only
+        // where it can show: a pixel the black plate is about to cover
+        // (c.x > 0.5) never needs its tint.
+        if (!yellow && uRegA > 0.001 && c.x <= 0.5) {
+          float f = smoothstep(0.02, uRegCut, texture2D(tDensity, q).r) * 0.36 * uRegA;
           // the screen is on the plate, so it travels with the slip
           vec2 g = fract(q / uTexel / (4.0 * uDot)) - 0.5;
           yellow = length(g) < sqrt(f / 3.14159265);
@@ -1225,6 +1232,94 @@ class Env {
   }
 }
 
+/** THE TINT'S TONE, measured once per 2x2 css px instead of per pixel.
+ *
+ *  The REG tint plate screens the black plate's DENSITY: the share of
+ *  speck over an 11 css px disc, 24 taps on a golden-angle spiral. That
+ *  estimate used to run inside the paper pass, per pixel -- 24 texture
+ *  reads on each of 5.2M pixels of a 2x buffer -- and it more than doubled
+ *  paper's frame. But it is a blur 22 px across: sampled every 2 css px
+ *  and filtered back up it is the same field, and the screen that turns it
+ *  into dots is 4 css px, coarser still. So this pass runs the same spiral
+ *  into a target a quarter the area in css terms (a sixteenth of the 2x
+ *  buffer's pixels) and the paper pass reads it with one bilinear tap.
+ *
+ *  The spiral's offsets are constants, computed here once -- no per-pixel
+ *  cos, sin or sqrt -- in css px, scaled to the buffer by uDot x uTexel.
+ *  It writes nothing to the composer's buffers (needsSwap = false): it
+ *  only reads the frame the paper pass is about to read, and is enabled
+ *  only while the tint is in (printBudget), so REG 0 costs nothing. */
+const TINT_TAPS = 24
+const TINT_R = 11
+class TintDensityPass extends Pass {
+  readonly target: THREE.WebGLRenderTarget
+  private quad: FullScreenQuad
+  private mat: THREE.ShaderMaterial
+  /** buffer px per css px, from printBudget (the paper pass's own uDot) */
+  dot = 1
+  constructor() {
+    super()
+    this.needsSwap = false
+    this.target = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+    })
+    const taps: THREE.Vector2[] = []
+    for (let i = 0; i < TINT_TAPS; i++) {
+      const fi = i + 0.5
+      const a = fi * 2.39996323
+      const rr = Math.sqrt(fi / TINT_TAPS) * TINT_R
+      taps.push(new THREE.Vector2(Math.cos(a) * rr, Math.sin(a) * rr))
+    }
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: {
+        tDiffuse: { value: null },
+        uTaps: { value: taps },
+        // one css px, in the SOURCE buffer's uv
+        uCss: { value: new THREE.Vector2(1 / 1024, 1 / 1024) },
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D tDiffuse;
+        uniform vec2 uTaps[${TINT_TAPS}];
+        uniform vec2 uCss;
+        varying vec2 vUv;
+        void main() {
+          float tint = 0.0;
+          for (int i = 0; i < ${TINT_TAPS}; i++) tint += texture2D(tDiffuse, vUv + uTaps[i] * uCss).r;
+          gl_FragColor = vec4(vec3(tint / ${TINT_TAPS}.0), 1.0);
+        }
+      `,
+      depthTest: false,
+      depthWrite: false,
+    })
+    this.quad = new FullScreenQuad(this.mat)
+  }
+  render(renderer: THREE.WebGLRenderer, _write: THREE.WebGLRenderTarget, read: THREE.WebGLRenderTarget) {
+    // one texel per 2 css px, whatever the device ratio
+    const step = 2 * Math.max(1, this.dot)
+    const w = Math.max(1, Math.ceil(read.width / step))
+    const h = Math.max(1, Math.ceil(read.height / step))
+    if (this.target.width !== w || this.target.height !== h) this.target.setSize(w, h)
+    this.mat.uniforms.tDiffuse.value = read.texture
+    ;(this.mat.uniforms.uCss.value as THREE.Vector2).set(this.dot / read.width, this.dot / read.height)
+    renderer.setRenderTarget(this.target)
+    this.quad.render(renderer)
+  }
+  dispose() {
+    this.target.dispose()
+    this.mat.dispose()
+    this.quad.dispose()
+  }
+}
+
 export class Scene {
   private renderer: THREE.WebGLRenderer
   private scene = new THREE.Scene()
@@ -1234,6 +1329,8 @@ export class Scene {
   private bloom: UnrealBloomPass
   private after!: AfterimagePass
   private paper!: ShaderPass
+  /** the REG tint's density, a quarter-area pre-pass (see TintDensityPass) */
+  private tintDensity!: TintDensityPass
   /** the constellation, which paper does not print (see setTheme) */
   private links!: THREE.LineSegments
   private _theme: 'ink' | 'paper' = 'ink'
@@ -1697,6 +1794,12 @@ export class Scene {
     // same draw calls as before this pass existed.
     this.paper = new ShaderPass(paperShader())
     this.paper.enabled = false
+    // the tint's tone, measured just before the paper pass reads the same
+    // frame; off until REG asks for it (printBudget), and off on ink
+    this.tintDensity = new TintDensityPass()
+    this.tintDensity.enabled = false
+    this.composer.addPass(this.tintDensity)
+    this.paper.uniforms.tDensity.value = this.tintDensity.target.texture
     this.composer.addPass(this.paper)
     // Without this the uniform keeps its initial 1 and the whole reserve
     // renders at zoom 1 — double the intended cost, zero headroom left.
@@ -1752,8 +1855,17 @@ export class Scene {
     // first) and, past its detent, the count lifts toward whole and more
     // specks take the bigger die -- a heavy impression, still never a fill.
     const ink = this.dials.ink
-    u.uPrint.value = 9 * ink
-    u.uPrintArea.value = Math.min(1, Math.max(0.03, cov * (1 + 0.8 * this.stageW) * Math.min(1.5, ink)))
+    // Below its detent the dial has a FLOOR. Scaled straight, INK 25 cut
+    // both levers to a quarter -- a quarter of the count, each printing at
+    // a quarter of the rate -- and the two multiply: measured 4k black px
+    // against 31k at home, a scatter of dust with no limb, no longer a
+    // sphere. A light proof is a starved impression, not an absent one:
+    // the press still lays the shape down, it just lays it thin. So the
+    // light half of the travel runs from 0.55 to 1 of the home impression
+    // (0.4 + 0.6 * ink), and above the detent it is the dial itself.
+    const lean = ink < 1 ? 0.4 + 0.6 * ink : ink
+    u.uPrint.value = 9 * lean
+    u.uPrintArea.value = Math.min(1, Math.max(0.03, cov * (1 + 0.8 * this.stageW) * Math.min(1.5, lean)))
     const extra = Math.max(0, cov - 1)
     const heavy = Math.max(0, ink - 1) * 0.7
     u.uBold.value = Math.min(1, Math.max(0.55 * (1 - Math.exp(-extra / 0.8)), 0.6 * this.stageW, heavy))
@@ -1785,20 +1897,43 @@ export class Scene {
     if (reg > 0.001) {
       const t = u.uTime.value as number
       const kn = this.regKnock
-      const mag = reg * (7 + kn * 3) * (0.85 + 0.15 * Math.sin(t * 0.37))
+      // ONE CURVE FOR BOTH. The tint used to come in over the first 35% of
+      // the travel and sit at full from there, while the slip went on
+      // growing linearly -- so the top two thirds of the dial only moved
+      // the plate, and REG 30 already looked like REG 100. Now the tint's
+      // coverage and the slip ride the same eased curve, x^0.8: a hair
+      // ahead of linear, so 10 is already a visible tint and not nothing,
+      // and still climbing at 100, so every step of the dial reads. The
+      // dots still grow from nothing (the curve leaves 0 at 0), so 1 is
+      // not a whole disc of yellow.
+      const regE = Math.pow(reg, 0.8)
+      const mag = regE * (7 + kn * 3) * (0.85 + 0.15 * Math.sin(t * 0.37))
       const ang = -0.62 + 0.18 * Math.sin(t * 0.23) + kn * 0.2
       rp.uReg.value.set((Math.cos(ang) * mag * dot) / rt.width, (Math.sin(ang) * mag * dot) / rt.height)
-      // the tint comes in over the first third of the dial, its dots
-      // growing from nothing, so 0.01 is not a whole disc of yellow
-      rp.uRegA.value = Math.min(1, reg / 0.35)
-      // its tone is the black's density, and INK moves that: the cut
-      // follows the dial so a light proof keeps its yellow and a heavy
-      // one does not saturate it -- the two plates are inked separately
-      rp.uRegCut.value = 0.2 * Math.min(1.6, Math.max(0.35, ink))
+      // THE TINT FOLLOWS THE INK. Its tone is the black's density, and the
+      // cut used to follow INK DOWN as well as up (0.2 x 0.35 at INK 25),
+      // so the thinner the black the sooner the yellow hit full -- at INK
+      // 25 + REG 100 the sheet was 13k px yellow over 5k of black: a yellow
+      // star with ink dust on it, yellow standing on its own, which the
+      // paper rule forbids (yellow is a field UNDER ink, never the image).
+      // Now the cut only rises: above the detent it lifts with the dial so
+      // a heavy proof does not flood the tint, and below it stays at home,
+      // so a starved black gives a starved tone. And the tint's coverage
+      // is scaled by the ink, sqrt(min(1, ink)): a light proof gets a
+      // light tint, never more yellow than black. The root, not the ink
+      // itself, because the tint is a SCREEN: dot radius goes as the root
+      // of coverage, and at INK 25 x REG 30 a straight 0.25 left dots a
+      // tenth of a pixel across -- no dot lands on a pixel and the dial
+      // reads dead. Halved coverage still clears a pixel.
+      rp.uRegA.value = regE * Math.sqrt(Math.min(1, ink))
+      rp.uRegCut.value = 0.2 * Math.min(1.6, Math.max(1, ink))
     } else {
       rp.uReg.value.set(0, 0)
       rp.uRegA.value = 0
     }
+    // the density pre-pass runs only while the shader will read it
+    this.tintDensity.enabled = rp.uRegA.value > 0.001
+    this.tintDensity.dot = dot
     this.cluster.updateMatrixWorld()
     const k = this.cluster.matrixWorld.getMaxScaleOnAxis()
     const R = (u.uR.value as number) * (0.6 + (u.uLow.value as number) * 0.16) * k
@@ -1839,6 +1974,8 @@ export class Scene {
     this._theme = t
     const paper = t === 'paper'
     this.paper.enabled = paper
+    // re-armed by printBudget on paper's next frame if REG is in
+    if (!paper) this.tintDensity.enabled = false
     this.bloom.enabled = !paper
     this.after.enabled = !paper
     this.renderer.setClearColor(paper ? 0x000000 : 0x0a0a0a, 1)

@@ -28,7 +28,7 @@
  */
 
 const COVER = 1000 // ms
-const HOLD = 140
+const HOLD = 90
 const REVEAL = 1100
 const JITTER = 0.26 // share of the sweep a block may land early or late
 const FADE = 0.16 // share of the sweep each block takes to fade fully in or out
@@ -37,7 +37,7 @@ const ACCENT_BAND = 0.07 // the accent rides this far ahead of the front
 const GROUND = { ink: [10, 10, 10], paper: [240, 235, 224] } as const
 const ACCENT = [254, 238, 0] as const
 
-type Block = { x: number; y: number; w: number; h: number; at: number; front: boolean }
+type Block = { x: number; y: number; w: number; h: number; at: number; front: boolean; row: boolean }
 
 let running = false
 
@@ -57,23 +57,27 @@ function column(): DOMRect | null {
   return null
 }
 
-/** The column's row lines: the top and bottom edges of everything inside it
- *  that spans its full width, merged where two rules sit within a few px. */
-function rowLines(col: DOMRect, root: Element): number[] {
-  const ys: number[] = [col.top, col.bottom]
-  root.querySelectorAll('*').forEach((el) => {
-    const r = el.getBoundingClientRect()
-    if (r.width < col.width * 0.9 || r.height < 14 || r.height > 280) return
-    ys.push(r.top, r.bottom)
-  })
-  const top = Math.max(0, col.top)
-  const bot = Math.min(innerHeight, col.bottom)
-  const out: number[] = []
-  for (const y of ys.map(Math.round).filter((y) => y >= top && y <= bot).sort((a, b) => a - b)) {
-    if (!out.length || y - out[out.length - 1] >= 12) out.push(y)
+/** The column's row lines, as PAINTED: hit-test down the column's left
+ *  edge and cut wherever the full-width row under the pointer changes.
+ *  Measuring rects instead counted rows scrolled out of the stack and rows
+ *  hidden under the pinned dock, and cut visible rows in half. */
+function rowLines(col: DOMRect): number[] {
+  const x = col.left + Math.min(12, col.width / 4)
+  const top = Math.max(0, Math.ceil(col.top))
+  const bot = Math.min(innerHeight, Math.floor(col.bottom))
+  const rowOf = (el: Element | null) => {
+    while (el && el.getBoundingClientRect().width < col.width * 0.9) el = el.parentElement
+    return el
   }
-  if (out[0] !== top) out.unshift(top)
-  if (out[out.length - 1] !== bot) out.push(bot)
+  const out = [top]
+  let prev: Element | null | undefined
+  for (let y = top; y < bot; y++) {
+    const row = rowOf(document.elementFromPoint(x, y))
+    if (prev !== undefined && row !== prev && y - out[out.length - 1] >= 12) out.push(y)
+    prev = row
+  }
+  if (bot - out[out.length - 1] < 12) out.pop()
+  out.push(bot)
   return out
 }
 
@@ -86,6 +90,20 @@ function lines(anchor: number, end: number, step: number): number[] {
   return [...new Set(out.map(Math.round))].sort((a, b) => a - b)
 }
 
+/** The parts of `b` outside rect `c` (up to four slabs). */
+function outside(b: Omit<Block, 'at' | 'front'>, c: DOMRect): Omit<Block, 'at' | 'front'>[] {
+  const L = Math.max(b.x, Math.round(c.left)), R = Math.min(b.x + b.w, Math.round(c.right))
+  const T = Math.max(b.y, Math.round(c.top)), B = Math.min(b.y + b.h, Math.round(c.bottom))
+  if (L >= R || T >= B) return [b]
+  const out = [
+    { x: b.x, y: b.y, w: b.w, h: T - b.y, row: false },
+    { x: b.x, y: B, w: b.w, h: b.y + b.h - B, row: false },
+    { x: b.x, y: T, w: L - b.x, h: B - T, row: false },
+    { x: R, y: T, w: b.x + b.w - R, h: B - T, row: false },
+  ]
+  return out.filter((o) => o.w >= 1 && o.h >= 1)
+}
+
 function measure(): Omit<Block, 'at' | 'front'>[] {
   const W = innerWidth
   const H = innerHeight
@@ -96,14 +114,13 @@ function measure(): Omit<Block, 'at' | 'front'>[] {
   let ay = 0
   let skip: DOMRect | null = null
   if (col) {
-    const root = document.querySelector('main.rail') ?? document.querySelector('.pl-r')!
-    const ys = rowLines(col, root)
+    const ys = rowLines(col)
     const hs = ys.slice(1).map((y, i) => y - ys[i]).sort((a, b) => a - b)
     // the field's square is the column's typical row, so the two read as one grid
     step = Math.min(48, Math.max(34, hs[Math.floor(hs.length / 2)] || 40))
     const x0 = Math.max(0, Math.round(col.left))
     const x1 = Math.min(W, Math.round(col.right))
-    for (let i = 0; i + 1 < ys.length; i++) blocks.push({ x: x0, y: ys[i], w: x1 - x0, h: ys[i + 1] - ys[i] })
+    for (let i = 0; i + 1 < ys.length; i++) blocks.push({ x: x0, y: ys[i], w: x1 - x0, h: ys[i + 1] - ys[i], row: true })
     ax = col.right
     ay = col.top
     skip = col
@@ -112,15 +129,12 @@ function measure(): Omit<Block, 'at' | 'front'>[] {
   const ys = lines(ay, H, step)
   for (let j = 0; j + 1 < ys.length; j++) {
     for (let i = 0; i + 1 < xs.length; i++) {
-      const b = { x: xs[i], y: ys[j], w: xs[i + 1] - xs[i], h: ys[j + 1] - ys[j] }
+      const b = { x: xs[i], y: ys[j], w: xs[i + 1] - xs[i], h: ys[j + 1] - ys[j], row: false }
       if (b.w < 1 || b.h < 1) continue
-      // the column is already its own blocks
-      if (skip) {
-        const cx = b.x + b.w / 2
-        const cy = b.y + b.h / 2
-        if (cx > skip.left && cx < skip.right && cy > skip.top && cy < skip.bottom) continue
-      }
-      blocks.push(b)
+      // the column is already its own blocks: a square that overlaps it
+      // keeps only the parts outside it, so nothing is covered twice and no
+      // sliver beside the column waits for the final fill
+      blocks.push(...(skip ? outside(b, skip) : [b]))
     }
   }
   return blocks
@@ -137,6 +151,8 @@ export function pixelSwitch(
     return
   }
   running = true
+  // measured before the overlay exists, so hit-tests read the page
+  const measured = measure()
   const W = innerWidth
   const H = innerHeight
   const dpr = Math.min(2, devicePixelRatio || 1)
@@ -157,14 +173,19 @@ export function pixelSwitch(
   const far = Math.max(Math.hypot(ox, oy), Math.hypot(W - ox, oy), Math.hypot(ox, H - oy), Math.hypot(W - ox, H - oy))
   // each block's moment in 0..1: its centre's distance from the origin,
   // normalised to the farthest corner, pushed early or late by its hash
-  const blocks: Block[] = measure().map((b, k) => {
+  const blocks: Block[] = measured.map((b, k) => {
     const d = Math.hypot(b.x + b.w / 2 - ox, b.y + b.h / 2 - oy) / far
-    return { ...b, at: Math.min(1, Math.max(0, d * (1 - JITTER) + hash(k) * JITTER)) * (1 - FADE), front: hash(k, 7) > 0.62 }
+    return { ...b, at: Math.min(1, Math.max(0, d * (1 - JITTER) + hash(k) * JITTER)) * (1 - FADE), front: !b.row && hash(k, 7) > 0.62 }
   })
   const [gr, gg, gb] = GROUND[to]
   const [ar, ag, ab] = ACCENT
-  // a sine in-out over the whole sweep: the front gathers, travels, settles
-  const ease = (t: number) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)))
+  // An ease-OUT on both passes: the blocks at the toggle answer on the very
+  // first frame and the front slows only as it reaches the far corners. The
+  // sine in-out this replaced idled ~270 ms before anything moved and held
+  // the screen blank for ~0.7 s around the swap -- on a phone the whole
+  // instrument vanished, which read as a crash. Unhurried is the far
+  // corners settling, not the screen sitting empty.
+  const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 2.2)
   const smooth = (t: number) => t * t * (3 - 2 * t)
 
   let t0 = performance.now()
@@ -187,7 +208,7 @@ export function pixelSwitch(
         if (b.front && p < b.at && p > b.at - ACCENT_BAND) {
           // the accent passes through the block just before it lands
           const k = 1 - (b.at - p) / ACCENT_BAND
-          g.fillStyle = `rgba(${ar},${ag},${ab},${(Math.sin(k * Math.PI) * 0.9).toFixed(3)})`
+          g.fillStyle = `rgba(${ar},${ag},${ab},${(Math.sin(k * Math.PI) * 0.6).toFixed(3)})`
           g.fillRect(b.x, b.y, b.w, b.h)
         }
         if (a <= 0) continue

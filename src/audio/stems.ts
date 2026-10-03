@@ -71,6 +71,8 @@ export class StemDeck {
   loadBuffers(stems: { role: StemRole; name: string; buffer: AudioBuffer }[]) {
     this.disposeStems()
     this.soloRole = null
+    // new material, new ending: whoever loaded the last set set its own
+    this.onEnd = undefined
     for (const s of stems) {
       const gain = this.ctx.createGain()
       const tap = this.ctx.createAnalyser()
@@ -100,6 +102,8 @@ export class StemDeck {
   async load(files: File[]): Promise<number> {
     this.disposeStems()
     this.soloRole = null
+    // new material, new ending: whoever loaded the last set set its own
+    this.onEnd = undefined
     const decoded = await Promise.allSettled(
       files.map(async (f) => ({ f, buffer: await this.ctx.decodeAudioData(await f.arrayBuffer()) })),
     )
@@ -149,12 +153,16 @@ export class StemDeck {
         if (this._playing && this.stems.some((s) => mySources.includes(s.source))) {
           this.offset = this.duration
           this._playing = false
+          this.onEnd?.()
         }
       }
     }
     this.startAt = t0
     this._playing = true
   }
+
+  /** Called once when the material plays out (not on pause or stop). */
+  onEnd?: () => void
 
   pause() {
     this.offset = this.currentTime()

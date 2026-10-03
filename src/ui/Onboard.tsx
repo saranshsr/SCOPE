@@ -152,6 +152,14 @@ interface Lesson {
    *  there is no outside to it: its card goes LEFT, over the dimmed rail,
    *  which is the one place the star never reaches. */
   side?: Side
+  /** Which end of the subject the card lines up with on a left/right
+   *  placement. 'start' (the default) tops it level with the subject;
+   *  'end' sits its foot on the subject's foot. The star's subject fills
+   *  the stage, so a card level with its top lands on the rail's first
+   *  rows -- which are NOW PLAYING, the one thing a first track has just
+   *  put on screen. Footed, it covers the dock's spectrum instead: a
+   *  reading the card's own scrim has already dimmed. */
+  align?: 'start' | 'end'
 }
 
 /** The power-on card. Same subject as the walk's first step, in fewer
@@ -162,6 +170,7 @@ const HINT: Lesson = {
   anchor: '.cn-stage',
   stack: 'closed',
   side: 'left',
+  align: 'end',
 }
 
 const STEPS: Lesson[] = [
@@ -174,7 +183,7 @@ const STEPS: Lesson[] = [
   },
   {
     title: 'pull it apart',
-    body: 'drag the seam upward (or press D) and the star splits into rings, one per layer of the sound. drag a ring for level, tap to solo, push it to the axis to mute.',
+    body: 'drag the axis upward (or press D) and the star splits into rings, one per layer of the sound. drag a ring for level, tap to solo, push it to the axis to mute.',
     anchor: '.cn-stage',
     stack: 'open',
     side: 'left',
@@ -241,7 +250,7 @@ const GAP = 8
 /** matches stagePadding: the cut-out is the subject plus this */
 const PAD = 8
 
-function place(prefer: Side | undefined) {
+function place(prefer: Side | undefined, align: 'start' | 'end' = 'start') {
   const pop = document.querySelector<HTMLElement>('.driver-popover')
   const plate = document.querySelector('.cn-plate')
   if (!pop || !plate) return
@@ -284,9 +293,12 @@ function place(prefer: Side | undefined) {
   let y = cy(r0.top)
   if (act && act.width && act.height) {
     const s = { l: act.left - PAD, t: act.top - PAD, r: act.right + PAD, b: act.bottom + PAD }
+    // the cross-axis line for a card beside its subject: level with its
+    // top, or footed on its bottom (see Lesson.align)
+    const sideY = align === 'end' ? cy(s.b - h) : cy(s.t)
     const at: Record<Side, [number, number]> = {
-      right: [cx(s.r + GAP), cy(s.t)],
-      left: [cx(s.l - GAP - w), cy(s.t)],
+      right: [cx(s.r + GAP), sideY],
+      left: [cx(s.l - GAP - w), sideY],
       bottom: [cx(s.l + (s.r - s.l - w) / 2), cy(s.b + GAP)],
       top: [cx(s.l + (s.r - s.l - w) / 2), cy(s.t - GAP - h)],
     }
@@ -336,8 +348,8 @@ function place(prefer: Side | undefined) {
  * style, which fires the observer again, and the second pass finds the
  * card already where it belongs and writes nothing.
  */
-function watchPopover(side: () => Side | undefined): () => void {
-  const run = () => place(side())
+function watchPopover(side: () => Side | undefined, align: () => 'start' | 'end' | undefined = () => undefined): () => void {
+  const run = () => place(side(), align())
 
   // WATCH THE POPOVER, NOT THE PAGE.
   //
@@ -438,7 +450,22 @@ export function Onboard({
   useEffect(() => {
     const hint = mode === 'hint'
     const touch = window.matchMedia('(pointer: coarse)').matches
-    const lessons = (hint ? [HINT] : STEPS).map((s) =>
+    // A STEP WHOSE SUBJECT IS NOT ON THE CONSOLE IS NOT A STEP. The vibe
+    // tuner is the radio's, and split is a playing radio/file track's: in
+    // stems, tab, jukebox or AJ their rows sit in a closed .railfold, so
+    // the anchor EXISTS (it is only folded to 0px) and driver lit a hairline
+    // and described a control nobody could see. Absent steps are dropped
+    // before driver numbers them, so the counter reads 1/4, not a 6 with
+    // two holes in it. Only the CLOSED-stack steps are tested: the layers
+    // rows are folded until the step itself opens the stack.
+    const present = (s: Lesson) => {
+      if (!s.anchor || s.stack === 'open') return true
+      const el = document.querySelector(s.anchor)
+      if (!el) return false
+      const fold = el.closest('.railfold')
+      return !fold || fold.classList.contains('open')
+    }
+    const lessons = (hint ? [HINT] : STEPS).filter(present).map((s) =>
       s.html ? { ...s, body: legendHtml(touch) } : touch ? { ...s, body: noKeys(s.body) } : s,
     )
     // whatever had focus when the tour opened, so it can be handed back
@@ -534,7 +561,7 @@ export function Onboard({
         popover: {
           title: s.title,
           description: s.body,
-          popoverClass: s.html ? 'plate-tour plate-tour-legend' : 'plate-tour',
+          popoverClass: s.html ? 'plate-tour plate-tour-legend' : hint ? 'plate-tour plate-tour-hint' : 'plate-tour',
         },
       }))
 
@@ -596,7 +623,7 @@ export function Onboard({
       d = tour
 
       tour.drive()
-      undo.push(watchPopover(() => current?.side))
+      undo.push(watchPopover(() => current?.side, () => current?.align))
 
       // doing it counts as reading it: a hand on the star ends the hint
       const onGrab = (e: PointerEvent) => {

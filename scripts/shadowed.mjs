@@ -106,7 +106,7 @@ const dissectTo = async (want, label) => {
     while (Date.now() < by2) {
       const d = await read()
       if (arrived(d)) {
-        // The room is not reached until the CHROME says so. The ( sect )
+        // The room is not reached until the CHROME says so. The ( apart )
         // chip is written on the loop's chrome tick, every 0.16s of SIM
         // time. Measured under swiftshader on a loaded box: 29 frames in 12s,
         // with dt clamped at 0.05 -- so a tick lands every fourth frame,

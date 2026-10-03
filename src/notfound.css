@@ -54,7 +54,15 @@ body {
 
 .nf {
   position: absolute;
-  inset: var(--edge);
+  /* viewport-fit=cover (404.html) hands the page the whole glass, sensor
+     housing included, so the plate keeps its --edge from the SAFE edge,
+     the way the console plate does (styles.css .cn-plate): in landscape
+     the header's first cell sat under the notch */
+  inset:
+    calc(var(--edge) + env(safe-area-inset-top, 0px))
+    calc(var(--edge) + env(safe-area-inset-right, 0px))
+    calc(var(--edge) + env(safe-area-inset-bottom, 0px))
+    calc(var(--edge) + env(safe-area-inset-left, 0px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) 82px auto auto;
   border: 1px solid var(--pl-line);
@@ -80,7 +88,46 @@ body {
   text-overflow: ellipsis;
 }
 .nf-hdr b { font-weight: 400; color: var(--accent); }
-:root[data-theme='paper'] .nf-hdr b { background: var(--mark); padding: 2px 4px; margin: -2px -4px; }
+/* THE CODE IS A TAB, not a highlight. On paper the instrument's code is
+   ink on a yellow FIELD that runs the header cell's full height and sits
+   flush to its left rule (styles.css, paper .pl-hdr b) -- a printed tab,
+   the field under the type. An inline background with a 2px pad read as a
+   marker pen over the word instead, a different object from the one every
+   other plate carries. So on paper the cell becomes a row, the code
+   stretches to the cell's edges by cancelling its padding, and the label
+   beside it is the part that yields to an ellipsis. */
+:root[data-theme='paper'] .nf-hdr > div:first-child { display: flex; align-items: center; gap: 12px; }
+:root[data-theme='paper'] .nf-hdr b {
+  color: var(--ink);
+  background: var(--mark);
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 12px;
+  margin: -12px 0 -12px -12px;
+}
+:root[data-theme='paper'] .nf-hdr > div:first-child span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* THE PAPER'S TOOTH. The instrument's paper sheet is never flat cream: a
+   fixed layer multiplies a fine fibre tooth and a slow sizing mottle over
+   everything (styles.css, paper .grain, copied value for value so the two
+   sheets are the same stock). Without it this page was the one smooth,
+   screen-flat sheet in the set. Multiply only darkens, so the bare ground
+   loses a few levels and the ink is untouched. The ink ground has no
+   tooth here -- it never asked for one. */
+.grain { display: none; }
+:root[data-theme='paper'] .grain {
+  display: block;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  mix-blend-mode: multiply;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='t' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' seed='7' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.3 0 0 0 0 0.26 0 0 0 0 0.2 1.3 0 0 0 -0.8'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23t)'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Cfilter id='m' x='0' y='0'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012' numOctaves='3' seed='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.5 0 0 0 0 0.4 0.12 0 0 0 -0.05'/%3E%3C/filter%3E%3Crect width='600' height='600' filter='url(%23m)'/%3E%3C/svg%3E");
+}
 .nf-hdr .k { color: var(--ink-dim); }
 .nf-hdr .k span { color: var(--ink); }
 
@@ -208,16 +255,57 @@ body {
   letter-spacing: 2px;
 }
 
-/* phones: the plate scrolls, the columns stack, the header sheds */
-@media (max-width: 720px) {
+/* phones, and any SHORT screen: the plate scrolls, the columns stack.
+   Height as well as width, mirroring the standby sheet (styles.css, the
+   820px / 560px-tall rule): at 844x390 landscape the plate is wide enough
+   for two columns but 342px tall, so the fixed 82px drum and the action
+   row took their rows first and the figure got what was left -- the MOTION
+   band ran through the field and the data column truncated mid-note. */
+@media (max-width: 720px), (max-height: 560px) {
   :root { --edge: 12px; }
-  .nf { position: static; margin: var(--edge); grid-template-rows: auto auto 64px auto auto; }
-  .nf-hdr { grid-template-columns: minmax(0, 1fr) auto; }
-  .nf-hdr > div:nth-child(2) { display: none; }
-  .nf-body, .nf-act { grid-template-columns: 1fr; }
-  .nf-fig { height: 56vh; }
+  .nf {
+    position: static;
+    margin:
+      calc(var(--edge) + env(safe-area-inset-top, 0px))
+      calc(var(--edge) + env(safe-area-inset-right, 0px))
+      calc(var(--edge) + env(safe-area-inset-bottom, 0px))
+      calc(var(--edge) + env(safe-area-inset-left, 0px));
+    /* six rows, not five: .nf-act steps out of the box tree below, so the
+       code and POWER ON are rows of the plate in their own right */
+    grid-template-rows: auto auto 64px auto auto auto;
+  }
+  .nf-body { grid-template-columns: 1fr; }
+  .nf-fig { height: 56vh; height: clamp(220px, 56dvh, 56vh); }
   .nf-fig figcaption span + span { display: none; }
   .nf-code { font-size: 132px; }
+  /* THE WAY HOME IS ALWAYS ON SCREEN. POWER ON is the page's one control
+     and on a phone it sat a screen below the fold (y 966 on an 844 tall
+     glass), so someone who followed a dead link had to hunt for the only
+     thing they came to do. It sticks to the foot of the glass until its
+     own place in the plate scrolls up to meet it -- the standby sheet's
+     own rule (styles.css, .pl-band / .pl-power). A sticky box cannot
+     leave its parent, and .nf-act is the button's parent and is itself
+     below the fold, so the act row steps out of the box tree (`display:
+     contents`) and the button's containing block is the whole plate. Only
+     the button sticks: the 132px code riding along would bury a third of
+     the screen under a number the visitor has already read. */
+  .nf-act { display: contents; }
+  .nf-power {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 2;
+    min-height: 64px;
+    /* the plate's 1px seams are its gap showing through; a stuck button
+       floats over other cells, so it carries its own rule on top */
+    box-shadow: 0 -1px 0 var(--pl-line);
+  }
+  :root[data-theme='paper'] .nf-power { box-shadow: inset 0 0 0 1px #111010, 0 -1px 0 var(--pl-line); }
+}
+/* the header and footer shed by WIDTH only: a wide short window has the
+   room for all their cells */
+@media (max-width: 720px) {
+  .nf-hdr { grid-template-columns: minmax(0, 1fr) auto; }
+  .nf-hdr > div:nth-child(2) { display: none; }
   .nf-ftr { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {

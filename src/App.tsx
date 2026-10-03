@@ -102,6 +102,8 @@ export default function App() {
   const [muted, setMuted] = useState(false)
   const [diag, setDiag] = useState(false)
   const [tuning, setTuning] = useState({ turb: 1, expo: 1, spin: 1, ink: 1, reg: 0 })
+  /** the visuals dial under the pointer or the focus, which its //label_ row explains */
+  const [dialHeard, setDialHeard] = useState<DialKey | null>(null)
   /** standby plate: the chain row being read, and its live motion strip */
   const [pathHover, setPathHover] = useState<string | null>(null)
   const posterWaveRef = useRef<HTMLCanvasElement | null>(null)
@@ -117,6 +119,11 @@ export default function App() {
    *  Also marked [data-rail-scroller] in the DOM, for code outside App. */
   const railScrollerRef = useRef<HTMLElement | null>(null)
   const railBarRef = useRef<HTMLElement>(null)
+  /** the //more_ row between the stack and the dock: what is below the
+   *  fold, and the press that goes there (wired by the rail effect) */
+  const railMoreRef = useRef<HTMLButtonElement>(null)
+  const railMoreTextRef = useRef<HTMLSpanElement>(null)
+  const railMoreGoRef = useRef<(() => void) | null>(null)
   /** jukebox: the YouTube player, and whether the star is listening */
   const tubeRef = useRef<Tube | null>(null)
   const tubeHostRef = useRef<HTMLDivElement>(null)
@@ -245,6 +252,15 @@ export default function App() {
   // names how many parts there really are.
   const [stemsFrom, setStemsFrom] = useState<SourceKind>('file')
   const [stemN, setStemN] = useState(0)
+  /** A SPLIT TRACK IS STILL THE SAME TRACK. The engine's enterStems only
+   *  carries a title and an artist, so a split radio track arrived with no
+   *  //key_ and no //genre_ and the word "split" welded onto its title --
+   *  which the poster then printed as the headline. The readings the
+   *  source declared ride across here, and the split itself is said by a
+   *  //source_ row (splitFrom) instead of in the name. Null for a stem-file
+   *  drop, which declared nothing. */
+  const splitCarryRef = useRef<{ from: SourceKind; bpm?: number; musicalKey?: string; genre?: string } | null>(null)
+  const [splitFrom, setSplitFrom] = useState<SourceKind | null>(null)
   // FAULTS: what went wrong, on a status row under the sources. Never the
   // now-playing line and never the announce: an error is not a track. It
   // clears on the next real track, except the track that IS the recovery
@@ -372,7 +388,116 @@ export default function App() {
       getComputedStyle(stack).overflowY === 'visible' ? rail : stack
     let el: HTMLElement = resolve()
     let hide = 0
+
+    // ── THE FOLD LANDS ON A ROW EDGE ─────────────────────────────────────
+    // At 1440x900 the stack's window ended 9px into the vibe presets, so
+    // the last thing on screen was the top half of a row of buttons. The
+    // column is a stack of 1px-ruled cells, so the window is sized to end
+    // on one of their edges: the deepest clean edge that fits, with the
+    // pixels left over handed to the dock's spectrum (a reading; it can
+    // take a few more px of bar height without changing what it says).
+    // A CLEAN edge is a rule (a border-bottom, or the foot of a button,
+    // field or ruler) that cuts through no row: nothing atomic and no
+    // padded cell straddles it. Those edges are also tagged as the stack's
+    // scroll-snap points, so a scroll comes to rest on one too.
+    const more = railMoreRef.current
+    const moreK = more?.querySelector<HTMLElement>('.k') ?? null
+    const dock = rail.querySelector<HTMLElement>('.rail-dock')
+    let slack = 0
+    let moreH = 0
+    let foldKey = ''
+    let edges: number[] = []
+    const ATOM = /^(BUTTON|INPUT|CANVAS|SELECT|TEXTAREA|svg)$/
+    const findEdges = () => {
+      stack.querySelectorAll('[data-fold-edge]').forEach((e) => e.removeAttribute('data-fold-edge'))
+      const sr = stack.getBoundingClientRect()
+      const off = stack.scrollTop - sr.top
+      const rows: [number, number][] = []
+      const cands: { y: number; e: Element }[] = []
+      for (const e of stack.querySelectorAll<HTMLElement>('*')) {
+        // a closed fold's contents still have boxes; they are just clipped
+        if (e.closest('.railfold:not(.open)')) continue
+        const r = e.getBoundingClientRect()
+        if (r.height < 1) continue
+        const cs = getComputedStyle(e)
+        const atom = !e.firstElementChild || ATOM.test(e.tagName) || e.getAttribute('role') === 'slider'
+        if (atom || parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) > 0) rows.push([r.top + off, r.bottom + off])
+        if (parseFloat(cs.borderBottomWidth) > 0 || ATOM.test(e.tagName) || e.getAttribute('role') === 'slider')
+          cands.push({ y: r.bottom + off, e })
+      }
+      const clean = cands.filter((c) => !rows.some(([a, z]) => a < c.y - 0.5 && z > c.y + 0.5))
+      for (const c of clean) c.e.setAttribute('data-fold-edge', '')
+      edges = [...new Set(clean.map((c) => Math.round(c.y)))].sort((a, b) => a - b)
+    }
+    const fold = () => {
+      if (el !== stack || !more || !dock) {
+        // the phone sheet and the landscape rail: one column, no dock
+        if (slack) rail.style.removeProperty('--fold-slack')
+        slack = 0
+        foldKey = ''
+        return
+      }
+      if (more.offsetHeight) moreH = more.offsetHeight
+      const dock0 = dock.offsetHeight - slack
+      const room = rail.clientHeight - dock0
+      const key = `${room}|${stack.scrollHeight}|${moreH}`
+      if (key === foldKey) return
+      foldKey = key
+      findEdges()
+      const content = edges.length ? Math.max(stack.scrollHeight, edges[edges.length - 1]) : stack.scrollHeight
+      const fits = content <= room
+      rail.classList.toggle('fits', fits)
+      let next = 0
+      if (!fits) {
+        const avail = room - moreH
+        const best = edges.filter((y) => y <= avail).pop()
+        // two rows of slack at most (2 x 31px): past that the spectrum would
+        // stop being the strip it is, and a cut row is the lesser harm
+        if (best !== undefined && avail - best <= 62) next = avail - best
+      }
+      if (next !== slack) {
+        slack = next
+        rail.style.setProperty('--fold-slack', `${slack}px`)
+      }
+    }
+    // the //more_ row: the modules still below the fold, or the way back up
+    const say = () => {
+      if (!more || el !== stack) return
+      const left = stack.scrollHeight - stack.scrollTop - stack.clientHeight > 1
+      const sr = stack.getBoundingClientRect()
+      const heads = [...stack.querySelectorAll<HTMLElement>(':scope > .cn-mod')]
+      const name = (h?: Element) => (h?.firstElementChild?.textContent ?? '').replace(/^\d+(\.\d+)?\s*·\s*/, '')
+      // the modules whose HEADER is still under the fold, and the poster,
+      // which is the one control people come down the column looking for
+      const names = heads.filter((h) => h.getBoundingClientRect().top >= sr.bottom - 1).map((h) => name(h))
+      const poster = stack.querySelector('.poster-btn')?.getBoundingClientRect()
+      if (poster && poster.bottom > sr.bottom + 1) names.push('poster')
+      const text = left ? `↓ ${names.length ? names.join(' · ') : 'the last rows'}` : `↑ ${name(heads[0]) || 'top'}`
+      const t = railMoreTextRef.current
+      if (t && t.textContent !== text) t.textContent = text
+      if (moreK) moreK.textContent = left ? '//more_' : '//top_'
+      more.setAttribute('aria-label', left ? `scroll the console: ${names.join(', ') || 'more'} below` : 'scroll the console back to the top')
+    }
+    railMoreGoRef.current = () => {
+      if (el !== stack) return
+      const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const left = stack.scrollHeight - stack.scrollTop - stack.clientHeight > 1
+      if (!left) {
+        stack.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' })
+        return
+      }
+      // The next module whose header is under the fold comes up to the top
+      // edge (headers are start snap points, styles.css). With no header
+      // left below, the last rows come up to meet the fold.
+      const sr = stack.getBoundingClientRect()
+      const head = [...stack.querySelectorAll<HTMLElement>(':scope > .cn-mod')].find((h) => h.getBoundingClientRect().top >= sr.bottom - 1)
+      const top = head ? head.getBoundingClientRect().top - sr.top + stack.scrollTop : stack.scrollHeight
+      stack.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' })
+    }
+
     const sync = () => {
+      fold()
+      say()
       const more = el.scrollHeight - el.scrollTop - el.clientHeight > 1
       rail.classList.toggle('more', more)
 
@@ -478,8 +603,16 @@ export default function App() {
     ro.observe(rail)
     // folds open and close as the source changes, which changes the height
     // without resizing the container
-    const mo = new MutationObserver(sync)
+    // ...but not the ring meters, which re-class eight cells a frame while
+    // the stack is open and change nothing about the column's height
+    const mo = new MutationObserver((recs) => {
+      if (recs.some((r) => !(r.target as Element).closest?.('.layer-meter'))) sync()
+    })
     mo.observe(stack, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+    // a fold's height arrives at the END of its transition, not when its
+    // class flips; and the webfont moves every row edge when it lands
+    stack.addEventListener('transitionend', sync)
+    void document.fonts?.ready.then(() => sync())
     return () => {
       unbind()
       railScrollerRef.current = null
@@ -492,7 +625,11 @@ export default function App() {
       clearTimeout(hide)
       ro.disconnect()
       mo.disconnect()
-      rail.classList.remove('more')
+      stack.removeEventListener('transitionend', sync)
+      rail.classList.remove('more', 'fits')
+      rail.style.removeProperty('--fold-slack')
+      stack.querySelectorAll('[data-fold-edge]').forEach((e) => e.removeAttribute('data-fold-edge'))
+      railMoreGoRef.current = null
     }
   }, [started])
 
@@ -610,6 +747,7 @@ export default function App() {
       if (list.length >= 8 && radioTier < 1 && engine.kind === 'radio' && !startedRef.current) {
         radioTier = 1
         engine.setPlaylist(list)
+        engine.prime()
       }
     })
     // DEV ONLY, and the guard is not caution -- it is the truth about where
@@ -625,6 +763,7 @@ export default function App() {
           if (local?.length && engine.kind === 'radio' && !startedRef.current) {
             radioTier = 2
             engine.setPlaylist(local)
+            engine.prime()
           }
         })
         .catch(() => {})
@@ -668,6 +807,12 @@ export default function App() {
         applySpectralTiers()
       }
       if (engine.kind === 'stems') setStemN(new Set(stemDeckRef.current?.info().map((x) => x.role)).size)
+      // the split's declared readings rejoin the track (see splitCarryRef);
+      // anything that is not the stem deck drops the carry for good
+      const carry = engine.kind === 'stems' ? splitCarryRef.current : null
+      if (engine.kind !== 'stems') splitCarryRef.current = null
+      if (tr && carry) tr = { ...tr, bpm: carry.bpm, musicalKey: carry.musicalKey, genre: carry.genre }
+      setSplitFrom(carry ? carry.from : null)
       setTrack(tr)
       trackRef.current = tr
       setSource(engine.kind)
@@ -1501,6 +1646,9 @@ export default function App() {
     let lastInfos: StemInfo[] | null = null
     let surveyDirty = false
     let seamFlashUntil = 0
+    // the standby scan: when the next probe is due, and its unspent lines
+    let probeNext = 0
+    let probeQueue: number[] = []
     let wasStarted = false
     const tierVoice = new Float32Array(6).fill(1)
     let raf = 0
@@ -1691,7 +1839,15 @@ export default function App() {
       // Same task as the render, or the drawing buffer is already cleared.
       if (pipRef.current) drawPip(pipRef.current, canvas, scene, w, h)
       // standby only: scan the star's core for the MOTION strip
-      if (!startedRef.current && posterWaveRef.current) motionProbeRef.current = probeStar(canvas, scene, w, h)
+      // at PROBE_HZ, five lines a probe, paid out one a frame (probeStarRows);
+      // and not at all once POWER ON is pressed: the flight is not standby
+      if (!startedRef.current && !bootRef.current && posterWaveRef.current) {
+        if (now >= probeNext) {
+          probeNext = Math.max(probeNext + 1000 / PROBE_HZ, now)
+          probeQueue = probeStarRows(canvas, scene, w, h)
+        }
+        if (probeQueue.length) motionProbeRef.current = probeQueue.shift() as number
+      }
       if (grabRef.current) {
         const done = grabRef.current
         grabRef.current = null
@@ -1903,7 +2059,10 @@ export default function App() {
           const locked = fp.tempoConfidence > 0.12
           const measured = locked ? `${Math.round(fp.tempo)}` : '--'
           const dec = trackRef.current?.bpm
-          bpmRef.current.textContent = dec ? `${measured} / ${dec}` : measured
+          // Two numbers under one //bpm_ read as a range, or a fraction.
+          // Each says whose it is: HEARD is the beat-tracker's, TAGGED is
+          // what the artist typed into the upload form.
+          bpmRef.current.textContent = dec ? `${measured} heard · ${dec} tagged` : measured
           bpmRef.current.classList.toggle('locked', locked)
         }
         // the session's own record, for the poster: tempo only once locked,
@@ -2016,7 +2175,8 @@ export default function App() {
         }
         if (sectRef.current) {
           const dv = scene.dissect
-          sectRef.current.textContent = `( sect ${Math.round(dv * 100)}% )`
+          // "sect" was the code's word for dissect; the chip says what you see
+          sectRef.current.textContent = `( apart ${Math.round(dv * 100)}% )`
           sectRef.current.classList.toggle('on', dv > 0.02)
           // chrome that collides with the open stack ducks (mobile CSS)
           appRef.current?.classList.toggle('dissected', dv > 0.25)
@@ -2099,6 +2259,7 @@ export default function App() {
         setDecoding(true)
         setStemsFrom('file')
         void deck.load(all).then((skipped) => {
+          splitCarryRef.current = null
           engine.enterStems(`stem deck · ${all.length - skipped} stems`)
           if (skipped) raiseFault(`${skipped} of ${all.length} stems will not decode · playing the rest`, true)
           deck.play(0)
@@ -2556,7 +2717,9 @@ export default function App() {
     if (!eng || !scene2 || !eng.el.src || splitState) return
     const gen = ++splitGen.current
     const fromTitle = track?.title ?? 'track'
-    const resumeAt = eng.el.currentTime || 0
+    const fromArtist = track?.artist ?? ''
+    const fromDeclared = { bpm: track?.bpm, musicalKey: track?.musicalKey, genre: track?.genre }
+    const fromSrc = eng.el.src
     try {
       const stems = await splitTrack(eng.el.src, eng.ctx, (p) => {
         if (splitGen.current === gen) setSplitState(`${p.stage} ${p.pct}%`)
@@ -2566,8 +2729,18 @@ export default function App() {
       stemDeckRef.current = deck
       if (import.meta.env.DEV) (window as unknown as { __deck: StemDeck }).__deck = deck
       deck.loadBuffers(stems.map((s) => ({ role: s.role, name: `${s.role} · split`, buffer: s.buffer })))
-      setStemsFrom(eng.kind === 'file' ? 'file' : 'radio')
-      eng.enterStems(`${clip(fromTitle, 22)} · split`)
+      const from = eng.kind === 'file' ? 'file' : 'radio'
+      setStemsFrom(from)
+      // The track kept playing through the split (~45 s of it): the stems
+      // pick up where the listener IS, not where they pressed split.
+      const resumeAt = eng.el.src === fromSrc ? eng.el.currentTime || 0 : 0
+      // the title stays the title: "split" is a //source_ reading now, so
+      // the poster's headline is the song and not the operation on it
+      splitCarryRef.current = { from, bpm: fromDeclared.bpm, musicalKey: fromDeclared.musicalKey, genre: fromDeclared.genre }
+      eng.enterStems(fromTitle, fromArtist)
+      // and when they play out, a split radio track hands back to the
+      // station's next track instead of parking at the tail
+      deck.onEnd = from === 'radio' ? () => { void eng.radioAfterStems() } : undefined
       deck.play(resumeAt)
       const p = deck.peaks()
       peaksRef.current = { amp: p.amp, secondsPerPixel: p.secondsPerPixel }
@@ -2991,13 +3164,20 @@ export default function App() {
       const holding = appRef.current?.classList.contains('mixing')
       // a keyboard user parked on a control is still operating it: fading
       // the plate out from under a visible focus ring loses their place
-      const parked = !!a?.closest?.('.cn-plate') && !!a?.matches?.(':focus-visible')
+      // (the console's heading is where focus lands after the flight: a
+      // place to stand, not a control being operated)
+      const parked = !!a?.closest?.('.cn-plate') && !!a?.matches?.(':focus-visible') && !a?.matches?.('h1')
       // and a machine mid-job says its progress ON the plate
       // the stem deck is the transport in stems mode; the engine's own
       // element sits paused under it, so `playing` alone never let a split
       // track's room go quiet
       const deckOn = engineRef.current?.kind === 'stems' && !!stemDeckRef.current?.playing
-      if (!(playingRef.current || deckOn) || typing || holding || parked || busyRef.current) return arm()
+      // An OPEN PHONE SHEET is someone reading the console, not someone
+      // who has left: it hid itself 6s after the thumb stopped, mid-read.
+      // The mini deck renders only at phone width, so its box says both
+      // "this is the phone layout" and, with .sheet, "the sheet is up".
+      const sheetUp = !!appRef.current?.querySelector<HTMLElement>('.cn-plate.sheet .cn-mini')?.offsetParent
+      if (!(playingRef.current || deckOn) || typing || holding || parked || sheetUp || busyRef.current) return arm()
       setWatching(true)
     }
     const wake = (e: Event) => {
@@ -3071,6 +3251,9 @@ export default function App() {
     // key here shows the exit, so a keyboard user can Tab to it too
     window.addEventListener('pointermove', show, { passive: true })
     window.addEventListener('keydown', show)
+    // the press that opened the stage was a hand too, and focus lands on
+    // the exit (below): it shows for its 2.5s rather than ringing unseen
+    show()
     return () => {
       clearTimeout(t)
       window.removeEventListener('pointermove', show)
@@ -3103,8 +3286,44 @@ export default function App() {
   const stageWas = useRef(false)
   useEffect(() => {
     if (stageWas.current && !stage) (document.querySelector('.cn-stagebtn') as HTMLElement | null)?.focus({ preventScroll: true })
+    // ...and ENTERING it hands focus to the stage's one control. The plate
+    // goes inert under the stage, and an inert subtree drops the focus it
+    // held to <body>, so S or the STAGE button left a keyboard user
+    // nowhere. The exit takes it (tabIndex -1 is still programmatically
+    // focusable), and shows itself for its usual 2.5s (the effect above)
+    // so the ring is never drawn on an invisible cell.
+    if (!stageWas.current && stage) {
+      requestAnimationFrame(() => {
+        const exit = document.querySelector<HTMLElement>('.stage-plate .stage-exit')
+        exit?.focus({ preventScroll: true })
+      })
+    }
     stageWas.current = stage
   }, [stage])
+
+  // FOCUS ACROSS THE FLIGHT. POWER ON, RESUME and STANDBY each unmount the
+  // sheet the focused control lived on, which drops focus to <body>, and
+  // the next Tab restarted at the top of the document with nothing said.
+  // Landed: the console's own heading takes it (tabIndex -1, so it is a
+  // place to stand, not a tab stop), which announces where you are and puts
+  // the rail's first control one Tab away. Back on standby: POWER ON (or
+  // RESUME) takes it, the only action on the sheet. Only when focus really
+  // was lost, so nothing is ever pulled out from under a hand.
+  const landedWas = useRef(false)
+  useEffect(() => {
+    const landed = started && !boot
+    const lost = () => !document.activeElement || document.activeElement === document.body
+    if (landed && !landedWas.current) {
+      requestAnimationFrame(() => {
+        if (lost()) document.querySelector<HTMLElement>('.cn-plate h1')?.focus({ preventScroll: true })
+      })
+    } else if (!started && landedWas.current) {
+      requestAnimationFrame(() => {
+        if (lost()) document.querySelector<HTMLElement>('.pl-act .power')?.focus({ preventScroll: true })
+      })
+    }
+    landedWas.current = landed
+  }, [started, boot])
   // paper prints the stage star heavier, under the display type (scene.ts)
   useEffect(() => { sceneRef.current?.setStagePrint(stage) }, [stage])
 
@@ -3264,7 +3483,9 @@ export default function App() {
           <NoonMark /> made by noon
         </span>
       </span>
-      <span>/ grab the star to mix · [?] for the full legend</span>
+      {/* the footer says the gesture that is live NOW: with the stack open
+          the star is six rings, and "grab the star" no longer describes it */}
+      <span>{layerUi ? '/ drag a ring for level · tap to solo · [?] legend' : '/ grab the star to mix · [?] for the full legend'}</span>
       <span className="diag">
         <button className="diag-toggle" onClick={() => setDiag((d) => !d)} aria-expanded={diag}>
           diag {diag ? '[-]' : '[+]'}
@@ -3356,12 +3577,18 @@ export default function App() {
               </div>
 
               <ul className="pl-leads">
-                {['set a vibe', 'split any track', 'pull it apart'].map((t, i) => (
+                {/* READINGS, NOT BUTTONS. Each leader ended in a filled
+                    yellow square, which is this sheet's mark for a latched
+                    control -- so three rows that do nothing looked like
+                    three options waiting for a press. The leader now runs
+                    to where the thing lives on the console: a cross-
+                    reference, set in the dim //label_ tier. */}
+                {([['set a vibe', '02 · feed'], ['split any track', '01 · deck'], ['pull it apart', '03 · layers']] as const).map(([t, at], i) => (
                   <li key={t} style={{ '--i': i } as React.CSSProperties}>
                     <span className="no">{'abc'[i]}</span>
                     <span><Decode text={t} duration={700 + i * 150} /></span>
                     <i className="ln" aria-hidden="true" />
-                    <b className="dot" aria-hidden="true" />
+                    <span className="at">{at}</span>
                   </li>
                 ))}
               </ul>
@@ -3497,8 +3724,10 @@ export default function App() {
                 which worked but announced nothing: a control that only
                 reveals itself under the pointer is not discoverable, and
                 nothing about a heading says press me. */}
-            <button className="cn-back" onClick={standby}>
-              ← <span>standby</span>
+            {/* aria-label: under 380px the word goes and the arrow stands
+                alone (styles.css), and a bare arrow announces nothing */}
+            <button className="cn-back" onClick={standby} aria-label="standby">
+              <span aria-hidden="true" className="cn-back-arrow">←</span> <span>standby</span>
             </button>
             {/* AJ: a source with its own door. It toggles rather than
                 selects -- off goes back to the radio -- and it carries the
@@ -3563,7 +3792,9 @@ export default function App() {
 
           <div className="cn-body">
         <main className="rail" aria-label="instrument console">
-          <h1 className="sr-only">scope console</h1>
+          {/* tabIndex -1: where focus lands after the flight (FOCUS ACROSS
+              THE FLIGHT), never a Tab stop of its own */}
+          <h1 className="sr-only" tabIndex={-1}>scope console</h1>
           {/* The rail is taller than any laptop window and always was: at
               1440x900 it wants 956px of a 768px column, 1200 in jukebox
               mode. It scrolled, silently — macOS ships overlay scrollbars,
@@ -3610,6 +3841,11 @@ export default function App() {
                   <div><dt>//key_</dt><dd>{track.musicalKey.toLowerCase()}</dd></div>
                 )}
                 {track.genre && <div><dt>//genre_</dt><dd>{track.genre.toLowerCase()}</dd></div>}
+                {/* the operation, as a reading: what this track was taken
+                    apart from. It used to be " · split" on the title. */}
+                {source === 'stems' && splitFrom && (
+                  <div><dt>//source_</dt><dd>split · {splitFrom}</dd></div>
+                )}
                 {/* The row is gated on the ARTIST, not on the link. Gating
                     it on the link meant every track without one had no
                     //artist_ row at all -- and the one that mattered was
@@ -3723,8 +3959,10 @@ export default function App() {
                   pitch; the row closes up to two cells rather than leave one
                   showing the line colour */}
               <div className={`transport${source === 'tube' || source === 'aj' ? ' no-pitch' : ''}${source === 'aj' ? ' two' : ''}`}>
-                {source !== 'aj' && <button className="t-btn" onClick={togglePlay}>{playLabel}</button>}
-                <button className="t-btn" onClick={skipTrack}>{skipLabel}</button>
+                {/* t-play / t-skip: the phone sheet hides these two, since
+                    the docked mini deck under it already holds them */}
+                {source !== 'aj' && <button className="t-btn t-play" onClick={togglePlay}>{playLabel}</button>}
+                <button className="t-btn t-skip" onClick={skipTrack}>{skipLabel}</button>
                 <button
                   className={`t-btn t-mute${muted ? ' on' : ''}`}
                   aria-pressed={muted}
@@ -3748,7 +3986,7 @@ export default function App() {
                 {/* the same trim as 04 · visuals: one ruler vocabulary for
                     every continuous control on the plate */}
                 <Trim
-                  className="t-trim"
+                  className="t-trim t-vol"
                   cap="vol"
                   label="volume"
                   v={volume}
@@ -4029,7 +4267,9 @@ export default function App() {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="set your vibe · or name an artist…"
+                  // the phone's field is ~285px of 16px type (styles.css: no
+                  // iOS zoom); the long prompt was cut mid-word there
+                  placeholder={narrow ? 'vibe or artist…' : 'set your vibe · or name an artist…'}
                   aria-label="set your vibe"
                   autoComplete="off"
                   spellCheck={false}
@@ -4081,7 +4321,7 @@ export default function App() {
             </p>
           )}
           {!layerUi && (
-            <p className="cn-hint">pull the star apart<span className="kbd-only"> (or press d)</span> to mix its rings</p>
+            <p className="cn-hint">drag the axis up<span className="kbd-only"> (or press d)</span> to open the star into its rings</p>
           )}
           <div ref={layersFoldRef} className={`railfold${layerUi ? ' open' : ''}`}>
             <div className="layers rail-sec" style={{ '--i': 4 } as React.CSSProperties}>
@@ -4157,9 +4397,26 @@ export default function App() {
                   {...DIALS[k]}
                   v={tuning[k]}
                   onChange={(f) => setTuning((t) => ({ ...t, [k]: f(t[k]) }))}
+                  onSay={(on) => setDialHeard((h) => (on ? k : h === k ? null : h))}
                 />
               ))}
             </div>
+            {/* THE DIALS SAY WHAT THEY DO. TURB, EXPO and SPIN were four-
+                letter caps with nothing behind them, while INK and REG had
+                plain-word labels. This row reads the dial under the hand
+                or the focus in the sheet's //label_ voice, and at rest
+                says what the whole module is for. One row, always there,
+                so hovering never moves the column. */}
+            {(() => {
+              const [k, v] = dialHeard && visualDials(theme).includes(dialHeard)
+                ? dialSay(dialHeard)
+                : ['visuals', 'shape the star, not the sound']
+              return (
+                <p className="dial-say" aria-hidden="true">
+                  <span className="k">//{k}_</span> <span className="v">{v}</span>
+                </p>
+              )
+            })()}
             {/* the ground, and the one thing you take away from a session */}
             <div className="pl-row"><span className="k">//ground_</span><span className="v">{theme}</span></div>
             {/* one tab stop; the arrows move the selection (APG radiogroup) */}
@@ -4206,10 +4463,27 @@ export default function App() {
               <span ref={sectRef} className="chip" />
             </div>
             {source !== 'stems' && (
-              <span className="stemhint">have stems? drop them together (vocals·drums·bass). split any track locally with stemdeck</span>
+              <span className="stemhint">have stems? drop them here, together (vocals · drums · bass)</span>
             )}
           </div>
           </div>
+
+          {/* THE FOLD, SAID OUT LOUD. The stack is ~1000px in a ~630px
+              window at 1440x900, and the only sign of the rest was a dim
+              1px keyline on the dock's seam. This row names the modules
+              still below the fold and takes you to the next one; at the
+              end it is the way back up. Desk only: the phone sheet and the
+              landscape rail scroll as one column with no dock to sit on,
+              and styles.css hides it there. */}
+          <button
+            ref={railMoreRef}
+            type="button"
+            className="rail-more"
+            onClick={() => railMoreGoRef.current?.()}
+          >
+            <span className="k">//more_</span>
+            <span ref={railMoreTextRef} className="v" />
+          </button>
 
           {/* THE DOCK — the measured half, pinned. Two live readings that
               were below the fold on every laptop: the analyser's own 24
@@ -4400,13 +4674,14 @@ const MORSE = (() => {
 
 /** scope's actual graph, in order (src/audio/graph.ts). */
 const PATH: { ix: string; n: string; d: string; i: string; sub?: boolean }[] = [
-  { ix: '01', n: 'src', d: 'radio · file · tab', i: 'what you feed it: radio, a file, or your own music playing in another tab' },
-  { ix: '02', n: 'eq', d: '3 shelves', i: 'three shelves, the ones the orb bends when you grab it' },
+  // each `i` fits the caption's fixed two lines in the 320px column
+  { ix: '01', n: 'src', d: 'radio · file · tab', i: 'what you feed it: radio, a file, or music playing in another tab' },
+  { ix: '02', n: 'eq', d: '3 shelves', i: 'three shelves: the ones the star bends when you grab it' },
   { ix: '03', n: 'tiers', d: '6 peaking', i: 'six peaking filters, one per dissection ring' },
   { ix: '04', n: 'filter', d: 'hp / lp', i: 'the colour sweep: high-pass left, low-pass right' },
   { ix: '05', n: 'echo', d: 'parallel loop', i: 'a tempo-locked delay with feedback, sent in parallel' },
   { ix: '06', n: 'analyser', d: '24 bands', i: '24 log bands: everything the star sees' },
-  { ix: '', n: 'star', d: 'visuals tap here', sub: true, i: 'the visuals read the analyser, not the output: mute keeps the star dancing' },
+  { ix: '', n: 'star', d: 'analyser tap', sub: true, i: 'the star reads the analyser, not the output: mute leaves it dancing' },
   { ix: '07', n: 'out', d: 'master gain', i: 'master gain, and the node that mute silences' },
 ]
 
@@ -4560,10 +4835,13 @@ function Dial({
   home = 1,
   n = 36,
   isMajor = (i: number) => (i + 5) % 10 === 0,
+  onSay,
 }: {
   v: number
   cap: string
   label?: string
+  /** hover or focus on (true) and off (false): what the //label_ row reads */
+  onSay?: (on: boolean) => void
   /** takes an updater, so held arrow keys accumulate instead of racing renders */
   onChange: (next: (prev: number) => number) => void
   min?: number
@@ -4587,6 +4865,7 @@ function Dial({
       isMajor={isMajor}
       fmt={(x) => String(Math.round(x * 100))}
       onChange={onChange}
+      onSay={onSay}
     />
   )
 }
@@ -4597,15 +4876,24 @@ function Dial({
  *  and register (how far the yellow plate has slipped off the black). */
 type DialKey = 'turb' | 'expo' | 'spin' | 'ink' | 'reg'
 const DIALS: Record<DialKey, { cap: string; label?: string; min?: number; max?: number; home?: number; n?: number; isMajor?: (i: number) => boolean }> = {
-  turb: { cap: 'turb' },
-  expo: { cap: 'expo' },
-  spin: { cap: 'spin' },
+  // Every dial's label is `name (meaning)`, the shape ink and reg were
+  // already in: the screen reader hears it whole, and the //label_ row
+  // under the visuals dials splits it into its two halves (dialSay).
+  turb: { cap: 'turb', label: 'turbulence (how wild the field moves)' },
+  expo: { cap: 'expo', label: 'exposure (how bright the star burns)' },
+  spin: { cap: 'spin', label: 'spin (how fast it turns)' },
   ink: { cap: 'ink', label: 'ink (how heavily the star prints)' },
   // 0..1 on the trims' own ruler: 0 / 25 / 50 / 75 / 100, home at 0
   reg: { cap: 'reg', label: 'register (slips the yellow plate off the black)', min: 0, max: 1, home: 0, n: 41, isMajor: (i) => i % 10 === 0 },
 }
 const visualDials = (theme: 'ink' | 'paper'): DialKey[] =>
   theme === 'paper' ? ['ink', 'reg', 'spin'] : ['turb', 'expo', 'spin']
+/** A dial's label in its two halves, for the //label_ row: the name, and
+ *  what it does in plain words. */
+const dialSay = (k: DialKey): [string, string] => {
+  const m = /^(.*?) \((.*)\)$/.exec(DIALS[k].label ?? '')
+  return m ? [m[1], m[2]] : [DIALS[k].cap, '']
+}
 
 /** a tick every 2.5% of travel, a long one every quarter: 0..1 reads
  *  0 / 25 / 50 / 75 / 100 and 0.5..1.5 reads 50 / 75 / 100 / 125 / 150 */
@@ -4614,8 +4902,10 @@ const TRIM_MAJOR = (i: number) => i % 10 === 0
 
 function Trim({
   v, cap, label, min, max, step, home, armed, fmt, onChange, className = '',
-  n = TRIM_N, isMajor = TRIM_MAJOR, bare = false, disabled = false,
+  n = TRIM_N, isMajor = TRIM_MAJOR, bare = false, disabled = false, onSay,
 }: {
+  /** hover or focus arrived (true) or left (false) */
+  onSay?: (on: boolean) => void
   /** ruler only: for a row that already names and reads the value */
   bare?: boolean
   /** dead, not hidden: the row still shows where the value sits */
@@ -4640,14 +4930,50 @@ function Trim({
 }) {
   const track = useRef<SVGSVGElement>(null)
   const held = useRef(false)
+  /** A FINGER HAS TO SAY WHICH WAY IT IS GOING. A mouse press is always
+   *  aimed at the ruler, so it sets the value where it lands; a finger
+   *  landing on a dial in the phone sheet is as often the start of a
+   *  scroll, and the press-to-set fired before the swipe could say so --
+   *  measured: one upward swipe across EXPO took it 100 -> 110 and the
+   *  sheet never moved. So a touch only arms: a horizontal move takes the
+   *  dial (and the CSS's `touch-action: pan-y` has already left vertical
+   *  to the browser), a vertical one is abandoned to the scroll, and a
+   *  tap that never moved sets the value where it landed on release. */
+  const touch = useRef<{ x: number; y: number; dir: 'x' | 'y' | null } | null>(null)
   const clamp = (n: number) => Math.max(min, Math.min(max, n))
   const snap = (n: number) => clamp(Number((Math.round(n / step) * step).toFixed(4)))
   const nudge = (d: number) => onChange((p) => snap(p + d))
+  // ONE FRAME BEHIND THE HAND, measured: 30ms from pointer to paint where
+  // a plain range input takes 12.9. Two costs, both per move. The ruler's
+  // rect was re-read on every pointermove, a forced layout in the middle
+  // of a frame that had just written the rail's readings; it is read ONCE
+  // per press now (the ruler does not move under a held pointer). And the
+  // needle waited for the App to re-render, which for a continuous event
+  // React schedules after the frame; the ruler is painted here, straight
+  // into the SVG, and the render that follows writes the same values.
+  const rect = useRef<DOMRect | null>(null)
+  const grab = () => { rect.current = track.current?.getBoundingClientRect() ?? null }
+  const read = useRef<HTMLElement>(null)
+  const paint = (n: number) => {
+    const svg = track.current
+    if (!svg) return
+    const lines = svg.querySelectorAll('line')
+    lines.forEach((l) => {
+      if (l.classList.contains('trim-needle')) {
+        l.setAttribute('x1', String(x(n)))
+        l.setAttribute('x2', String(x(n)))
+      } else if (!l.classList.contains('trim-home')) {
+        l.classList.toggle('lit', Number(l.dataset.t) <= n + 1e-6)
+      }
+    })
+    if (read.current) read.current.textContent = fmt(n)
+  }
   const setAt = (clientX: number) => {
-    const r = track.current?.getBoundingClientRect()
+    const r = rect.current ?? track.current?.getBoundingClientRect()
     if (!r || r.width <= 0) return
     const f = Math.max(0, Math.min(1, (clientX - r.left) / r.width))
     const next = snap(min + f * (max - min))
+    paint(next)
     onChange(() => next)
   }
   const x = (n: number) => ((n - min) / (max - min)) * 200
@@ -4663,17 +4989,47 @@ function Trim({
       aria-valuemax={max}
       aria-valuenow={Number(v.toFixed(2))}
       aria-valuetext={`${cap} ${fmt(v)}`}
+      onPointerEnter={onSay && (() => onSay(true))}
+      onPointerLeave={onSay && (() => { if (document.activeElement !== track.current?.parentElement) onSay(false) })}
+      onFocus={onSay && (() => onSay(true))}
+      onBlur={onSay && (() => onSay(false))}
       onPointerDown={(e) => {
         if (disabled) return
+        if (e.pointerType === 'touch') {
+          touch.current = { x: e.clientX, y: e.clientY, dir: null }
+          return
+        }
         e.currentTarget.setPointerCapture(e.pointerId)
         held.current = true
+        grab()
         setAt(e.clientX)
       }}
-      onPointerMove={(e) => { if (held.current) setAt(e.clientX) }}
-      onPointerUp={(e) => {
-        held.current = false
-        e.currentTarget.releasePointerCapture(e.pointerId)
+      onPointerMove={(e) => {
+        const t = touch.current
+        if (t && !t.dir) {
+          const dx = Math.abs(e.clientX - t.x)
+          const dy = Math.abs(e.clientY - t.y)
+          // 8px: the --gap-related step, past a fingertip's own wobble
+          if (Math.max(dx, dy) < 8) return
+          t.dir = dx > dy ? 'x' : 'y'
+          if (t.dir === 'x') {
+            e.currentTarget.setPointerCapture(e.pointerId)
+            held.current = true
+            grab()
+          }
+        }
+        if (held.current) setAt(e.clientX)
       }}
+      onPointerUp={(e) => {
+        const t = touch.current
+        touch.current = null
+        if (t && !t.dir && !disabled) setAt(t.x)
+        held.current = false
+        rect.current = null
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+      }}
+      // the browser took the gesture for a scroll: nothing was set, nothing is held
+      onPointerCancel={() => { touch.current = null; held.current = false; rect.current = null }}
       onDoubleClick={() => { if (home !== undefined && !disabled) onChange(() => home) }}
       onKeyDown={(e) => {
         if (disabled) return
@@ -4693,6 +5049,7 @@ function Trim({
             <line
               key={i}
               className={t <= v + 1e-6 ? 'lit' : ''}
+              data-t={t}
               x1={x(t)} x2={x(t)}
               y1={major ? 4 : 9} y2={16}
             />
@@ -4701,7 +5058,7 @@ function Trim({
         {home !== undefined && <line className="trim-home" x1={x(home)} x2={x(home)} y1={0} y2={3} />}
         <line className="trim-needle" x1={x(v)} x2={x(v)} y1={0} y2={16} />
       </svg>
-      {!bare && <b className={armed ? 'armed' : ''}>{fmt(v)}</b>}
+      {!bare && <b ref={read} className={armed ? 'armed' : ''}>{fmt(v)}</b>}
     </div>
   )
 }
@@ -4745,6 +5102,87 @@ const SCAN_W = 96
 let scanCv: HTMLCanvasElement | null = null
 let scanPrev: Float32Array | null = null
 let scanMax = 0.02
+
+/**
+ * TWELVE TIMES A SECOND, FIVE LINES AT A TIME.
+ *
+ * The scan above ran on every frame, and every one was a GPU readback:
+ * drawImage of the WebGL canvas into a CPU-backed 2D canvas copies the
+ * whole frame back to get one line of it. Measured on a laptop, 2.6-5.9ms
+ * a call -- 155-353ms of main thread every second of standby, through the
+ * flight as well.
+ *
+ * So the star is read at PROBE_HZ, straight off the drawing buffer with
+ * readPixels and only the rows wanted: SCAN_ROWS lines through the core,
+ * SCAN_GAP device px apart, each binned to SCAN_W columns and compared with
+ * the same line one probe ago. That is five real readings per probe, and
+ * the frame loop pays them out one per frame -- so the MOTION strip still
+ * gets a fresh, independent sample in every 60Hz slot, as jagged as the
+ * field is, and none of it is held or interpolated. The cost is one small
+ * readback per 83ms instead of a whole frame's every 16.
+ *
+ * Off the GL path (a lost context, a render target left bound, no WebGL2)
+ * it falls back to the single-line drawImage scan, at the same 12Hz.
+ */
+const PROBE_HZ = 12
+const SCAN_ROWS = 5
+const SCAN_GAP = 3
+let probeGl: WebGL2RenderingContext | null | undefined
+let probeBuf: Uint8Array | null = null
+let probePrev: Float32Array | null = null
+function probeStarRows(src: HTMLCanvasElement, scene: Scene, w: number, h: number): number[] {
+  if (probeGl === undefined) {
+    // the scene's own context: getContext returns the existing one (or null
+    // if the canvas holds some other kind, which sends us to the fallback)
+    try { probeGl = src.getContext('webgl2') } catch { probeGl = null }
+  }
+  const gl = probeGl
+  if (!gl || gl.isContextLost() || gl.getParameter(gl.READ_FRAMEBUFFER_BINDING) !== null || w <= 0 || h <= 0) {
+    return [probeStar(src, scene, w, h)]
+  }
+  const f = scene.focusNow
+  const r = 0.88 * (h / 2) * (scene.zoomLevel / f.d)
+  const dpr = src.width / w
+  const x0 = Math.max(0, Math.round((f.x * w - r * 0.8) * dpr))
+  const x1 = Math.min(src.width, Math.round((f.x * w + r * 0.8) * dpr))
+  const span = (SCAN_ROWS - 1) * SCAN_GAP + 1
+  // the block is centred on the core line; GL counts rows from the bottom
+  const yTop = Math.round(f.y * h * dpr) - Math.floor(span / 2)
+  const glY = src.height - yTop - span
+  const W = x1 - x0
+  if (W < SCAN_W || glY < 0 || glY + span > src.height) return [probeStar(src, scene, w, h)]
+  const need = W * span * 4
+  if (!probeBuf || probeBuf.length < need) probeBuf = new Uint8Array(need)
+  gl.readPixels(x0, glY, W, span, gl.RGBA, gl.UNSIGNED_BYTE, probeBuf)
+  const cur = new Float32Array(SCAN_ROWS * SCAN_W)
+  for (let k = 0; k < SCAN_ROWS; k++) {
+    // row k from the top is GL row (span - 1 - k * SCAN_GAP) of the block
+    const row = (span - 1 - k * SCAN_GAP) * W * 4
+    for (let i = 0; i < SCAN_W; i++) {
+      const a = Math.floor((i * W) / SCAN_W)
+      const z = Math.max(a + 1, Math.floor(((i + 1) * W) / SCAN_W))
+      let s = 0
+      for (let p = a; p < z; p++) {
+        const o = row + p * 4
+        s += probeBuf[o] + probeBuf[o + 1] + probeBuf[o + 2]
+      }
+      cur[k * SCAN_W + i] = s / (765 * (z - a))
+    }
+  }
+  const prev = probePrev && probePrev.length === cur.length ? probePrev : null
+  probePrev = cur
+  const out: number[] = []
+  for (let k = 0; k < SCAN_ROWS; k++) {
+    let diff = 0
+    if (prev) for (let i = 0; i < SCAN_W; i++) diff += Math.abs(cur[k * SCAN_W + i] - prev[k * SCAN_W + i])
+    const v = diff / SCAN_W
+    // the same ~8s ceiling as the per-frame scan: one decay step per value
+    scanMax = Math.max(v, scanMax * 0.998, 0.004)
+    out.push(Math.min(1, v / scanMax))
+  }
+  return out
+}
+
 function probeStar(src: HTMLCanvasElement, scene: Scene, w: number, h: number): number {
   if (!scanCv) {
     scanCv = document.createElement('canvas')
@@ -4793,11 +5231,33 @@ const MOTION_SECONDS = 8
  *   · the write head is the only accent: the pen at the value just written,
  *     and its hairline down the drum
  */
+/** The strip's CSS size, kept by a ResizeObserver. Reading clientWidth and
+ *  clientHeight in the draw was a forced layout every frame of standby: the
+ *  frame had already written //peak_ and the beat type, so each read made
+ *  the browser lay the page out mid-frame just to report a size that only
+ *  changes when the window does. */
+const stripSize = new WeakMap<HTMLCanvasElement, { w: number; h: number }>()
+const stripRo = typeof ResizeObserver !== 'undefined'
+  ? new ResizeObserver((es) => {
+      for (const e of es) {
+        const b = e.contentBoxSize?.[0]
+        stripSize.set(e.target as HTMLCanvasElement, b
+          ? { w: Math.round(b.inlineSize), h: Math.round(b.blockSize) }
+          : { w: Math.round(e.contentRect.width), h: Math.round(e.contentRect.height) })
+      }
+    })
+  : null
 function drawMotionStrip(cv: HTMLCanvasElement | null, hist: Float32Array, head: number) {
   if (!cv) return
   const g = cv.getContext('2d')
-  const w = cv.clientWidth
-  const h = cv.clientHeight
+  let size = stripSize.get(cv)
+  if (!size) {
+    // first sight of this canvas: one measured read, then the observer owns it
+    size = { w: cv.clientWidth, h: cv.clientHeight }
+    stripSize.set(cv, size)
+    stripRo?.observe(cv)
+  }
+  const { w, h } = size
   if (!g || w < 2 || h < 2) return
   const d = Math.min(2, window.devicePixelRatio || 1)
   if (cv.width !== w * d || cv.height !== h * d) {
@@ -5011,6 +5471,23 @@ const SURVEY_FONT = '11px "Departure Mono", ui-monospace, monospace'
  * master compass at the base of the stack. All alpha rides the shear, so
  * the drawing assembles as the star comes apart.
  */
+/** The console's stage cell in viewport px, for clamping the axis to it.
+ *  Read at most every 250ms, never per frame: drawSurvey runs inside the
+ *  frame loop after it has written text into the rail, so a fresh rect
+ *  every frame would be a forced layout every frame while the axis shows.
+ *  A quarter second is shorter than any re-layout the hand can cause. */
+let stageCellAt = -1e9
+let stageCellRect: DOMRect | null = null
+function stageCell(): DOMRect | null {
+  const now = performance.now()
+  if (now - stageCellAt > 250) {
+    stageCellAt = now
+    const r = document.querySelector('.cn-stage')?.getBoundingClientRect()
+    stageCellRect = r && r.width > 0 && r.height > 0 ? r : null
+  }
+  return stageCellRect
+}
+
 function drawSurvey(
   cv: HTMLCanvasElement | null,
   scene: Scene,
@@ -5035,8 +5512,33 @@ function drawSurvey(
   // reads as part of the object, not a cursor decoration.
   if (seam && dis < 0.5) {
     const sa = 0.55 * (1 - dis * 2)
-    const t = scene.projectLocal(0, 0.78, 0)
-    const b = scene.projectLocal(0, -0.78, 0)
+    let t = scene.projectLocal(0, 0.78, 0)
+    let b = scene.projectLocal(0, -0.78, 0)
+    // KEPT INSIDE THE STAGE CELL. The axis is projected from the star, and
+    // the star is bigger than its cell in landscape and nearer the header
+    // in portrait, so the arrowheads hung outside the plate and ran across
+    // the title. The segment is cut back along its own line to the stage
+    // rect inset by the bracket margin (24px: 11px inset + 13px arm, the
+    // same clearance the announce takes), less the 13px each head reaches.
+    const cell = stageCell()
+    if (cell) {
+      const m = 24
+      const lo = { x: cell.left + m, y: cell.top + m + 13 }
+      const hi = { x: cell.right - m, y: cell.bottom - m - 13 }
+      let s0 = 0
+      let s1 = 1
+      for (const [p0, d, a, z] of [[t.x, b.x - t.x, lo.x, hi.x], [t.y, b.y - t.y, lo.y, hi.y]]) {
+        if (Math.abs(d) < 1e-6) continue
+        const u = (a - p0) / d
+        const v = (z - p0) / d
+        s0 = Math.max(s0, Math.min(u, v))
+        s1 = Math.min(s1, Math.max(u, v))
+      }
+      if (s1 > s0) {
+        const at = (s: number) => ({ x: t.x + (b.x - t.x) * s, y: t.y + (b.y - t.y) * s })
+        ;[t, b] = [at(s0), at(s1)]
+      }
+    }
     g.strokeStyle = `rgba(${INK_RGB},${sa})`
     g.lineWidth = 1
     g.setLineDash([3, 6])
@@ -5427,8 +5929,26 @@ function cropStar(out: HTMLCanvasElement, src: HTMLCanvasElement, scene: Scene):
     sx = Math.max(0, Math.min(SW - side, cx - side / 2))
     sy = Math.max(0, Math.min(SH - side, cy - side / 2))
   }
+  // ON PAPER THE CROP IS COPIED, NOT RESAMPLED. The frame is a print --
+  // sheet, black plate, yellow plate, no fourth colour -- and squeezing an
+  // 1100-1700px square into 1080 with smoothing on averaged specks into
+  // grey and tint dots into olive before the poster ever saw them. So the
+  // square is snapped to whole source pixels and copied 1:1 into a canvas
+  // of its own size; the poster then takes it down to its cell by copying
+  // one source pixel per poster pixel (poster.ts drawContain / pick), the
+  // one reduction in the chain and one that never mixes a colour.
+  // The ink ground's glow keeps the smooth 1080 square it always had.
+  const crisp = scene.theme === 'paper'
+  if (crisp) {
+    side = Math.round(side)
+    sx = Math.round(sx)
+    sy = Math.round(sy)
+    out.width = side
+    out.height = side
+  }
   const g = out.getContext('2d')
   if (!g) return false
+  g.imageSmoothingEnabled = !crisp
   g.fillStyle = `rgb(${ground.join(',')})`
   g.fillRect(0, 0, out.width, out.height)
   // copy only the part of the square that exists; the rest stays ground,

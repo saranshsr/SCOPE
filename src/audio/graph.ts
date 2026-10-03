@@ -231,6 +231,20 @@ export class AudioEngine {
     this.index = 0
   }
 
+  /** Buffer the first radio track while the visitor is still on standby,
+   *  so the flight lands on sound. Measured before this: POWER ON to the
+   *  first 'playing' took 2.3-8.6 s on Audius streams (three runs never
+   *  sounded inside 9 s) against a 1.9 s flight. Setting src starts the
+   *  fetch without playing anything, which needs no gesture. Skipped under
+   *  data saver: a visitor who never powers on should not pay for a track. */
+  prime() {
+    if (this.kind !== 'radio') return
+    const nav = navigator as Navigator & { connection?: { saveData?: boolean } }
+    if (nav.connection?.saveData) return
+    const t = this.playlist[this.index]
+    if (t && !this.el.src.endsWith(t.src)) this.el.src = t.src
+  }
+
   get current(): TrackInfo | null {
     return this.kind === 'radio' ? this.playlist[this.index] ?? null : null
   }
@@ -535,13 +549,22 @@ export class AudioEngine {
 
   /** Enter stem-deck mode: the element and any captured tab stand down; the deck owns
    *  playback and announces itself through the usual channel. */
-  enterStems(title: string) {
+  enterStems(title: string, artist = '') {
     this.el.pause()
     this.stopExt()
     this.stopTabAudio()
     this.pendingAnnounce = null
     this.kind = 'stems'
-    this.onTrackChange?.({ title, artist: '', src: '' })
+    // a split track is still somebody's track: the credit travels with it
+    this.onTrackChange?.({ title, artist, src: '' })
+  }
+
+  /** A split of a radio track has played out: the station carries on with
+   *  the NEXT track, the way radio does at any track's end. */
+  async radioAfterStems() {
+    if (this.kind !== 'stems' || !this.playlist.length) return
+    this.kind = 'radio'
+    await this.next()
   }
 
   /** Performance EQ, momentary by design: the app springs it back. dB in

@@ -63,14 +63,20 @@ export function Decode({
   // title) every rAF frame was a text mutation, so a screen reader heard
   // 35-39 strings of `:=+xX#` per track change. The scramble is hidden from
   // it; the words sit beside it, visually hidden, changing once per text.
-  // Everywhere else one face: a control's name is read on focus, not
-  // streamed, and its textContent stays the plain word.
+  // Everywhere else one face AT REST: a control's name is read on focus, not
+  // streamed, and its textContent stays the plain word. But not WHILE it
+  // scrambles: a control's accessible name is computed from its text, so
+  // for the 380-520ms of a hover replay POWER ON was named "=X<:= +/" and
+  // a source button something similar -- exactly when a pointer user with
+  // a screen reader is landing on it. While the two differ, the scramble is
+  // the eyes' face only and the word is the name.
+  const scrambling = shown !== text
   return (
     <span
       className={className}
       onPointerEnter={replayOnHover ? () => setNonce((n) => n + 1) : undefined}
     >
-      {live ? (
+      {live || scrambling ? (
         <>
           <span aria-hidden="true">{shown}</span>
           <span className="sr-only">{text}</span>

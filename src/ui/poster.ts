@@ -232,17 +232,104 @@ function drawHeader(ctx: Ctx2D, x0: number, x1: number, y0: number, pal: Palette
 
 
 
+/** CONTAIN, two ways. The ink ground is light on black, a glow: a smooth
+ *  resample is the right filter for it and it keeps one.
+ *
+ *  The paper ground is a PRINT, and a print has no in-between: every pixel
+ *  is the sheet, the black plate or the yellow plate, and nothing else. A
+ *  smoothing resample at ~0.45 averaged a 2px speck into the cream around
+ *  it (grey: measured 21-29k such pixels in a poster whose console had
+ *  ~0) and a tint dot into the black beside it (olive, 10-14k) -- a
+ *  photograph of a print, not the print. So on paper nothing is averaged:
+ *  every poster pixel is a COPY of one source pixel (see pick()), three
+ *  colours in and three out.
+ *
+ *  Why not a plain whole-number step: measured, the crop is 712-727px at
+ *  1x and 1239-1290px at 2x against a 516px cell, so the whole steps on
+ *  offer were 1/2 (356px, the star at 69% of its frame) or 1/3 (413px,
+ *  80%) -- or 1/2 at 2x, which overruns the cell and cut the limb off.
+ *  The copy-one-pixel rule gives the same purity at the cell's own size,
+ *  and when the ratio IS whole it is exactly a whole-step reduction. Above
+ *  1:1 (a small 1x window) it does step by a whole number, so a speck
+ *  grows to a square block, never to a 1-and-2px stutter. */
 function drawContain(
   ctx: Ctx2D,
   src: CanvasImageSource,
   sw: number,
   sh: number,
   rect: { x: number; y: number; w: number; h: number },
+  crisp = false,
 ) {
-  const scale = Math.min(rect.w / sw, rect.h / sh)
-  const dw = sw * scale
-  const dh = sh * scale
-  ctx.drawImage(src, rect.x + (rect.w - dw) / 2, rect.y + (rect.h - dh) / 2, dw, dh)
+  const fit = Math.min(rect.w / sw, rect.h / sh)
+  if (!crisp) {
+    const dw = sw * fit
+    const dh = sh * fit
+    ctx.drawImage(src, rect.x + (rect.w - dw) / 2, rect.y + (rect.h - dh) / 2, dw, dh)
+    return
+  }
+  const scale = fit >= 1 ? Math.floor(fit) : fit
+  const dw = Math.max(1, Math.floor(sw * scale))
+  const dh = Math.max(1, Math.floor(sh * scale))
+  // whole-pixel origin: a half-pixel offset would make the browser filter
+  // the copy again, smoothing off or not
+  const ox = Math.round(rect.x + (rect.w - dw) / 2)
+  const oy = Math.round(rect.y + (rect.h - dh) / 2)
+  ctx.save()
+  ctx.imageSmoothingEnabled = false
+  const down = scale < 1 ? pick(src, sw, sh, dw, dh) : null
+  if (down) ctx.drawImage(down as CanvasImageSource, ox, oy)
+  else ctx.drawImage(src, ox, oy, dw, dh)
+  ctx.restore()
+}
+
+/** A REDUCTION THAT ONLY EVER COPIES. Each output pixel owns a footprint
+ *  of the source (a 2x2 block at a half, a 2.4px square at 0.42) and
+ *  hands down ONE pixel from inside it, untouched: still exactly sheet,
+ *  black or yellow. The pixel is picked by a hash of the output position,
+ *  not the footprint's corner, because the tint plate is a regular 4 css
+ *  px halftone and a fixed corner locks to the screen's phase: measured,
+ *  plain nearest-neighbour printed REG 30 as a 12k px tint on the console
+ *  and 0 px on the poster -- depending on where the slip had put the
+ *  screen it catches every dot or none. A hashed pick is in step with
+ *  nothing, so each plate keeps its coverage on average: a 20% tint stays
+ *  a 20% tint, a speck lands as a 1px speck or, in the share a smaller
+ *  print would lose it, not at all. Deterministic, so the same frame
+ *  always makes the same poster. Null when the source cannot be read back
+ *  (the caller falls back to nearest-neighbour: still pure, only
+ *  phase-locked). */
+function pick(src: CanvasImageSource, sw: number, sh: number, dw: number, dh: number) {
+  const a = makeRasterCanvas(sw, sh)
+  a.ctx.drawImage(src, 0, 0)
+  let px: Uint8ClampedArray
+  try {
+    px = a.ctx.getImageData(0, 0, sw, sh).data
+  } catch {
+    return null
+  }
+  const b = makeRasterCanvas(dw, dh)
+  const out = b.ctx.createImageData(dw, dh)
+  const o = out.data
+  const fx = sw / dw
+  const fy = sh / dh
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      // an integer hash (two odd multipliers, xor-shifted); its low and
+      // high halves place the pick across and down the footprint
+      let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1)
+      h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d)
+      h ^= h >>> 12
+      const sx = Math.min(sw - 1, Math.floor((x + (h & 0xffff) / 65536) * fx))
+      const sy = Math.min(sh - 1, Math.floor((y + ((h >>> 16) & 0xffff) / 65536) * fy))
+      const i = (sy * sw + sx) * 4
+      const j = (y * dw + x) * 4
+      o[j] = px[i]
+      o[j + 1] = px[i + 1]
+      o[j + 2] = px[i + 2]
+      o[j + 3] = 255
+    }
+  }
+  b.ctx.putImageData(out, 0, 0)
+  return b.canvas
 }
 
 /** the crop's corner pixel: the ground the scene printed on, byte for byte */
@@ -270,7 +357,7 @@ function drawImageCell(
   if (sw > 0 && sh > 0) {
     ctx.fillStyle = cropGround(o.star) ?? pal.ground
     ctx.fillRect(inner.x, inner.y, inner.w, inner.h)
-    drawContain(ctx, o.star, sw, sh, { x: inner.x, y: inner.y, w: inner.w, h: inner.h - 40 })
+    drawContain(ctx, o.star, sw, sh, { x: inner.x, y: inner.y, w: inner.w, h: inner.h - 40 }, o.theme === 'paper')
   }
 
   // keyline frame (primitive 10) — the accent dimmed, at most one per view
